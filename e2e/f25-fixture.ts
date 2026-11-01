@@ -3,10 +3,12 @@
 // (and their signup attempts) after; seeded traders are never changed, counted or deleted. Every sell id carries the
 // caller's marker string, so a scan for the marker finds any leak of a vendor activity id.
 import type postgres from 'postgres';
+import { randomInt } from 'node:crypto';
 
 const ALNUM = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-const pick = (set: string, n: number) => Array.from({ length: n }, () => set[Math.floor(Math.random() * set.length)]).join('');
+// Fixture names only (no security use); drawn from node:crypto so the scanner has nothing to flag.
+const pick = (set: string, n: number) => Array.from({ length: n }, () => set[randomInt(set.length)]).join('');
 export const handleOf = (prefix: string) => (prefix + pick(ALNUM, 20)).slice(0, 20);
 // A fictional symbol no seeded trader holds: a Q-led five-letter code.
 export const symbolOf = () => `Q${pick(UPPER, 4)}`;

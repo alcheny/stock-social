@@ -171,7 +171,8 @@ const { TradeCard, Badge } = await import(pathToFileURL(new URL('app/ui.tsx', RO
 
 const row = { id: '1', symbol: 'ACME', return_pct: -0.052, holding_days: 3.4, closed_at: new Date(Date.UTC(2026, 9, 30)), verified: true,
   thesis: null, thesis_status: null, handle: 'link_card', display_name: 'Link Card', user_id: 1, trade_key: KEY };
-const strip = (s: string) => s.replace(/<[^>]*>/g, '');
+// Tags stripped until nothing changes (CodeQL: a single pass can leave a tag formed by what it removed).
+const strip = (s: string) => { let prev: string; do { prev = s; s = s.replace(/<[^>]*>/g, ''); } while (s !== prev); return s; };
 
 test('F-25 TradeCard: .ret holds no link; the footer has "This trade" then the record link; name and symbol links stay', () => {
   const html = renderToStaticMarkup(createElement(TradeCard, { t: row, state: 'connected' }));

@@ -4,7 +4,7 @@
 // and the feed issues the same statements. Every fixture is this file's own (tagged handles), deleted at the end.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import postgres from 'postgres';
@@ -21,7 +21,7 @@ before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readF
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 
 const sha = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
-const tagOf = () => `f25${Math.random().toString(36).slice(2, 9)}`;
+const tagOf = () => `f25${randomBytes(4).toString('hex').slice(0, 7)}`; // fixture tags only
 async function user(handle: string) {
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
   return createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle });
