@@ -92,8 +92,8 @@ changed + removed` and `console.log('sync closes rewritten', id, JSON.stringify(
 (engineer 2: `user` is a forbidden key). Theses stay out of the hash. Load: the `LOAD=1` sync load test measures it.
 Ponytail: no gate (business wants every rebuild; reliability 8's gate is left as the fix if the load test shows cost).
 
-Re-issue line per sync when any state changed: `console.log('sync reissues', id, JSON.stringify({ pending, genuine,
-suspected, optionTwins }))`. docs/SYNC.md carries the owner queries (rewrites, pending, suspected per user).
+Re-issue line per sync when any state changed: `console.log('sync reissues', id, JSON.stringify({ found, cleared,
+pending, suspected, optionTwins }))`. docs/SYNC.md carries the owner queries (rewrites, pending, suspected per user).
 
 ## 5. Visible outcome: none
 
