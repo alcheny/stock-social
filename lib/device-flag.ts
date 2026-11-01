@@ -48,4 +48,7 @@ export function addSeenToken(el: Attrs | null | undefined, token: string): void 
 // The pre-paint script (app/layout.tsx, with the request nonce): sets the tokens before the first paint, so a returning
 // visitor never sees the line or the hint flash. Same try/catch chain as deviceFlags; reads only, writes no storage.
 const KEYS = Object.fromEntries(Object.values(FLAGS).map((f) => [f.key, f.token]));
-export const SEEN_SCRIPT = `(function(){try{var k=${JSON.stringify(KEYS)},t=[];function g(n,x){try{var s=window[n];return s?s.getItem(x):null}catch(e){return null}}for(var x in k){if(g("localStorage",x)!=null||g("sessionStorage",x)!=null)t.push(k[x])}if(t.length)document.documentElement.setAttribute("data-ss-seen",t.join(" "))}catch(e){}})()`;
+// The keys are constants, but the JSON is escaped for an inline <script> anyway (code scanning): no "<", ">", "&" or
+// line separators can end the script element or the string.
+const scriptJson = (v: unknown) => JSON.stringify(v).replace(/[<>&\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+export const SEEN_SCRIPT = `(function(){try{var k=${scriptJson(KEYS)},t=[];function g(n,x){try{var s=window[n];return s?s.getItem(x):null}catch(e){return null}}for(var x in k){if(g("localStorage",x)!=null||g("sessionStorage",x)!=null)t.push(k[x])}if(t.length)document.documentElement.setAttribute("data-ss-seen",t.join(" "))}catch(e){}})()`;

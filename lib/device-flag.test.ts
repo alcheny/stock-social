@@ -103,3 +103,8 @@ test('F-13 SEEN_SCRIPT: never throws with storage blocked or missing', () => {
   assert.equal(runScript({ localStorage: throwing(), sessionStorage: throwing() }), undefined);
   assert.doesNotMatch(SEEN_SCRIPT, /cookie|fetch|XMLHttpRequest|sendBeacon/);
 });
+
+test('F-13 SEEN_SCRIPT: safe to inline in a <script> element (no "<", ">" or "&"; code scanning)', () => {
+  assert.doesNotMatch(SEEN_SCRIPT, /[<>&\u2028\u2029]/);
+  for (const f of Object.values(FLAGS)) assert.ok(SEEN_SCRIPT.includes(JSON.stringify(f.key)), f.key);
+});
