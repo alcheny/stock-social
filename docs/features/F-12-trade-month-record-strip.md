@@ -27,11 +27,16 @@ the stock image, reusing F-10's `RecordStrip`. Approved by the approval council
 - 2026-11-01: An anti-crop band keeps the strip, "losses included" and the disclaimer inside the centred safe area that
   survives a square and a 1.91:1 crop, at the legibility floor. Image alt text carries the same facts. Why: approved by
   the approval council; the red team's crop case.
-- 2026-11-01: The full-record link goes to the profile, not the feed. Why: approved by the approval council (UX lead).
+- 2026-11-01: The record link goes to the profile, not the feed. Its text is "@‹handle›'s record", never "full record" or
+  "whole record". Why: approved by the approval council (UX lead). The wording was corrected after the orchestrator's review
+  of #44: "full record" is a completeness claim that fix #8 removes (POLICY F3a), and F-11 bans it. Idea 16's
+  "full-record link" names the link's target, not its text.
 
 ## Acceptance criteria
 - [ ] Trade and month pages show the shared `RecordStrip` with closed-trade count, average per trade with its range
-      ("Closed trades"), handle, a full-record link to `/u/[handle]`, "losses included" and the F3 disclaimer (e2e).
+      ("Closed trades"), handle, a record link to `/u/[handle]` reading "@‹handle›'s record", "losses included" and the
+      F3 disclaimer (e2e).
+- [ ] No trade or month page, image or alt text contains "full record", "whole record" or "every trade" (string test).
 - [ ] When the trader has open positions, the strip adds the open count (unit test on the helper).
 - [ ] The trade image, the month image and the stock image render the strip and the disclaimer inside the centred
       safe area. An image test crops each to 1:1 and 1.91:1 and finds the strip text, at the legibility floor and at

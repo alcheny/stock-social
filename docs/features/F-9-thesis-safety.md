@@ -56,7 +56,8 @@ creative direction council CR-34..CR-36, approved by the approval council
 - [ ] The author sees "Held for review" and the matched rule as text, not by colour alone. The report control has an
       accessible name, works from the keyboard and confirms in a polite live region (e2e).
 - [ ] Thesis text and reporter ids never appear in logs (test over the logger), and a profile deletion removes that
-      user's reporter ids.
+      user's reporter ids. Removing reports never publishes a thesis: one already auto-held stays held until it is released
+      through the release path, and the deleted user's reports stop counting toward N for later holds (test).
 - [ ] `db/schema.sql` changes are additive and idempotent, with no drop, truncate or delete from.
 - [ ] No new dependency (package.json unchanged), and `node scripts/compliance.ts tree` passes.
 - [ ] The touched surfaces pass a Tab walk and the 320 px / 400% reflow check (POLICY A1).

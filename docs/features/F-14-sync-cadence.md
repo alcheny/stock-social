@@ -13,8 +13,11 @@ second-vote mean 3.80, final vote 15/15).
 - 2026-11-01: Per account, activities are read at most once per 24 hours and positions at most 4 times per day. A
   per-account timestamp is checked before each vendor call and stored in additive columns. Why: approved by the
   approval council; the vendor's polling guidance.
-- 2026-11-01: The first sync after a connection (`/connect/done`) is never throttled, so a new trader sees the record
-  at once. Why: approved by the approval council; the red team's abandonment case.
+- 2026-11-01: The consented import is never throttled: the import that runs after consent through `importStep` in
+  `lib/connections.ts` (F-1's "Importing your record" banner), and the first hourly sync after that import completes.
+  `/connect/done` itself imports nothing (zero-depth validation, F-1), so it isn't the exemption point. Why: approved by
+  the approval council; the red team's abandonment case. Corrected after the orchestrator's review of #44: naming
+  `/connect/done` would have let the import banner stall for 24 h.
 - 2026-11-01: A failed vendor call does not advance the throttle timestamp. A missing or null timestamp means "sync
   now", so a column or clock bug can never freeze records silently. Why: approved by the approval council (reliability).
 - 2026-11-01: The hourly cron, `/connect/done` and the 7-day re-read stay as they are. Only the per-account gate is new.
@@ -31,13 +34,14 @@ second-vote mean 3.80, final vote 15/15).
 ## Acceptance criteria
 - [ ] A test with the vendor fake counts at most 1 activities call and at most 4 positions calls per account per
       24 hours across 24 hourly rounds.
-- [ ] A test shows the first sync after `/connect/done` calls the vendor immediately, whatever the timestamps say.
+- [ ] A test shows the consented import (`importStep`) and the first hourly sync after it complete call the vendor
+      immediately, whatever the throttle timestamps say. The "Importing your record" state never waits on the throttle.
 - [ ] A test shows a failed call leaves the timestamp unchanged, so the next round retries, and that a null timestamp
       syncs.
 - [ ] The 7-day re-read window and the existing sync tests still pass. The total test count does not drop.
 - [ ] `db/schema.sql` changes are additive and idempotent, and `vercel.json` is unchanged.
 - [ ] Logs carry no account ids together with user ids (POLICY P6), and no new log fields hold personal data.
-- [ ] Merges after (or with) F-11.
+- Note (process, not a test): merges after or together with F-11.
 
 ## Out of scope
 - Changing the cron schedule or deploy settings (owner), webhooks, and any F-7 source.

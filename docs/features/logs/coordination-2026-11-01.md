@@ -34,7 +34,7 @@ To save tokens, the orchestrator archives a session as soon as its work is compl
 delivered and checked with nothing left for it. A session never schedules its own recurring check-ins; once its PR
 is open and green and it has reported, it stops and waits for review findings or the merge.
 
-New features approved by the approval council (`team/approval-council.md`, at most three per cycle) join this map
+New features approved by the approval council (`team/approval-council.md`, at most six per cycle) join this map
 with their owned files and merge position before their build session starts.
 
 ## Approval council 2026-11-01: approved features (F-9 to F-14)
