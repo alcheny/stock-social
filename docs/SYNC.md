@@ -81,6 +81,16 @@ hourly, but each account is read within the vendor's guidance (`lib/sync-cadence
 - **The accepted exception to "≤ 1 activities read per 24 h"** (committee G2): when a sync keeps rolling back after its
   read, the 6 h floor allows a retry, so up to 4 activities reads a day for that account. Committed syncs read once a
   day.
+- **Options (#62) under the cadence:**
+  - Option rows come in with each due account's activities read, through the same calls.
+  - An account still owed its one-time option backfill (connections made before #62) reads its next history page *as*
+    its daily activities read (same endpoint, same cap). A history of k pages takes about k days to backfill.
+  - During a backfill, the account's recent week is unread. So its positions take the positions-only rule (never
+    removed), and `last_synced_at` keeps its previous value until the backfill finishes.
+  - Open option positions follow the share rule. A positions-only read adds and updates them and never removes one;
+    the read that imports their close replaces them.
+  - The open option counts are kept per account (`users.open_options_by_account`), so reading one account replaces
+    only its part of the user's totals.
 - **A sync cut at the route's end** (the route-end guard) leaves no marks, so the next call reads at once.
 - **The account list** is still read every round (TR-5, the claim): 1 request. Whether it may be throttled is a vendor
   question for the owner.

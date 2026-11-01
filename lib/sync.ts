@@ -411,6 +411,8 @@ export async function syncUser(
       const sink = (rows: (OptionRow & { raw: unknown })[]) => { options.push(...rows); };
       // OPTIONS × F-14: "the whole history was read" holds only when every real account was (a gated account waits).
       const allRead = actIds.length === real.length;
+      // Accounts that read a backfill history page this sync in place of their week (their recent sells are not read).
+      let pagedIds: string[] = [];
       let read = 0;
       if (!last && broker.fetchActivitiesPage) {
         // No stored history (a pre-F-1 record): the whole history, one vendor page per insert, never held at once.
@@ -426,6 +428,8 @@ export async function syncUser(
           }
         }
         if (allRead) await markBackfilled(tx, user.id); // OPTIONS: the whole history was read with the option types
+        // OPTIONS × F-14 (review nit): a gated account waits, but those read in full owe no backfill (cursor -1).
+        else if (actIds.length) await saveBackfill(tx, user.id, real, new Map(actIds.map((id) => [id, -1])));
       } else {
         // The hourly case: the last week before the newest stored activity (bounded by a week of trading, not the history).
         const since = last ? new Date(last.getTime() - BACKFILL_MS) : new Date('2000-01-01');
@@ -435,6 +439,7 @@ export async function syncUser(
         // k days to backfill its options — the vendor's written answer (MR-1) on history pages would let them go hourly.
         const backfill = broker.fetchActivitiesPage ? await pendingBackfill(tx, user.id) : new Map<string, number>();
         const paged = actIds.filter((id) => backfill.has(id));
+        pagedIds = paged;
         const windowed = actIds.filter((id) => !backfill.has(id));
         if (opts.cadence) {
           // F-14 (code review): one call per account, each recorded as it returns, so a failure on a later account
@@ -494,7 +499,9 @@ export async function syncUser(
           // (Through lib/positions.ts: lib/reflections.test.ts allows no delete in this file but closed_trades'.)
           const gone = (await tx`select distinct account_id from open_positions where user_id = ${user.id} ${real.length ? tx`and account_id not in ${tx(real)}` : tx``}`).map((x) => x.account_id as string);
           await replaceAccountPositions(tx, user.id, gone, []);
-          const withActs = new Set(actIds);
+          // F-14 × OPTIONS (review B2): a backfill page is not this account's recent activities, so its sells may be
+          // unread for days: its positions take the positions-only rule (never removed), not the combined one.
+          const withActs = new Set(actIds.filter((id) => !pagedIds.includes(id)));
           for (const id of posIds) {
             const rows = (await broker.fetchPositions(bu, id, (s) => { splits.set(id, s); })).map((p) => ({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct }));
             readPos.push(id);
@@ -509,9 +516,10 @@ export async function syncUser(
                 on conflict (user_id, account_id, symbol) do update set unrealized_pct = excluded.unrealized_pct, fetched_at = now()`;
             }
           }
-          // OPTIONS × F-14: the option positions of the accounts read now are replaced, and those of accounts no longer
-          // real dropped; the others (not due) stay as last read, their counts with them (lib/options-sync.ts).
-          await replaceAccountOptionPositions(tx, user.id, real, posIds, splits);
+          // OPTIONS × F-14: option positions follow the share rule (review B1, TR-4). Accounts read with their recent
+          // activities are replaced; positions-only reads add and update, never remove; accounts no longer real are
+          // dropped; the others (not due) stay as last read, their counts with them (lib/options-sync.ts).
+          await replaceAccountOptionPositions(tx, user.id, real, posIds.filter((id) => withActs.has(id)), posIds.filter((id) => !withActs.has(id)), splits);
         }
       }
       if (opts.cadence) {
@@ -524,7 +532,11 @@ export async function syncUser(
         // F-14 (orchestrator review): `last_synced_at` (F-11's "Updated …") is the oldest real account's last activities
         // read, never "now" after a rebuild that only an account-set change or a partial read triggered. While any real
         // account has never been read, the previous value stands.
-        if (rebuilt) {
+        // OPTIONS × F-14 (review nit): while any real account is mid-backfill its recent week is unread, so the value
+        // stands too.
+        const midBackfill = broker.fetchActivitiesPage ? [...(await pendingBackfill(tx, user.id)).keys()].some((id) => real.includes(id)) : false;
+        if (rebuilt && midBackfill) await tx`update users set last_synced_at = ${prev} where id = ${user.id}`;
+        else if (rebuilt) {
           await tx`update users set last_synced_at = coalesce((select case when bool_or(activities_read_at is null) then null else min(activities_read_at) end
               from broker_accounts where user_id = ${user.id} and account_id in ${tx(real.length ? real : [''])}), ${prev})
             where id = ${user.id}`;

@@ -20,8 +20,9 @@ dbTest('positions read per account: the open option totals stay the sum over acc
   const tag = `oc${Math.random().toString(36).slice(2, 10)}`;
   const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}u` });
   const A = `${tag}-a`, B = `${tag}-b`;
+  // Reads with activities (replace); review B1's positions-only rule has its own test below.
   const write = (real: string[], read: string[], splits: [string, { options: ReturnType<typeof opt>[]; short: number; unsupported: number; optionOther?: number }][]) =>
-    sql.begin((tx) => replaceAccountOptionPositions(tx, u.id, real, read, new Map(splits)));
+    sql.begin((tx) => replaceAccountOptionPositions(tx, u.id, real, read, [], new Map(splits)));
   const state = async () => {
     const [r] = await sql`select open_options_short as short, open_unsupported as unsupported, open_options_other as other,
       (select coalesce(string_agg(account_id || '/' || position_key, ',' order by account_id, position_key), '') from open_option_positions where user_id = ${u.id}) as rows
@@ -32,7 +33,7 @@ dbTest('positions read per account: the open option totals stay the sum over acc
     // The first cadence sync reads every account: the user-wide replace starts the per-account counts.
     await write([A, B], [A, B], [[A, { options: [opt('a1')], short: 2, unsupported: 1, optionOther: 1 }], [B, { options: [opt('b1')], short: 3, unsupported: 0 }]]);
     assert.deepEqual(await state(), { short: 5, unsupported: 1, other: 1, rows: `${A}/a1,${B}/b1` });
-    // Ten positions-only rounds of A alone, same holdings: nothing grows, B's row and counts stay.
+    // Ten rounds reading A alone, same holdings: nothing grows, B's row and counts stay.
     for (let i = 0; i < 10; i++) await write([A, B], [A], [[A, { options: [opt('a1')], short: 2, unsupported: 1, optionOther: 1 }]]);
     assert.deepEqual(await state(), { short: 5, unsupported: 1, other: 1, rows: `${A}/a1,${B}/b1` });
     // A's holdings change (one short closed, a new long): only A's part moves.
@@ -63,9 +64,9 @@ dbTest('a record whose per-account counts were never started keeps its totals un
   const A = `${tag}-a`, B = `${tag}-b`;
   try {
     await sql`update users set open_options_short = 7, open_options_by_account = null where id = ${u.id}`;
-    await sql.begin((tx) => replaceAccountOptionPositions(tx, u.id, [A, B], [A], new Map([[A, { options: [], short: 1, unsupported: 0 }]])));
+    await sql.begin((tx) => replaceAccountOptionPositions(tx, u.id, [A, B], [A], [], new Map([[A, { options: [], short: 1, unsupported: 0 }]])));
     assert.equal((await sql`select open_options_short as n from users where id = ${u.id}`)[0].n, 7, 'never added to, never guessed');
-    await sql.begin((tx) => replaceAccountOptionPositions(tx, u.id, [A, B], [A, B], new Map([[A, { options: [], short: 1, unsupported: 0 }]])));
+    await sql.begin((tx) => replaceAccountOptionPositions(tx, u.id, [A, B], [A, B], [], new Map([[A, { options: [], short: 1, unsupported: 0 }]])));
     assert.equal((await sql`select open_options_short as n from users where id = ${u.id}`)[0].n, 1);
   } finally {
     await sql`delete from users where id = ${u.id}`;
