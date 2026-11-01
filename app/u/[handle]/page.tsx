@@ -117,6 +117,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const base = profileDescription({ state, demo, verified, trades: s.trades, stats: statsText });
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
+    // F-15 second half: one untagged address, so a shared ?via= copy is never indexed as its own page.
+    alternates: { canonical: `/u/${user.handle}` },
     // POLICY F3: a preview text that quotes a figure also carries the disclaimer (text-only previews show no image).
     // F-6: the open positions follow the closed-trade figures in F-6's wording (cardDescription's openLine); a record
     // with no closes keeps its empty-record line (PR-2b), and its profile shows the open positions.

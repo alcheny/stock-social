@@ -1088,3 +1088,22 @@ create table if not exists view_drops (
   n int not null default 0,
   primary key (day, surface, reason)
 );
+
+-- ---- F-15 second half (docs/features/logs/F-15/plan-second-half.md): share_action rows (E5, G2) ----
+-- One row per completed share of a trader's own record (sheet resolved or link copied), written by
+-- lib/share-actions.ts#writeShareAction for the record's owner only (a viewer's share is never stored). Day only (UTC),
+-- no time of day, no id column; surface is the share class (card, story, trade, month), outcome sheet or copy,
+-- record_sign the headline's sign at that moment (up, down, flat, none). Never: destination, recipients, thesis, account
+-- id, sell id, month, path, IP, agent, session or cookie. At most 20 a trader a UTC day. No CHECKs on purpose (closed
+-- lists in code, a db test on stored values; first-half decision 7). Deleted with the account (explicit delete in
+-- lib/delete.ts and the cascade) and after 120 days (lib/privacy-purge.ts, step 'shares'). The four users share
+-- columns stay and are still written; the readout reads these rows instead. Never read by any page or by ordering.
+create table if not exists share_action (
+  user_id int not null references users on delete cascade,
+  day date not null,
+  surface text not null,
+  outcome text not null,
+  record_sign text not null
+);
+select schema_add_index('share_action_user_day', 'create index share_action_user_day on share_action (user_id, day)');
+select schema_add_index('share_action_day', 'create index share_action_day on share_action (day)');

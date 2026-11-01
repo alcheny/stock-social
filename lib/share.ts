@@ -15,6 +15,9 @@ export const absoluteUrl = (origin: string, path: string) => new URL(path, origi
 // docs/POLICY.md F3: every image that shows performance carries this line, in plain view.
 export const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
 
+// F-15 second half: a trade page's one spelling, from the stored sell id (its share link and its canonical link).
+export const tradePath = (handle: string, sellId: string) => `/u/${handle}/trade/${encodeURIComponent(sellId)}`;
+
 // ---- F-15: the source class a shared link carries (lib/referral.ts#SHARE_VIAS) ----
 // Which share control a link left from, read from what it shares: a trade page → trade, a month recap → month, a
 // profile shared with its story picture → story, any other profile share → card. Never per person or per link.
