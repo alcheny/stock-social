@@ -44,8 +44,12 @@ import { SimilarSection } from './similar-section.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
 import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from '../../open-rows.tsx';
+// OPTIONS (docs/features/logs/options/plan.md D5, D6): the one reader and its pure renders.
+import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
+import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
+import { OPTIONS } from '@/lib/copy.ts';
 
-type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
+type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
 
 // ponytail: generateMetadata and the page each call load() (and the record card reads the record again), so one view
 // reads the whole record 3–4 times — wrap load and loadRecordCard in React cache() so each runs once per request.
@@ -76,9 +80,14 @@ async function load(handle: string) {
   const positions = state !== 'none' ? await sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions where user_id = ${user.id} order by symbol, account_id` : [];
   // F-6: open positions summarized beside the realized record for a connected or failed record (TR-3: nothing while
   // importing); null without positions, so such a record renders exactly as before. "As of": the oldest read.
-  const open = state === 'connected' || state === 'failed' ? openSummary(positions.map((p) => p.unrealized_pct as number)) : null;
-  const openAsOf = open ? new Date(Math.min(...positions.map((p) => (p.fetched_at as Date).getTime()))) : null;
-  return { user, filer, trades, state, imported, open, openAsOf, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
+  // OPTIONS: the option record (counts only while the consent gate is closed); long open options join the open block's
+  // aggregate only once the gate is open (D6, TR-4).
+  const opt = await loadOptionRecord(user.id);
+  const optOpen = opt.gate === 'open' && state !== 'importing' ? opt.open : [];
+  const open = state === 'connected' || state === 'failed' ? openSummary([...positions.map((p) => p.unrealized_pct as number), ...optOpen.map((o) => o.pct)]) : null;
+  // OPTIONS fix round 1 (review 3): the oldest read across share and option positions; unset when there are none.
+  const openAsOf = open ? oldestRead(positions.map((p) => p.fetched_at as Date), optOpen.length && opt.gate === 'open' ? opt.openAsOf : null) : null;
+  return { opt, optOpen, user, filer, trades, state, imported, open, openAsOf, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -118,14 +127,15 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function Profile({ params, searchParams }: Params) {
   const data = await load((await params).handle);
   if (!data) notFound();
-  const { user, filer, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf } = data;
+  const { user, filer, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf, opt, optOpen } = data;
   // F-7: a public record shows its top block, exclusions, open symbols and filing links; never Follow, theses, a share
   // prompt, a join CTA, Similar trades or New record (legal C10, C15-C17).
   const pub = isPublicRecord(state);
   const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   const stale = !!filer && (!filer.lastChecked || Date.now() - filer.lastChecked.getTime() > PUBLIC_STALE_DAYS * 86_400_000);
   const long = open ? longValues(pct(s.avgReturn), pct(open.avg), String(open.n)) : undefined;
-  const both = open && combined(trades.map((t) => t.return_pct as number), positions.map((p) => p.pct));
+  // OPTIONS fix round 1 (review 3): the combined line counts the same open positions as the grid (option percents too).
+  const both = open && combined(trades.map((t) => t.return_pct as number), [...positions.map((p) => p.pct), ...optOpen.map((o) => o.pct)]);
   const me = await currentUser();
   const isMe = me?.id === user.id;
   // F-2 PR-3b: "Similar trades" (lib/similar.ts), only for a whole record with a typical holding period; the same for every
@@ -263,6 +273,11 @@ export default async function Profile({ params, searchParams }: Params) {
       )}
 
       {/* Headline = win rate + avg return: readable in one glance (DESIGN Stage 2, BL). */}
+      {/* OPTIONS (D5, D6): "Share trades" over the share-only headline; the count line (gated) or the options lines. */}
+      {complete && (trades.length > 0 || hasOptions(opt.counts)) && <ShareTradesLabel counts={opt.counts} />}
+      {complete && trades.length === 0 && shareLabel(opt.counts) && <p className="stat-empty">{OPTIONS.noShareCloses}</p>}
+      {complete && trades.length === 0 && <OptionsLines m={opt} />}
+      {complete && trades.length === 0 && opt.gate === 'open' && hasOptions(opt.counts) && <p className="muted small">{OPTIONS.chartNone}</p>}
       {complete && trades.length > 0 && <>
       <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined} data-long={long}>
         {open && <RealizedLabel />}
@@ -288,13 +303,15 @@ export default async function Profile({ params, searchParams }: Params) {
           95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence.
         </details>
       </div>
+      {/* OPTIONS fix round 3 (item 3): the options block after the evidence line, before the secondary stats. */}
+      <OptionsLines m={opt} long={long} />
       <section className="stats">
         <div className="stat"><b>{count(s.trades)}</b><small>closed trades</small></div>
         <div className="stat"><b>{s.profitFactor === null ? '—' : s.profitFactor.toFixed(2)}</b><small>profit factor</small></div>
         <div className="stat"><b>{s.medianHoldingDays.toFixed(1)}d</b><small>median hold</small></div>
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
-      <PerformanceChart points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} />
+      <PerformanceChart shareOnly={shareLabel(opt.counts)} points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} />
       {open && <ChartNote o={open} />}
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
@@ -317,15 +334,13 @@ export default async function Profile({ params, searchParams }: Params) {
       </section>}
 
       {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
-      {positions.length > 0 && <>
-        <h2>{RECORD_BODY.positionsTitle}</h2>
-        {open && openAsOf && <p className="muted small" data-open>{OPEN.asOf(asOfDay(openAsOf))}</p>}
-        <ul className="rows positions">
-          {positions.map((p) => (
-            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={toneClass(p.pct)}>{pct(p.pct)}</b></div></li>
-          ))}
-        </ul>
-      </>}
+      {complete && <UnsupportedLine counts={opt.counts} />}
+      {/* OPTIONS fix round 3 (item 1): one "Open positions" heading and one list, share rows first, option rows after. */}
+      <OpenPositionsBlock title={RECORD_BODY.positionsTitle} hasShares={positions.length > 0} open={optOpen}
+        asOf={open && openAsOf && <p className="muted small" data-open={positions.length > 0 ? true : undefined}>{OPEN.asOf(asOfDay(openAsOf))}</p>}
+        shareRows={positions.map((p) => (
+          <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={toneClass(p.pct)}>{pct(p.pct)}</b></div></li>
+        ))} />
 
       {showJoin && <JoinCta handle={user.handle} via={ctaVia((await searchParams)?.via)} />}
 
@@ -362,6 +377,7 @@ export default async function Profile({ params, searchParams }: Params) {
           {win.prev !== null && <a className="button secondary" href={`/u/${user.handle}`}>{CLOSES_PAGING.newest}</a>}
         </p>
       )}
+      {opt.gate === 'open' && complete && <OptionTradesSection trades={opt.trades} start={Number((await searchParams)?.options) || 0} handle={user.handle} />}
       {similar && <SimilarSection handle={user.handle} similar={similar} signedIn={!!me} />}
       <p><Link href="/" className="tap44">← Feed</Link></p>
     </main>

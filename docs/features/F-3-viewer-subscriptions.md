@@ -1,6 +1,6 @@
 # F-3 · Viewer subscriptions (traders never pay)
 
-Status: ready
+Status: built
 
 ## Why
 Traders supply the verified records and must be incentivized to connect and keep connections live.
@@ -254,3 +254,6 @@ Each one testable; the pipeline writes a test for every line.
   dispute alarm at 0.75%; descriptor after name clearance; run the 100,000-event load test only before live billing.
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #36 (bfed56c) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.

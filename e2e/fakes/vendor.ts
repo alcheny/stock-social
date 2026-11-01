@@ -42,7 +42,12 @@ import { createServer, type Server } from 'node:http';
 // served like the vendor's; the activities endpoint honours the `type` filter as the vendor documents it.
 export type FakeActivity = { id: string; symbol: string; type: 'BUY' | 'SELL'; units: number; price: number; fee?: number; trade_date: string; option_symbol?: unknown };
 export type FakeCorporateRow = Omit<FakeActivity, 'type'> & { type: 'SPLIT' | 'STOCK_DIVIDEND' | 'REI' | 'ADJUSTMENT' | 'TRANSFER'; description?: string };
-export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | (FakeActivity | FakeCorporateRow)[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
+export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | (FakeActivity | FakeCorporateRow)[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] // price and cost_basis per unit, as the SDK documents
+  // OPTIONS: option rows (BUY/SELL with option_type, and the three option events) and raw positions of any instrument
+  // kind (option, future, future_option...), both in the vendor's own shapes (AccountUniversalActivity, AccountPosition).
+  optionActivities?: FakeOptionRow[]; instruments?: unknown[] };
+export type FakeOptionRow = { id: string; type: 'BUY' | 'SELL' | 'OPTIONEXPIRATION' | 'OPTIONASSIGNMENT' | 'OPTIONEXERCISE'; option_type?: string; option_symbol?: unknown;
+  symbol?: null; units?: number; price?: number; fee?: number; amount?: number; currency?: { code: string }; trade_date: string };
 type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number; portalFrameBlocked?: boolean; portalFrameHeaders?: boolean };
 type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: (FakeActivity | FakeCorporateRow)[]; syncDone: boolean }> };
 export type BulkSpec = { prefix: string; from: number; to: number; accounts?: number[]; activities?: number; slowEvery?: number; slowOffset?: number; slowMs?: number;
@@ -251,15 +256,16 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
       // `startDate` (YYYY-MM-DD, inclusive), as the vendor documents it: the hourly sync's backfill window.
       const from = url.searchParams.get('startDate');
       const types = url.searchParams.get('type')?.split(',');
-      const rows = a.rows.filter((r) => (!from || r.trade_date.slice(0, 10) >= from) && (!types || types.includes(r.type)));
-      const data = rows.slice(offset, offset + limit).map((r) => ({ ...r, symbol: { symbol: r.symbol } }));
+      const all: (FakeActivity | FakeCorporateRow | FakeOptionRow)[] = [...a.rows, ...(a.optionActivities ?? [])]; // OPTIONS
+      const rows = all.filter((r) => (!from || r.trade_date.slice(0, 10) >= from) && (!types || types.includes(r.type)));
+      const data = rows.slice(offset, offset + limit).map((r) => (typeof r.symbol === 'string' ? { ...r, symbol: { symbol: r.symbol } } : r));
       return json({ data, pagination: { offset, limit, total: rows.length } });
     }
     const pos = p.match(/^\/accounts\/([^/]+)\/positions\/all$/);
     if (pos) {
       const a = user.accounts.get(decodeURIComponent(pos[1]));
       if (!a) return json({ detail: 'unknown account' }, 404);
-      return json({ results: (a.positions ?? []).map((x) => ({ instrument: { kind: 'stock', id: x.symbol, symbol: x.symbol, raw_symbol: x.symbol }, units: String(x.units), price: String(x.price), cost_basis: String(x.cost_basis) })), data_freshness: { as_of: new Date().toISOString() } });
+      return json({ results: [...(a.positions ?? []).map((x) => ({ instrument: { kind: 'stock', id: x.symbol, symbol: x.symbol, raw_symbol: x.symbol }, units: String(x.units), price: String(x.price), cost_basis: String(x.cost_basis) })), ...(a.instruments ?? [])], data_freshness: { as_of: new Date().toISOString() } });
     }
     const del = p.match(/^\/connection\/([^/]+)$/);
     if (del && req.method === 'DELETE') {
@@ -274,7 +280,11 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
   // `localhost` (portalFrameHeaders) may resolve to ::1 first on some machines: listen there too when the host has IPv6.
   const v6 = createServer((req, res) => server.emit('request', req, res));
   v6.on('error', () => {});
-  server.on('close', () => v6.close());
+  // OPTIONS fix round 4 (N8): closing the fake closes the IPv6 listener and its connections too, so the next spec's fake
+  // binds ::1 cleanly.
+  server.on('close', () => { v6.close(); v6.closeAllConnections(); });
+  const closeAll = server.closeAllConnections.bind(server);
+  server.closeAllConnections = () => { closeAll(); v6.closeAllConnections(); };
   // A listen error (EADDRINUSE: another process holds the port) rejects instead of being an uncaught exception after
   // the caller's hook ended, which cancelled every test in the file with no visible cause.
   return new Promise((resolve, reject) => {

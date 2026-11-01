@@ -10,8 +10,11 @@ import { Badge, PublicNotice, WhoName } from './ui.tsx';
 import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
-import { OPEN } from '@/lib/copy.ts';
+import { OPEN, OPTIONS } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from './open-rows.tsx';
+// OPTIONS (docs/features/logs/options/plan.md D5, AC 24): the label and the count line (or the options line once open).
+import { PaneOptions, ShareTradesLabel } from './u/[handle]/options-block.tsx';
+import type { PaneOptionsView } from '@/lib/options-view.ts';
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
@@ -28,7 +31,7 @@ const day = (d: Date) => DAY.format(d);
 // Fix round 8: on the feed it is `feedPaneChart` (a stand-in line for a long record) and the chart fetches the full one
 // from `paneChartSrc` on its first swipe-open.
 // F-2 PR-2: `viewer`, signed in: Follow and the "…" menu with "Not interested" (fix round 1: nothing signed out).
-export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date }) {
+export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf, options }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date; /* OPTIONS */ options?: PaneOptionsView }) {
   const p = paneSummary(trades);
   // F-6: the trader's open positions (connected or failed records only, lib/feed.ts); the combined figure from the whole
   // record, as on the profile. Nothing new renders without open positions.
@@ -37,7 +40,8 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const trust = paneTrust(trades, state);
   const pub = isPublicRecord(state); // F-7: no Follow; the not-joined line right under the chart (it stays above the fold)
   const chartBlock = <>
-    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} />
+    {/* OPTIONS fix round 3 (UX B1): with the label, the caption says the chart excludes options too. */}
+    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} shareOnly={!!options?.label} />
     {open && <ChartNote o={open} />}
     {pub && <PublicNotice />}
   </>;
@@ -51,6 +55,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const incomplete = trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>;
   const long = open ? longValues(pct(p.avgReturn), pct(open.avg), String(open.n)) : undefined;
   const figures = <>
+    {options && <ShareTradesLabel show={options.label} />}
     <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined} data-long={long}>
       {open && <RealizedLabel />}
       <div className="stat big"><b>{(p.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
@@ -58,6 +63,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
     </section>
     {open && <OpenGrid o={open} asOf={openAsOf} long={long} />}
     {both && <CombinedLine c={both} />}
+    <PaneOptions v={options} />
   </>;
   return (
     <section className="pane" aria-label={`${name}'s record`}>
@@ -72,6 +78,9 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
       {/* F-6 (business lead D1): with open positions the figures lead, as on the profile (the pane is where most viewers
           meet a record, SW-1); without them, today's order. */}
       {open ? <>{incomplete}{figures}{chartBlock}{summary}</> : <>{chartBlock}{summary}{incomplete}{figures}</>}
+      {/* ponytail: K1 option trades are not on feed cards and this last-5 list is share trades only (the pane carries the
+          label and the line) — when feed cards come, cap the ranking size term at 100% for options (long losses stop at
+          -100%, so uncapped gains would tilt the feed toward winners). */}
       <h3>Last {counted(p.recent.length, 'trade')}</h3>
       <ul className="rows">
         {p.recent.map((t) => (
@@ -82,7 +91,8 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
         ))}
       </ul>
       <p><Link href={`/u/${handle}`} className="button">See full profile →</Link></p>
-      <p className="muted">{pub ? PUBLIC.paneFoot : "Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown."}</p>
+      {/* OPTIONS fix round 2: the note follows the gate (the paneView line), so it can't go stale when the gate opens. */}
+      <p className="muted">{pub ? PUBLIC.paneFoot : OPTIONS.paneNote(!!options?.open)}</p>
     </section>
   );
 }

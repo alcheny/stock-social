@@ -1,6 +1,6 @@
 # F-13 · First-visit line and the swipe hint
 
-Status: ready
+Status: built
 
 ## Why
 A signed-out first visitor sees a stock and a percentage with no idea what the product is. The SW-1 first-run hint
@@ -62,3 +62,6 @@ A signed-out first visitor sees a stock and a percentage with no idea what the p
 - Resolved 2026-11-01: the design system council's slot rule is built (the hint waits until the line is dismissed).
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #55 (92d03f4) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.
