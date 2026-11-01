@@ -14,6 +14,7 @@ export type TableEntry = { personal: boolean; retention: RetentionClass; holds: 
 export const SCHEMA_MAP: Record<string, TableEntry> = {
   users: { personal: true, retention: 'account', holds: 'handle, display name, 18+ attestation time, vendor user id and encrypted secret, referral' },
   activities: { personal: true, retention: 'account', holds: 'raw broker activities: symbols, quantities, prices, fees, account ids' },
+  corporate_actions: { personal: true, retention: 'account', holds: 'raw broker corporate-action rows (splits, stock dividends, renames): symbols, share counts, account ids; deleted with the profile' },
   closed_trades: { personal: true, retention: 'account', holds: 'derived public record: symbols, dates, percent returns, holding periods, theses' },
   broker_accounts: { personal: true, retention: 'account', holds: 'vendor account ids claimed by a profile' },
   ticker_watches: { personal: true, retention: 'account', holds: 'private watchlist symbols' },
