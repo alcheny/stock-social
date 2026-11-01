@@ -930,7 +930,8 @@ dbTest('F-2 PR-2 (plan demand D): two concurrent cron callers: exactly one runs 
     assert.ok([...by.values()].includes('a') && [...by.values()].includes('b'), JSON.stringify([...by.values()]));
     const route = readFileSync(new URL('../app/api/sync/route.ts', import.meta.url), 'utf8');
     const at = (s: string) => route.indexOf(s);
-    assert.ok(at('syncAll(pendingDeletes') < at('purgeDiscovery()') && at('purgeDiscovery()') < at('await syncTick('), 'after the deletion retries, before syncTick');
+    // Sharded sync (docs/SYNC.md): the route's traders are synced by runShard (the same claims), still after the purge.
+    assert.ok(at('syncAll(pendingDeletes') >= 0 && at('syncAll(pendingDeletes') < at('purgeDiscovery()') && at('purgeDiscovery()') < at('await runShard('), 'after the deletion retries, before the shard run');
     assert.match(route, /try \{ purged = await purgeDiscovery\(\); \} catch/);
   } finally {
     await h.cleanup();

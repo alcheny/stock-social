@@ -203,19 +203,20 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   const inflight = new Set<number>();
   const passed: number[] = []; // not to be offered again this run (skipped on the lock, or no longer claimable)
   const unfit: number[] = []; // did not fit the time left: the next run takes them first, with a whole budget
+  const popped = new Set<number>(); // taken from the queue by a worker and not yet claimed (waiting for tokens)
   let exhausted = false;
   let refilling: Promise<void> | null = null;
   let stopReason: 'deadline' | null = null;
   const next = async () => {
     for (;;) {
-      if (queue.length) return queue.shift()!;
+      if (queue.length) { const c = queue.shift()!; popped.add(c.id); return c; }
       if (exhausted) return null;
       refilling ??= (async () => {
         try {
-          const rows = await page(sh, o, shift(), [...inflight, ...passed, ...unfit], cfg.page);
+          const rows = await page(sh, o, shift(), [...inflight, ...popped, ...passed, ...unfit], cfg.page);
           r.pages++;
           if (!rows.length) exhausted = true;
-          for (const row of rows) if (!inflight.has(row.id)) queue.push(row);
+          for (const row of rows) if (!inflight.has(row.id) && !popped.has(row.id)) queue.push(row);
         } finally { refilling = null; }
       })();
       await refilling;
@@ -238,20 +239,21 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       if (!c) return;
       const requests = 1 + 2 * c.accounts;
       if (routeEnd !== Infinity && syncCost(c.accounts) / VENDOR_TIMEOUT_MS * bound + bucket.estimateWaitMs(requests) > routeEnd - clock()) {
-        unfit.push(c.id); r.deferred++; stopReason = 'deadline';
+        unfit.push(c.id); popped.delete(c.id); r.deferred++; stopReason = 'deadline';
         continue;
       }
       await bucket.take(requests);
       if (stop()) return;
-      if (Date.now() - lastRenew > RENEW_BEFORE_DISPATCH_MS) await renew();
+      if (Date.now() - lastRenew > Math.min(RENEW_BEFORE_DISPATCH_MS, leaseMs / 4)) await renew();
       if (r.leaseLost) return;
       const u = await claimById(c.id, shift());
+      if (u) inflight.add(u.id);
+      popped.delete(c.id);
       if (!u) {
         passed.push(c.id);
         if (await quarantine(c.id, shift())) r.quarantined++;
         continue;
       }
-      inflight.add(u.id);
       const count = { n: 0 };
       let end: End;
       try {
