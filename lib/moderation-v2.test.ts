@@ -528,7 +528,7 @@ test('fix round 6: the start-up re-check holds version 1 notes only on what vers
 const RULE_HASHES: Record<number, string> = {
   2: '713b08cb0d5c66fad954435cfe51b57bd41a13ff60c87b85a3d25477bc709893',
   3: '57ced0678529edf7d9fabb8104b826d8420e73b9395f03329815aa67201a8ec7',
-  4: '9082da7e768d7b6419ff052834e061cae3ec16b81bdd5c095dc10e496a73c829', // F4-18 (cycle 4)
+  4: '207b077b132a260cef40ccd602f4efb31e08e2be60165c459d290b29bff0b2bf', // F4-18 (cycle 4; unreleased, re-pinned after the #89 review)
 };
 test('fix round 6: rules cannot change without raising MODERATION_VERSION', async () => {
   const { createHash } = await import('node:crypto');

@@ -1122,3 +1122,10 @@ create table if not exists matcher_runs (
   version smallint primary key,
   done_at timestamptz not null default now()
 );
+
+-- Fixes cycle 4 (independent review, finding 6): per-record progress of that rebuild, so a deploy rebuilds only the
+-- records not yet rebuilt for the current version and one failing record never restarts the rest. Deleted with the account.
+create table if not exists matcher_rebuilt (
+  user_id int primary key references users on delete cascade,
+  version smallint not null
+);

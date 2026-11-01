@@ -52,12 +52,15 @@ const TLD = '(?:com|net|org|io|co|gg|app|xyz|info|biz|ly|link|club|live|tv|uk|ru
 const TLD_SPACED = '(?:com|net|org|io|gg|xyz|app|info|biz)';
 // F4-18 (cycle 4, version 4): common country-code endings for the domain-cc rule. CC holds bare; CC_GUARDED (English
 // words, and endings written after a ticker for its exchange) needs a second-level part or a path.
-const CC = '(?:ca|au|jp|kr|sg|fr|es|nl|ch|se|dk|fi|pl|cz|pt|ie|ar|cl|za|ng|ke|ae|il|gr|ro|hu|ua|ph|vn|pk|eu|ws|su|nu)';
-const CC_GUARDED = '(?:in|it|is|no|at|be|my|us|id|cn|hk|tw|mx|nz|sa|br)';
+// Review of #89: ca, ch, se, ro and vn are exchange suffixes too ("XYZ.CA", "ABC.CH", "ABC.SE"), so they are guarded.
+const CC = '(?:au|jp|kr|sg|fr|es|nl|dk|fi|pl|cz|pt|ie|ar|cl|za|ng|ke|ae|il|gr|hu|ua|ph|pk|eu|ws|su|nu)';
+const CC_GUARDED = '(?:in|it|is|no|at|be|my|us|id|cn|hk|tw|mx|nz|sa|br|ca|ch|se|ro|vn)';
 // F4-18: a "$handle" (a letter first, so "$500" is an amount); CASHTAG_HANDLE is handle-shaped: a digit, "_" or "-",
-// or 6+ letters (longer than a ticker).
+// or 6+ letters (longer than a ticker). Review of #89: "-" is no handle signal ("$BRK-B", "$BF-B" are share classes).
+// ponytail: a hyphenated handle ("$sample-trader") after a weak payment word publishes — hold it if the review queue
+// shows such tags.
 const CASHTAG = String.raw`(?<![\w$])\$[a-z][a-z0-9_-]{1,19}(?![\w-])`;
-const CASHTAG_HANDLE = String.raw`(?<![\w$])\$(?=[a-z0-9_-]*(?:[0-9_-]|[a-z]{6}))[a-z][a-z0-9_-]{2,19}(?![\w-])`;
+const CASHTAG_HANDLE = String.raw`(?<![\w$])\$(?=[a-z0-9_]*(?:[0-9_]|[a-z]{6}))[a-z][a-z0-9_]{2,19}(?![\w-])`;
 // A dot, also bracketed or parenthesised ("example[.]org", "example(.)net").
 const DOT = String.raw`(?:\.|\s*[[(]\s*\.\s*[)\]]\s*)`;
 // A domain name: 2+ characters with a letter, starting where no name character precedes it (linear per start).
@@ -157,10 +160,11 @@ export const HOLD_V2: HoldRule[] = [
   // F4-18 (version 4): solicitation paraphrases next to the frozen "link in bio": pointing at the bio ("Check my bio for
   // the link", "details in bio"), "Follow me for more calls" and running a trading room ("I run a trading room, ask me
   // how to get in"). "I updated my bio", "My bio says I swing trade", "I left a trading group" and "Ask me how I sized
-  // it" publish.
-  { rule: 'bio-pointer', label: 'promotion', words: true, since: 4, re: /\b(?:check(?:\s+out)?|see|visit|tap|click|hit|go\s+to|head\s+to|look\s+at)\s+(?:the\s+)?(?:links?\s+in\s+)?(?:my|our|the)\s+bio\b|\b(?:links?|details|info|more|access|invites?|sign[\s-]?up)\s+(?:is\s+|are\s+)?(?:in|on|at)\s+(?:my\s+|our\s+|the\s+)?bio\b|\b(?:my|our)\s+bio\s+(?:for|has|have)\s+(?:the\s+|a\s+|more\s+)?(?:links?|details|info|access|invites?|sign[\s-]?up|group|room|signals?|alerts?)\b/i },
+  // it" publish. Review of #89: "the bio of the CEO" is no pointer, and a "club" alone is no room ("We run a stock club
+  // at work").
+  { rule: 'bio-pointer', label: 'promotion', words: true, since: 4, re: /\b(?:check(?:\s+out)?|see|visit|tap|click|hit|go\s+to|head\s+to|look\s+at)\s+(?:the\s+)?(?:links?\s+in\s+)?(?:my|our)\s+bio\b(?!\s+of\b)|\b(?:links?|details|info|more|access|invites?|sign[\s-]?up)\s+(?:is\s+|are\s+)?(?:in|on|at)\s+(?:my\s+|our\s+)?bio\b(?!\s+of\b)|\b(?:my|our)\s+bio\s+(?:for|has|have)\s+(?:the\s+|a\s+|more\s+)?(?:links?|details|info|access|invites?|sign[\s-]?up|group|room|signals?|alerts?)\b/i },
   { rule: 'follow-for', label: 'promotion', words: true, since: 4, re: /\bfollow\s+(?:(?:me|us)\s+)?(?:here\s+)?(?:for|4)\s+(?:(?:more|daily|weekly|the|my|our|free|real[\s-]?time|live)\s+)*(?:calls?|picks?|plays?|alerts?|signals?|entries|setups?|trades|updates|ideas|content)\b/i },
-  { rule: 'trading-room', label: 'promotion', words: true, since: 4, re: /\b(?:i|we)\s+(?:run|host|own|lead|manage|started|moderate)\s+(?:a|an|my|our)\s+(?:(?:small|private|little|free|paid|live)\s+)?(?:day[\s-]?)?(?:trading|stock|options?|investing)\s+(?:room|group|chat|server|channel|community|club)\b|\bask\s+(?:me|us)\s+(?:how\s+(?:to\s+)?(?:get(?:ting)?\s+in|join(?:ing)?|sign(?:ing)?\s+up|access)|about\s+(?:joining|getting\s+in|access|the\s+(?:room|group|chat|server|channel)))\b/i },
+  { rule: 'trading-room', label: 'promotion', words: true, since: 4, re: /\b(?:i|we)\s+(?:run|host|own|lead|manage|started|moderate)\s+(?:a|an|my|our)\s+(?:(?:small|private|little|free|paid|live)\s+)?(?:day[\s-]?)?(?:trading|stock|options?|investing)\s+(?:room|chat\s*room|group(?:\s+chat)?|chat|server|channel)\b|\bask\s+(?:me|us)\s+(?:how\s+(?:to\s+)?(?:get(?:ting)?\s+in|join(?:ing)?|sign(?:ing)?\s+up|access)|about\s+(?:joining|getting\s+in|access|the\s+(?:room|group|chat|server|channel)))\b/i },
   // Copy trading and mirroring.
   // Fix round 2 (business lead, decision 2 revised): only the solicitation or the offer holds — "copy trading is open",
   // "join copy trading", copy/mirror/replicate/tail + my/our trades, "copy me", "trade with me", auto-copy. Talk about

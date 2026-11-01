@@ -25,7 +25,7 @@ console.log(`db-setup: ${await repairOptionShareCloses()} records rebuilt withou
 // figure the old same-instant order or a short's cover produced stays published. Null when this version already ran.
 const { rebuildAllForMatcher } = await import('../lib/matcher-rebuild.ts');
 const rebuilt = await rebuildAllForMatcher();
-console.log(rebuilt === null ? 'db-setup: records already rebuilt for this matcher version' : `db-setup: ${rebuilt} records rebuilt for the share matcher`);
+console.log(rebuilt === null ? 'db-setup: records already rebuilt for this matcher version' : `db-setup: share matcher rebuild ${JSON.stringify(rebuilt)}`);
 
 // fix-user-text (F-9, D-08): re-check stored user text against the current rules after every schema apply. Theses:
 // published → held only, owner-released ones skipped (lib/thesis-review.ts). Display names: lib/handles.ts#recheckDisplayNames

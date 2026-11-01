@@ -43,7 +43,7 @@ dbTest('C4-1/C4-2 deploy rebuild: a record built by the old matcher loses its ma
     // the stored state a deploy finds (the test's own fixture rows; production never patches closed_trades).
     await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified, thesis, thesis_status)
       values (${u}, ${`${tag}-s1`}, ${`${tag}-acc`}, 'FAKE', '2026-10-02T14:00:00Z', '2026-10-14T14:00:00Z', ${18 / 14 - 1}, 12, true, 'Fictional note.', 'published')`;
-    assert.equal(await rebuildAllForMatcher(9001, [u]), 1);
+    assert.deepEqual(await rebuildAllForMatcher(9000 + Math.floor(Math.random() * 900), [u]), { rebuilt: 1, failed: 0, left: 0 });
     assert.deepEqual(await closes(u), []);
     const [usr] = await sql`select excluded_positions from users where id = ${u}`;
     assert.equal(usr.excluded_positions, 2);
@@ -67,9 +67,14 @@ dbTest('C4-1/C4-2 deploy rebuild: runs once per matcher version, reads no connec
     const u = await mkUser('f');
     await insertActivities(u, 'snaptrade', [row('b', 'BUY', 100, 10, '2026-10-01T14:00:00Z'), row('s', 'SELL', 100, 11, '2026-10-02T14:00:00Z')]);
     // No connection at all (as a frozen record that never syncs): the rebuild selects by stored rows only.
-    assert.equal(await rebuildAllForMatcher(version, [u]), 1);
+    // Independent review finding 6: a time budget leaves records for the next run, which picks up only those.
+    assert.deepEqual(await rebuildAllForMatcher(version, [u], -1), { rebuilt: 0, failed: 0, left: 1 });
+    assert.deepEqual(await rebuildAllForMatcher(version, [u]), { rebuilt: 1, failed: 0, left: 0 });
     assert.deepEqual(await closes(u), [['s', 0.1, null]]);
-    assert.equal(await rebuildAllForMatcher(version, [u]), 1); // explicit ids always rebuild; same result
+    // Per-record progress: a record already rebuilt for this version is not rebuilt again; a new one is.
+    const v = await mkUser('g');
+    await insertActivities(v, 'snaptrade', [row('b2', 'BUY', 100, 10, '2026-10-01T14:00:00Z'), row('s2', 'SELL', 100, 9, '2026-10-02T14:00:00Z')]);
+    assert.deepEqual(await rebuildAllForMatcher(version, [u, v]), { rebuilt: 1, failed: 0, left: 0 });
     assert.deepEqual(await closes(u), [['s', 0.1, null]]);
     // A version already marked done is skipped on the deploy path (no ids).
     await sql`insert into matcher_runs (version) values (${version}) on conflict do nothing`;

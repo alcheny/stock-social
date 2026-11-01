@@ -257,3 +257,13 @@ dbTest('F4-7: a filer named "Verified ..." gets a clean handle and the handle as
   assert.ok(!/verified/.test(u.handle));
   assert.equal(u.display_name, u.handle);
 });
+
+test('fixes cycle 4, independent review 1: rows 9 and 10 of one filing keep filing order through the matcher (+50%, not -25%)', () => {
+  const f = 'fone';
+  const rows = [
+    row({ code: 'P', units: 100, held_after: 100, price: 10, day: 0, filing_id: f, external_id: `${f}:9` }),
+    row({ code: 'P', units: 100, held_after: 200, price: 20, day: 0, filing_id: f, external_id: `${f}:10` }),
+    row({ code: 'S', units: 100, held_after: 100, price: 15, day: 5 }),
+  ];
+  assert.deepEqual(pct(rows), [50]);
+});

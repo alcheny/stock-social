@@ -68,7 +68,7 @@ const F4_18_HELD: [string, string][] = [
   ['Follow me for more calls', 'promotion'],
   ['I run a trading room, ask me how to get in', 'promotion'],
   // more country-code endings, bare and second-level
-  ['see example.ca', 'link'], ['example.com.au/join', 'link'], ['example.co.jp', 'link'], ['setups on example.de', 'link'],
+  ['see example.ca/join', 'link'], ['see example.fr', 'link'], ['example.com.au/join', 'link'], ['example.co.jp', 'link'], ['setups on example.de', 'link'],
   ['example.nl.', 'link'], ['EXAMPLE.SG', 'link'], ['example.co.in', 'link'], ['example.it/room', 'link'], ['example.com.br', 'link'],
   // payment cashtags
   ['Send tips to $sample_trader', 'contact details'], ['cashtag $SampleTrader', 'contact details'], ['tip jar: $abc', 'contact details'],
@@ -91,6 +91,10 @@ const F4_18_PUBLISHED: string[] = [
   // tickers with exchange suffixes and abbreviations stay published
   'Bought XYZ.HK and ABC.TW on the dip.', 'BRK.B, U.S. rates, e.g. the 10-K.', 'Sold it. Is it over?', 'The plan.In hindsight early.',
   'ABC.MX ran with the peso.', 'Owned ABC.NZ and DEF.SA for a month.',
+  // review of #89: share classes, the bio of someone else, a club, and exchange suffixes
+  'Earnings could send $BRK-B higher', 'Added $BF-B on the dip.', 'See the bio of the CEO', 'Check the bio of the new CFO',
+  'Details in bio of the company', 'We run a stock club at work', 'a small investing club with my family', 'We run a small investing club with my family',
+  'XYZ.CA', 'ABC.CH', 'ABC.SE', 'Bought XYZ.CA and ABC.CH, trimmed ABC.SE.', 'Took the gain and cut.Se you later.',
 ];
 
 test('F4-18: country-code domains, payment cashtags and solicitation paraphrases are held with their label', async () => {

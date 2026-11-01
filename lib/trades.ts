@@ -32,6 +32,7 @@ type Lot = { units: number; price: number; feePerUnit: number; at: Date; verifie
 
 const EPS = 1e-9;
 const DAY = 86_400_000;
+const BEFORE_HISTORY = new Date(-8.64e15); // the earliest Date: shares the history never shows (fixes cycle 4)
 // Unit comparisons are relative to the size involved, so positions grown by splits compare like small ones.
 const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale));
 
@@ -77,8 +78,11 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 // (lib/matcher-rebuild.ts). 2: fixes cycle 4 (C4-1 ties, C4-2 the gap).
 export const MATCHER_VERSION = 2;
 
-export function matchTrades(activities: Activity[], actions: CorporateAction[] = []): MatchResult {
-  return replay(activities, actions).result;
+// `orderKnown` (independent review, finding 1): the input order is the true order at a tie (public filings pass rows in
+// filing order, lib/public-trades.ts), so ties fall back to it instead of the vendor id.
+export type MatchOptions = { orderKnown?: boolean };
+export function matchTrades(activities: Activity[], actions: CorporateAction[] = [], opts: MatchOptions = {}): MatchResult {
+  return replay(activities, actions, opts).result;
 }
 
 // The lots still open after the history (test and property-check helper; the matcher's own state).
@@ -96,7 +100,7 @@ type Event = { at: number; order: number; src: number; i: number; act?: Activity
 type TradeRow = Extract<CorporateAction, { reason: 'trade' }>;
 const isTradeRow = (ca: CorporateAction): ca is TradeRow => ca.kind === 'unpriceable' && ca.reason === 'trade';
 
-function replay(activities: Activity[], actions: CorporateAction[]): { result: MatchResult; books: Map<string, Book> } {
+function replay(activities: Activity[], actions: CorporateAction[], opts: MatchOptions = {}): { result: MatchResult; books: Map<string, Book> } {
   // Same-instant order (F3-5): renames, other actions, buys, sells; then actions before activities; then the vendor id, a
   // canonical order (as the rebuild's own sort), so the result never depends on the input order (fixes cycle 4, engineer
   // round 1: two rows on one side at one instant were matched in input order); then input order.
@@ -108,7 +112,7 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
   // is deterministic and not the trader's choice but may not be the true fill order (off by at most the instant's price
   // spread) — fix: pool the cost of tied buys and split tied sells pro rata (engineer, committee round 4).
   const sideOrder = (side: 'BUY' | 'SELL') => (side === 'BUY' ? 2 : 3);
-  const idOf = (e: Event) => e.act?.externalId ?? e.ca?.externalId ?? '';
+  const idOf = (e: Event) => (opts.orderKnown ? '' : e.act?.externalId ?? e.ca?.externalId ?? '');
   const events: Event[] = [
     ...actions.map((ca, i) => ({ at: ca.executedAt.getTime(), order: ca.kind === 'symbol-change' ? 0 : isTradeRow(ca) ? sideOrder(ca.side) : 1, src: 0, i, ca })),
     ...activities.map((act, i) => ({ at: act.executedAt.getTime(), order: sideOrder(act.side), src: 1, i, act })),
@@ -207,11 +211,11 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
       if (ca.kind === 'split' || ca.kind === 'stock-dividend') {
         if (exchangedInto.get(key) === e.at) { taint(b.lots); continue; }
         if (!b.lots.length) {
-          // C4-1 (engineer, round 1; final review): a vendor share count says shares exist that the ledger lacks (earlier
-          // history), but not how many (a stock dividend's count is the new shares only, a split's may be the change), so a
-          // lot of that size could hide a later oversell. The pair gets the gap instead: every later sell is counted. A
-          // ratio alone says nothing about a count, so nothing is marked (as before).
-          if (ca.units !== undefined && ca.units > 0) addGap(b, ca.units);
+          // C4-1 (engineer, round 1; final and independent reviews): the vendor sends a split or stock dividend only for
+          // shares held, so on an empty ledger it says shares exist that the ledger lacks (earlier history), whatever its
+          // count (a total, a change, a reverse split's negative change) or a ratio alone. A no-basis lot of some size could
+          // hide a later oversell, so the pair gets the gap instead: every later sell is counted.
+          if (moved?.at !== e.at) addGap(b, Math.abs(ca.units ?? 0) || 1);
           continue;
         }
         const r = resolveRatio(held(b.lots), ca);
@@ -230,8 +234,9 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         // C4-2 (F-28: the pending count travels with a rename): a short renames with the shares, so the gap moves too.
         if (b.gap && ca.newSymbol !== ca.symbol) { addGap(book(`${ca.accountId}|${ca.newSymbol}`), b.gap); b.gap = 0; }
         // C4-1 (engineer, round 1): shares the rename says moved but the ledger doesn't hold arrive in the new symbol with
-        // no basis, so FIFO draws them (counted) before any later buy there.
-        const shadow = () => { if (ca.newSymbol !== ca.symbol && ca.inUnits > 0) book(`${ca.accountId}|${ca.newSymbol}`).lots.unshift({ units: ca.inUnits, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true }); };
+        // no basis, so FIFO draws them (counted) before any later buy there. They predate the history, so they are dated
+        // before all of it and stay first when a later rename merges lots by date (independent review, finding 4).
+        const shadow = () => { if (ca.newSymbol !== ca.symbol && ca.inUnits > 0) book(`${ca.accountId}|${ca.newSymbol}`).lots.unshift({ units: ca.inUnits, price: 0, feePerUnit: 0, at: BEFORE_HISTORY, verified: false, tainted: true }); };
         if (!b.lots.length) { shadow(); continue; }
         const h = held(b.lots);
         const r = ca.newSymbol !== ca.symbol && Math.abs(h - ca.outUnits) <= RATIO_TOLERANCE * Math.max(1, h) ? renameRatio(ca.outUnits, ca.inUnits) : null;
@@ -250,7 +255,10 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
           for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`)) taint(other.lots);
         } else taint(b.lots);
         const u = ca.units ?? 0;
-        if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
+        // Independent review (finding 3): an unpriceable action on a pair the ledger holds none of (not shares it hands
+        // over: a spin-off's received shares) says earlier shares exist: the gap.
+        if (u <= 0 && ca.scope !== 'account' && !b.lots.length && moved?.at !== e.at) addGap(b, Math.abs(u) || 1);
+        else if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
         else if (u < 0) addGap(b, removeOldest(b.lots, -u));
       }
       continue;
@@ -267,7 +275,9 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
     }
 
     // C4-2: after an oversell the pair's later sells are counted (see the header), whatever their outcome.
-    const gapped = !!b.gap && !tiny(b.gap, a.units);
+    // Independent review (finding 5): any gap counts, at whatever scale this sell is (addGap already ignores a residual
+    // that is tiny at the oversell's own scale), so a large later sell can't slip past a small gap.
+    const gapped = (b.gap ?? 0) > 0;
     let remaining = a.units;
     let cost = 0;
     let entryFees = 0;

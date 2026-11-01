@@ -17,6 +17,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   corporate_actions: { personal: true, retention: 'account', holds: 'raw broker corporate-action rows (splits, stock dividends, renames) and broker trade rows with no usable price, share count or date: symbols, share counts, prices, account ids; deleted with the profile' },
   // Fixes cycle 4: a deploy's one-time record rebuild per share-matcher version (lib/matcher-rebuild.ts).
   matcher_runs: { personal: false, retention: 'none', holds: 'which share-matcher version the records were last rebuilt with, and when (numbers and a time)' },
+  matcher_rebuilt: { personal: true, retention: 'account', holds: 'per record, the share-matcher version it was last rebuilt with (user id and a number); deleted with the account' },
   closed_trades: { personal: true, retention: 'account', holds: 'derived public record: symbols, dates, percent returns, holding periods, theses' },
   // Sharded sync (docs/SYNC.md): one row per shard: its lease, heartbeat and last run's counts. No user ids.
   // F-14 sync cadence: per account (vendor account id), the last successful vendor reads, whatever the sync's outcome.

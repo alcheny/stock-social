@@ -155,3 +155,47 @@ test('final review: a stock dividend or split count on an empty ledger marks the
   assert.deepEqual(m.trades, []);
   assert.equal(m.excluded + m.excludedCorporate, 2);
 });
+
+// ---- Independent review of #89 (orchestrator relay): regression tests, each failing before its fix ----
+
+test('review 1: public filings pass their filing order, so rows 9 and 10 are not re-sorted as strings ("10" < "9")', () => {
+  const r = (n: number, side: Activity['side'], price: number) => row(side, 100, price, '2026-10-01T00:00:00Z', { externalId: `acc1:${n}#${n % 2 + 1}` });
+  const rows = [r(9, 'BUY', 10), r(10, 'BUY', 20), row('SELL', 100, 15, '2026-10-05T00:00:00Z', { externalId: 'acc1:11#1' })];
+  assert.deepEqual(matchTrades(rows, [], { orderKnown: true }).trades.map((t) => +t.returnPct.toFixed(6)), [0.5]); // FIFO in filing order
+});
+
+test('review 3: any split, reverse split or ratio-only row on an empty ledger marks the gap (no guessed basis)', () => {
+  const rows = [row('BUY', 200, 10, '2026-03-05T14:00:00Z'), row('SELL', 200, 12, '2026-03-10T14:00:00Z'), row('SELL', 200, 12, '2026-03-20T14:00:00Z')];
+  const at = new Date('2026-03-01T00:00:00Z');
+  for (const ca of [
+    { externalId: 'r', accountId: 'acc1', symbol: 'FAKE', executedAt: at, kind: 'split', ratio: { p: 2, q: 1 } },
+    { externalId: 'u', accountId: 'acc1', symbol: 'FAKE', executedAt: at, kind: 'split', units: 100 },
+    { externalId: 'v', accountId: 'acc1', symbol: 'FAKE', executedAt: at, kind: 'split', units: -900 },
+    { externalId: 'x', accountId: 'acc1', symbol: 'FAKE', executedAt: at, kind: 'unpriceable', reason: 'unknown' },
+  ] as const) {
+    const m = matchTrades(rows, [ca]);
+    assert.deepEqual(m.trades, [], ca.externalId); // was +20% for the ratio-only and the reverse split
+    assert.equal(m.excluded + m.excludedCorporate, 2, ca.externalId);
+  }
+});
+
+test('review 4: the no-basis lot a rename brings stays first when a later rename merges older lots into the same symbol', () => {
+  const ren = (id: string, from: string, at: string) => ({ externalId: id, accountId: 'acc1', symbol: from, executedAt: new Date(at), kind: 'symbol-change', newSymbol: 'NEWX', outUnits: 100, inUnits: 100 }) as const;
+  const rows = [
+    row('BUY', 100, 10, '2026-01-02T14:00:00Z', { symbol: 'ZED' }),
+    row('SELL', 100, 15, '2026-03-05T14:00:00Z', { symbol: 'NEWX' }), row('SELL', 100, 16, '2026-03-06T14:00:00Z', { symbol: 'NEWX' }),
+  ];
+  // OLD held before the history (no lots) → NEWX on 03-01; ZED (bought 01-02) → NEWX on 03-02.
+  const m = matchTrades(rows, [ren('a', 'OLDX', '2026-03-01T00:00:00Z'), ren('b', 'ZED', '2026-03-02T00:00:00Z')]);
+  assert.ok(!m.trades.some((t) => Math.abs(t.returnPct - 0.5) < 1e-9), 'the first sell is not priced from the ZED lot (+50%)');
+  assert.equal(m.trades.length + m.excluded + m.excludedCorporate, 2);
+  assert.ok(m.excludedCorporate >= 1);
+});
+
+test('review 5: a tiny oversell still counts every later sell, whatever the later sell\'s size (no steering by size)', () => {
+  for (const size of [10, 1000]) {
+    const m = matchTrades([row('BUY', 10, 10, '2026-10-01T14:00:00Z'), row('SELL', 10.00000002, 10, '2026-10-02T14:00:00Z'), row('BUY', size, 10, '2026-10-03T14:00:00Z'), row('SELL', size, 8, '2026-10-04T14:00:00Z')]);
+    assert.deepEqual(m.trades, [], String(size)); // a -20% shown for size 1000 before the fix
+    assert.equal(m.excluded, 2, String(size));
+  }
+});
