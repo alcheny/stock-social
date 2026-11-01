@@ -32,7 +32,10 @@ opinion lands.
 - 2026-11-01: The first paid feature is "Record tools": viewers compare traders side by side, save views and keep
   private notes, all pull-only (nothing is ever pushed to them). No free trial at launch. It is built only after
   the legal committee reviews its exact feature list (in place of a written securities opinion, POLICY owner
-  decision 2026-11-01). Why: the owner adopted the legal committee's recommendation; event alerts
+  decision 2026-11-01).
+- 2026-11-01: The billing vendor is the payment processor recommended in the owner's private billing proposal:
+  hosted checkout and customer portal, sales-tax handling, and a connected-accounts product for creator payouts
+  later. It is named in the repo once the integration is built (POLICY T1). Why: the owner's choice. Why: the owner adopted the legal committee's recommendation; event alerts
   are barred by POLICY F3b.
 
 ## What viewers pay for (candidates; each needs the counsel opinion before build)
@@ -166,7 +169,5 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Open questions
 - When creator payouts start, and their share (none for now, decided 2026-10-26; needs counsel first).
-- Which billing vendor (named in the private checklist; must offer hosted checkout, portal, tax and
-  connected-account payouts).
 
 ## Rework notes
