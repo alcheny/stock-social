@@ -28,8 +28,10 @@ export function surfaceOf(path: unknown): Target | null {
   if (/^\/t\/[^/]+$/.test(p)) return plain('ticker');
   const m = /^\/u\/([^/]+)(?:\/(trade|month)\/([^/]+))?$/.exec(p);
   if (!m) return null;
-  const handle = normalizeHandle(decodeSafe(m[1]));
-  if (!handle) return null;
+  // The pages match the handle exactly (no case folding or trimming): /u/Maya is a 404, so it counts nothing.
+  const raw = decodeSafe(m[1]);
+  const handle = normalizeHandle(raw);
+  if (!handle || handle !== raw) return null;
   if (m[2] === 'month' && !/^\d{4}-(0[1-9]|1[0-2])$/.test(m[3])) return null;
   const detail = m[3] ? decodeSafe(m[3]) : null;
   if (m[2] === 'trade' && (!detail || detail.length > 128 || detail.includes('\0'))) return null;

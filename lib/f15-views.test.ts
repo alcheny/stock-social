@@ -18,7 +18,8 @@ const hdrs = (o: Record<string, string | null> = {}) => {
 
 test('F-15 surfaceOf: the counted surfaces, record handles, and nothing else', () => {
   assert.deepEqual(surfaceOf('/'), { surface: 'feed', handle: null, detail: null });
-  assert.deepEqual(surfaceOf('/u/Maya'), { surface: 'profile', handle: 'maya', detail: null });
+  assert.deepEqual(surfaceOf('/u/maya'), { surface: 'profile', handle: 'maya', detail: null });
+  for (const p of ['/u/Maya', '/u/%20maya', '/u/maya%20', '/u/MAYA/trade/x', '/u/Maya/month/2026-10']) assert.equal(surfaceOf(p), null, p); // the pages 404
   assert.deepEqual(surfaceOf('/u/maya/trade/abc%2F1'), { surface: 'trade', handle: 'maya', detail: 'abc/1' });
   assert.deepEqual(surfaceOf('/u/maya/month/2026-10'), { surface: 'month', handle: 'maya', detail: '2026-10' });
   assert.equal(surfaceOf('/t/AAPL')?.surface, 'ticker');
