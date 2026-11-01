@@ -8,7 +8,7 @@
 // every close in the range, so the numbers the pane shows are the profile's numbers.
 import { RANGES, curveDomain, equityCurve, maxDrawdown, pct, rangeTrades, type RangeKey } from './trades.ts';
 import { downsampleIndices, FEED_CHART_POINTS, FEED_LITE_POINTS, PANE_EAGER_CLOSES } from './downsample.ts';
-import { packPoints, unpackPoints, type ChartPoint } from './paging.ts';
+import { packPoints, unpackPoints, withNoteDays, type ChartPoint } from './paging.ts';
 
 const DAY = 86_400_000;
 
@@ -40,7 +40,8 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
 // FEED_LITE_POINTS, as [minutes, value] pairs with no closes attached (values to 4 decimals), and every range's numbers
 // (header, label, tabs). The pane fetches the full
 // chart (`/u/<handle>/pane-chart`) on its first swipe-open, so the feed page no longer carries each trader's chart data.
-export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number];
+// FIXES-CYCLE4-PART2 (F4-16): a dated published note adds its written and edited UTC day numbers (lib/paging.ts#noteDays).
+export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number, writtenDay?: number | null, editedDay?: number | null];
 export type PackedSeries = { t0: number; t1: number; last: number; n: number; dd: number; min: number; max: number; p: number[] };
 export type PackedChart = { base: number; trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries>; lite?: 1 };
 
@@ -65,7 +66,8 @@ export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, li
         if (i < 0) {
           i = out.length;
           ref.set(t.id, i);
-          out.push([t.id, t.symbol, packValue(t.returnPct), t.holdingDays, t.thesis, t.index]);
+          const days = t.thesis !== null && (t.writtenDay != null || t.editedDay != null) ? [t.writtenDay ?? null, t.editedDay ?? null] as [number | null, number | null] : null;
+          out.push(withNoteDays<PackedTrade>([t.id, t.symbol, packValue(t.returnPct), t.holdingDays, t.thesis, t.index], 6, days)); // FIXES-CYCLE4-PART2 (F4-16)
         }
       }
       if (lite) p.push(Math.floor((pt.at - base) / MIN), packValue(pt.value, 4)); // no close: pairs
@@ -97,8 +99,9 @@ export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
       const at = c.base + r.p[i] * MIN, k = c.lite ? -1 : r.p[i + 2];
       let trade: ChartPoint | null = null;
       if (k >= 0) {
-        const [id, symbol, returnPct, holdingDays, thesis, index] = c.trades[k];
-        trade = trades[k] ??= { id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index };
+        const [id, symbol, returnPct, holdingDays, thesis, index, w, e] = c.trades[k];
+        trade = trades[k] ??= { id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index,
+          ...(thesis !== null && (w != null || e != null) ? { writtenDay: w ?? null, editedDay: e ?? null } : {}) }; // FIXES-CYCLE4-PART2 (F4-16)
       }
       pts.push({ at, value: r.p[i + 1], trade });
     }

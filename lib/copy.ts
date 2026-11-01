@@ -1097,3 +1097,20 @@ export const TAKEDOWN = {
   link: 'Notices and takedown requests',
 } as const;
 // end F-16
+
+// FIXES-CYCLE4-PART2 (F4-4, F4-8; docs/features/logs/fixes-cycle4/committee-part2-2026-11-01.md). Additive: no existing
+// constant changes.
+export const FIXES_CYCLE4_PART2 = {
+  // F4-4 (C4-9; business lead, POLICY F3a): the month list's heading on every record (the F-7 form), never "All trades".
+  monthHeading: 'Closed trades this month',
+  // F4-4: the foot of a trader with option closes names closed share trades and keeps TR-1's "none can be hidden"
+  // (FL.monthFoot itself is unchanged for every other trader).
+  monthFootShares: {
+    real: "Recaps list the month's closed share trades from connected accounts, and none can be hidden.",
+    demo: "Recaps list the month's Demo share trades, not from a real broker, and none can be hidden.",
+  },
+  // F4-8 (C4-12; UX lead): the home preview's sentence while the feed can show a public-filing record. It mirrors the
+  // Demo sentence (CHORES_3.demo) and reuses the root description's "built from public filings" (app/layout.tsx).
+  homePublic: 'Records built from public filings are marked Public filing.',
+} as const;
+// end FIXES-CYCLE4-PART2

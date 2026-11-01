@@ -85,14 +85,17 @@ test('K20: the home link preview carries the positioning line, no product name o
   const title = await meta('meta[property="og:title"]');
   const desc = await meta('meta[property="og:description"]');
   expect(title).toBe('Closed trades imported read-only from connected broker accounts.');
+  // FIXES-CYCLE4-PART2 (F4-8): the card URL names the public-filing state too (p=1 while the feed can show a filer's
+  // record; other specs create filer fixtures on the shared database, so either state is read from the URL, then held).
+  const image = await meta('meta[property="og:image"]');
+  expect(image).toMatch(/^https?:\/\/[^/]+\/home-card\?d=1&p=[01]$/); // the seed is demo: the card URL names that state
+  const pub = image!.endsWith('p=1') ? ' Records built from public filings are marked Public filing.' : '';
   // The seed is all demo: the Demo sentence is appended while demo records exist.
-  expect(desc).toBe('Losses included. Demo records are marked Demo.');
+  expect(desc).toBe(`Losses included.${pub} Demo records are marked Demo.`);
   expect(desc!.startsWith(title!)).toBe(false);
-  expect(await meta('meta[name="description"]')).toBe(`${POSITION} Demo records are marked Demo.`);
+  expect(await meta('meta[name="description"]')).toBe(`${POSITION}${pub} Demo records are marked Demo.`);
   expect(await meta('meta[name="twitter:card"]')).toBe('summary_large_image');
   expect(await meta('meta[name="twitter:title"]')).toBe(title);
-  const image = await meta('meta[property="og:image"]');
-  expect(image).toMatch(/^https?:\/\/[^/]+\/home-card\?d=1$/); // the seed is demo: the card URL names that state
   for (const s of [title, desc]) expect(s).not.toMatch(/stock social|\d|%|\$|\bevery\b|any broker|the only/i);
   await expect(page).toHaveTitle('Stock Social');
   const card = await request.get('/home-card?d=1');

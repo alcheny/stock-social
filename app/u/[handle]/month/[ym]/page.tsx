@@ -8,6 +8,9 @@ import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from 
 import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { monthAlt, monthCountText, monthDescription, monthStripInput, recordStripInput } from '@/lib/recap.ts';
+// FIXES-CYCLE4-PART2 (F4-4, C4-9): the month's options qualifier, count line, heading and foot.
+import { monthOptionsLine } from '@/lib/recap.ts';
+import { FIXES_CYCLE4_PART2 as FC4, OPTIONS } from '@/lib/copy.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
 import { RecordStrip } from '@/app/record-strip.tsx';
 import { JoinCta } from '../../join-cta.tsx';
@@ -94,6 +97,12 @@ export default async function RecapPage({ params }: Params) {
               No win rate and no verdict. */}
           {month.figures.length > 0 && <div className="month-figures"><RecordStrip strip={month} /></div>}
           <p className="muted small" style={{ marginTop: 0 }}>{monthCountText(m.count)}</p>
+          {/* FIXES-CYCLE4-PART2 (F4-4): gate closed, the month's option closes counted (legal words); with any options, the link. */}
+          {r.excludingOptions && (
+            <p className="muted small" data-month-options>
+              {monthOptionsLine(r) && <>{monthOptionsLine(r)} </>}<Link className="tap44" href="/how#options">{OPTIONS.howLink}</Link>
+            </p>
+          )}
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">{RECORD_STRIP.link(handle)} {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>
@@ -107,7 +116,7 @@ export default async function RecapPage({ params }: Params) {
       <div className="trade-grid">
         {m.count === 1 ? <Pick title="Only trade this month" t={m.best} /> : <><Pick title="Best trade" t={m.best} /><Pick title="Worst trade" t={m.worst} /></>}
       </div>
-      <h2>{isPublicRecord(r.state) ? 'Closed trades this month' : 'All trades this month'}</h2>
+      <h2>{FC4.monthHeading /* FIXES-CYCLE4-PART2 (F4-4; business lead, POLICY F3a): every record, the F-7 form */}</h2>
       <ol className="small" style={{ listStyle: 'none', padding: 0 }}>
         {m.trades.map((t) => (
           <li key={t.sellId}>
@@ -122,7 +131,7 @@ export default async function RecapPage({ params }: Params) {
       </ol>
       <TradeShare kind="month" isOwner={me !== null && me.handle === handle} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
-      <p className="muted small">{isPublicRecord(r.state) ? PUBLIC.recap : FL.monthFoot[r.demo ? 'demo' : 'real'] /* QA round 1 (finding 12) */}</p>
+      <p className="muted small">{isPublicRecord(r.state) ? PUBLIC.recap : (r.excludingOptions ? FC4.monthFootShares : FL.monthFoot)[r.demo ? 'demo' : 'real'] /* QA round 1 (finding 12); FIXES-CYCLE4-PART2 (F4-4) */}</p>
       {!me && !r.demo && !isPublicRecord(r.state) && <JoinCta handle={handle} via="month" />}
       <p><Link href="/">← Feed</Link></p>
     </main>

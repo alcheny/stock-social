@@ -5,6 +5,7 @@ import { attemptCookieValue, claimLink, EMAIL_COOKIE_SECONDS, hashToken, issueLi
 import { defaultSender, httpsSender, memoryOutbox, memorySender } from './email.ts';
 import { allow, resetRateLimits } from './rate-limit.ts';
 import { LOGIN_MAIL } from '../copy.ts';
+import { holdLinks } from './links-test-hold.ts';
 
 test('link token: random, url-safe, stored only as its sha256; 15-minute life; single use', () => {
   const a = newLinkToken(), b = newLinkToken();
@@ -130,9 +131,18 @@ dbTest('claimLink: the address is gone the moment the link is claimed; a second 
     // Expiry: an unclaimed link past its time reads expired, and the purge deletes it together with its address.
     await issueLink(attempt, email, send, 'https://app.example');
     const second = new URL(urls[1]).searchParams.get('t')!;
-    await sql`update login_links set expires_at = now() - interval '1 second' where token_hash in (${hashToken(token)}, ${hashToken(second)})`;
-    assert.deepEqual(await claimLink(second), { status: 'expired' });
-    assert.equal((await sql`select 1 from login_links where email = ${email}`).length, 1);
+    // Another file's purge (issueLink's lazy purge) deletes every expired row in the shared database, which made the
+    // two reads below flaky (0 rows; 'missing' instead of 'expired'). The rows are held against deletes from before
+    // they expire until they are read (lib/auth/links-test-hold.ts); this test's own purge below runs after the release.
+    const hold = await holdLinks([hashToken(token), hashToken(second)]);
+    try {
+      assert.equal(hold.held, 2);
+      await sql`update login_links set expires_at = now() - interval '1 second' where token_hash in (${hashToken(token)}, ${hashToken(second)})`;
+      assert.deepEqual(await claimLink(second), { status: 'expired' });
+      assert.equal((await sql`select 1 from login_links where email = ${email}`).length, 1); // expired, unclaimed: the address stays until a purge
+    } finally {
+      await hold.release();
+    }
     await issueLink(attempt, email, send, 'https://app.example'); // a fresh link survives the purge (issueLink purges lazily too)
     const left = await sql`select email, token_hash from login_links where attempt_id = ${attempt}`;
     assert.equal(left.length, 1);
