@@ -178,3 +178,11 @@ they unblock, their files and merge positions are as follows.
   - Files: a `WarnNotice` component and `.warn-notice` rules, the bar baseline in `app/t/[symbol]/Spread.tsx` and
     `Timeline.tsx`.
   - F-20's file is not edited: its build session owns it.
+
+## F-16/F-17 (`claude/f16-f17-trust-safety`) → F-26 note slots (2026-11-01)
+
+`lib/reports.ts#reportThesis` now accepts a close's stable `trade_key` (64 hex) as well as its row id, and the feed
+card sends the key. The note slots on `app/u/[handle]/page.tsx` (`reportId={String(t.id)}`) and
+`app/u/[handle]/trade/[sellId]/page.tsx` (`t.note?.tradeId`) still send the row id, so a report from a page rendered
+before a rebuild answers the neutral "not-found". F-26 owns those slots: please pass `tradeKey(t.sell_id)`
+(`lib/likes.ts`) there. No change is needed in `app/user-note.tsx` or `app/report-note.tsx`.

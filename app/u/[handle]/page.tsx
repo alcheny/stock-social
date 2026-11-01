@@ -17,7 +17,7 @@ import { paneTrust } from '@/lib/pane.ts';
 import { Badge, PublicNotice } from '../../ui.tsx';
 import { UserNote } from '../../user-note.tsx';
 import { heldLine } from '@/lib/report-copy.ts';
-import { HANDLE_RULE, profileHandleError } from '@/lib/handles.ts';
+import { HANDLE_RULE, nextRenameAt, nextRenameText, profileHandleError, RENAME_RULE } from '@/lib/handles.ts';
 // F-7 public-record traders.
 import { isPublicRecord, PUBLIC, publicExclusions } from '@/lib/copy.ts';
 import { filerInfo, filerVisible, PUBLIC_STALE_DAYS } from '@/lib/public-gate.ts';
@@ -58,19 +58,11 @@ import { impersonationLineShown } from '@/lib/takedown.ts';
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
-// seam: F-17's RENAME_RULE, nextRenameAt and HANDLE_REASON.soon belong to engineer D (lib/handles.ts, plan §6.1, §13 D).
-// Until D's lib/handles.ts lands they are these local stand-ins (same wording as plan §2.6); the lead replaces them with
-// the imports at merge.
-const RENAME_RULE = 'You can change your handle once every 30 days. Your old handle stays reserved for you for a year and its links stop working. Changing again releases it.';
-const nextRenameAt = (renamedAt: Date | null): Date | null => (renamedAt ? new Date(renamedAt.getTime() + 30 * 86_400_000) : null);
-const SOON = 'You can change your handle once every 30 days.';
-// F-17 (plan §2.6): a "soon" rejection says when the next change is allowed.
-const nextChange = (d: Date) => `Next change: ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}.`;
+// F-17 (plan §2.6, §6.1): a "soon" rejection (the 30-day rule, lib/handles.ts) also says when the next change is allowed.
 function renameError(code: string | undefined, renamedAt: Date | null): string | undefined {
-  if (code !== 'soon') return profileHandleError(code);
-  const base = profileHandleError('soon') ?? SOON;
-  const next = nextRenameAt(renamedAt);
-  return next && !base.includes('Next change') ? `${base} ${nextChange(next)}` : base;
+  const base = profileHandleError(code);
+  const next = code === 'soon' ? nextRenameText(renamedAt) : undefined;
+  return base && next ? `${base} ${next}` : base;
 }
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
@@ -134,6 +126,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const base = profileDescription({ state, demo, verified, trades: s.trades, stats: statsText });
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
+    // F-15 second half: one untagged address, so a shared ?via= copy is never indexed as its own page.
+    alternates: { canonical: `/u/${user.handle}` },
     // POLICY F3: a preview text that quotes a figure also carries the disclaimer (text-only previews show no image).
     // F-6: the open positions follow the closed-trade figures in F-6's wording (cardDescription's openLine); a record
     // with no closes keeps its empty-record line (PR-2b), and its profile shows the open positions.
@@ -226,7 +220,7 @@ export default async function Profile({ params, searchParams }: Params) {
   const renamedAt = isMe ? ((me as { handle_renamed_at?: Date | null }).handle_renamed_at ?? null) : null;
   const handleError = isMe ? renameError((await searchParams)?.handle, renamedAt) : undefined;
   const renameNext = nextRenameAt(renamedAt);
-  const renameSoon = renameNext && renameNext.getTime() > Date.now() ? nextChange(renameNext) : null;
+  const renameSoon = renameNext && renameNext.getTime() > Date.now() ? nextRenameText(renamedAt) : null;
   const trustShown = impersonationLineShown(); // F-16: draft line in the sandbox until the owner approves it
   const listed = trades.slice(win.start, win.start + win.shown);
   const firstNew = win.next !== null ? trades[win.end] : null;

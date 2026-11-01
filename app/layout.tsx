@@ -7,9 +7,19 @@ import { headers } from 'next/headers';
 import { FOOTER, NAV, verifiedMeansFooter } from '@/lib/copy.ts';
 // F-13: the pre-paint device-flag script (no flash of a dismissed line or a used hint).
 import { SEEN_SCRIPT } from '@/lib/device-flag.ts';
+// F-15: the first-party view beacon (renders nothing; app/view-beacon.tsx).
+import { ViewBeacon } from './view-beacon.tsx';
+import { siteOrigin } from '@/lib/site-origin.ts';
 import './globals.css';
 
+// An unparseable configured origin must never take every page down: no base then (relative URLs resolve per request).
+function metadataBase(): URL | undefined {
+  try { return new URL(siteOrigin()); } catch { return undefined; }
+}
+
 export const metadata: Metadata = {
+  // F-15 second half: canonical links (and image URLs) resolve against the configured public origin, never a Host header.
+  metadataBase: metadataBase(),
   title: 'Stock Social',
   description: 'Verified trades, straight from the broker. Losses included.',
 };
@@ -38,6 +48,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           {me ? <Link className="me" href={`/u/${me.handle}`}>@{me.handle}</Link> : <NavLogin>Publish your trades</NavLogin>}
         </nav>
         {children}
+        {/* F-15: counts a view after 2 s visible; renders nothing, adds no focusable element (moved from app/template.tsx). */}
+        <ViewBeacon />
         {/* docs/POLICY.md F3: every page that can show performance carries this, in plain view */}
         <footer className="site muted" id="site-footer" tabIndex={-1}>
           {/* Fix #9 (F-13 group): the Verified sentence is the badge title's constant (lib/copy.ts VERIFIED_MEANING). */}

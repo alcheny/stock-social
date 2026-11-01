@@ -31,7 +31,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   identities: { personal: true, retention: 'account', holds: 'sign-in provider subject and email address' },
   sessions: { personal: true, retention: 'session', holds: 'hashed session token and user id; purged at expiry' },
   login_links: { personal: true, retention: 'session', holds: 'email address of a sign-in link; purged when expired or its attempt finished' },
-  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 3 per account (a further rename ends the oldest hold); purged by the tick once the hold has ended' },
+  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 1 per account (F-17: a further rename ends the older hold); purged by the tick once the hold has ended' },
   funnel_events: { personal: false, retention: 'short', holds: 'sign-up step names and times per attempt; purged with an unfinished attempt' },
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot (with a keyed hash of each account\'s institution identity, never the identifier); a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
@@ -82,6 +82,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   // F-15 (docs/features/F-15-measurement-foundation.md): aggregate daily view counts. No IP, user agent, viewer or session
   // id, cookie, referrer URL, path or time of day. Counted as personal because a row names the viewed trader's id.
   view_rollup: { personal: true, retention: 'short', holds: 'daily view counts per surface, viewed trader id (record pages), referrer class, source class, signed-in and self-view flags; deleted with the trader\'s account; purged after 120 days (lib/views.ts VIEW_RETENTION_DAYS)' },
+  share_action: { personal: true, retention: 'short', holds: 'one row per completed share of a trader\'s own record: trader id, UTC day, share class (card, story, trade, month), outcome (sheet or copy), the record\'s headline sign (up, down, flat, none); no time of day, destination, thesis or account id; deleted with the account; purged after 120 days (lib/share-actions.ts SHARE_RETENTION_DAYS)' },
   view_drops: { personal: false, retention: 'short', holds: 'daily counts of beacons the bot filter dropped, per surface and reason (no user id); purged after 120 days' },
   // F-16 (docs/features/logs/F-16-F-17/plan.md §3): the owner's audited hides; deleted with the profile (cascade).
   trust_audit: { personal: true, retention: 'account', holds: 'owner hides and unhides of a profile or thesis: kind, user id, sell id, action, reason code, actor, time; no thesis text or reporter; deleted with the profile (cascade)' },

@@ -550,7 +550,13 @@ export type ReconcileOpts = { boxMs?: number; clock?: () => number; pageSize?: n
 
 // Known-limits sweep 2: the reconciliation is one pass resumed tick by tick, time-boxed like the other cron stages
 // (lib/privacy-purge.ts, lib/display-log.ts). billing_runs 'reconcile' holds the pass in progress: its start, phase,
-// cursor (the last processor subscription handled; `starting_after` takes any id) and the failures at that cursor.
+// cursor (the last processor subscription handled) and the failures at that cursor.
+// ponytail: the processor documents `starting_after` as "an existing object ID" (cursor pagination, reverse creation
+// order); whether a cursor whose subscription was canceled between ticks (so it has left the not-canceled list) still
+// resumes in place, or is refused, is not documented and not confirmed against the live processor (no test-mode key in
+// this environment; the e2e fake accepts any id). If it is refused, the page fails RECONCILE_MAX_FAILS times and the
+// pass moves to 'missing', so nothing is skipped, only slower — confirm in test mode, and on a refusal restart the list
+// from the start of the pass instead.
 // Every pass write is fenced by the holder's lease token, renewed per subscription, so a holder that overran its lease
 // can neither move the cursor nor complete the pass after another holder took it over.
 // - 'list': the processor's paged list of subscriptions that are not canceled, compared with the app's rows. The box

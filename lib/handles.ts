@@ -9,9 +9,17 @@ import { LAUNCH, SIGNIN } from './copy.ts';
 // A deleted or renamed handle stays unavailable to others for a year (lib/delete.ts re-exports this).
 export const HANDLE_RESERVED_DAYS = 365;
 
-export type HandleVerdict = 'ok' | 'taken' | 'reserved' | 'lookalike' | 'format';
+// F-17: 'soon' is the 30-day rename rule (lib/auth/attempts.ts#changeHandle); handleVerdict itself never returns it.
+export type HandleVerdict = 'ok' | 'taken' | 'reserved' | 'lookalike' | 'format' | 'soon';
 
-// The product's own, staff, generic and route words, plus the integrated vendor's name. No third-party names.
+// F-17 (decision "at most one rename per 30 days"): the rename clock. A rename at `renamedAt` allows the next one at
+// renamedAt + RENAME_DAYS; null (never renamed, or only left the provisional handle) means a rename is allowed now.
+export const RENAME_DAYS = 30;
+export const nextRenameAt = (renamedAt: Date | null): Date | null =>
+  renamedAt ? new Date(renamedAt.getTime() + RENAME_DAYS * 86_400_000) : null;
+
+// The product's own, staff, generic and route words, plus the integrated vendor's name (F-17 Q1: POLICY T1's
+// integrated-vendor exception, pinned by lib/f17-handles.test.ts as the only vendor entry). No other third-party names.
 export const RESERVED: readonly string[] = [
   'admin', 'administrator', 'support', 'help', 'helpdesk', 'moderator', 'mod', 'mods', 'staff', 'team', 'official',
   'verified', 'demo', 'root', 'system', 'api', 'security', 'legal', 'press', 'privacy', 'terms', 'abuse', 'report',
@@ -150,11 +158,14 @@ export async function checkHandle(handle: unknown, selfUserId?: number | null, o
 export const DISPLAY_NAME_MAX = 40;
 // Fix round 1: check-like letters and signs too (Lisu ꓦ, ⩗ ⩘, ⍻, the Aegean check mark).
 const CHECK_GLYPHS = /[✓✔☑✅√\u{1F5F8}\u{1F5F9}\u{2BBD}\u{1F197}\uA4E6\u2A57\u2A58\u237B\u{10102}]/u;
+// F-17: seal and badge glyphs read as an endorsement too (rosette, medals, name badge, seal-style circled ideographs,
+// the shield, the lock with pen). Refused with the check rule.
+const SEAL_GLYPHS = /[\u{1F3F5}\u{1F396}\u{1F3C5}\u{1F947}-\u{1F949}\u{1F4DB}\u{1F4AE}\u{1F250}\u{1F251}\u3297\u3299\u{1F6E1}\u{1F50F}\u{1F530}]/u;
 // Why a name is refused, by code (app/login/dev shows the reason from the code; the URL never carries the name).
 export const NAME_REASON = {
   letter: 'Display names need at least one letter or number.',
   long: `Display names can be at most ${DISPLAY_NAME_MAX} characters.`,
-  check: 'Display names can’t include check marks.',
+  check: 'Display names can’t include check marks or seals.',
   emoji: 'Display names can have at most 2 emoji.',
   verified: 'Display names can’t say verified or official.',
   brand: 'Display names can’t use the product’s or the broker connection’s name.',
@@ -162,8 +173,13 @@ export const NAME_REASON = {
 } as const;
 export type NameReasonCode = keyof typeof NAME_REASON;
 // Fix round 2 (G): common misspellings too ("Verifled", "Verfied", "Offical", "Oficial"), on the skeleton and leet forms.
+// F-17 (decision "word rules match on word boundaries", v2 E7): verified/official match only as a whole word (no
+// letter on either side; a digit is a boundary, "Verified2"), so "Unofficially bullish" and "Officialdom fan" pass
+// while "Un-official", "Official Desk" and "v.e.r.i.f.i.e.d" (its punctuation-free form) stay refused. A lower-to-upper
+// case change counts as a boundary ("VerifiedTrader", checkDisplayName's camel form). Brand words stay substring rules
+// ("StockSocialFan").
 const NAME_WORDS: [RegExp, NameReasonCode][] = [
-  [/verified|official|ver+[il1]?f[il1y]+e?d|of+[il1]c+[il1]?a[l1]/, 'verified'],
+  [/(?<!\p{L})(?:verified|official|ver+[il1]?f[il1y]+e?d|of+[il1]c+[il1]?a[l1])(?!\p{L})/u, 'verified'],
   [/stock\s?social|snaptrade/, 'brand'],
 ];
 // Fix round 1: a name that is only a staff or role word ("Admin", "Support Team", "The Moderators"), compared on its
@@ -185,10 +201,13 @@ export function checkDisplayName(raw: unknown): { ok: true; name: string } | { o
   const name = sanitizeUserText(String(raw ?? '').replace(/\n/g, ' '), 400).replace(/\n/g, ' ');
   if (!/[\p{L}\p{N}]/u.test(name)) return no('letter');
   if (Array.from(name).length > DISPLAY_NAME_MAX) return no('long');
-  if (CHECK_GLYPHS.test(name.normalize('NFKC'))) return no('check');
+  // The one NFKC outside lib/text-safety.ts (allowlisted in lib/f17-normaliser.test.ts): the skeleton turns pictographs
+  // into spaces, so the glyph rule reads the plain NFKC form instead.
+  if (CHECK_GLYPHS.test(name.normalize('NFKC')) || SEAL_GLYPHS.test(name)) return no('check');
   if (graphemes(name).filter((g) => EMOJI_LIKE.test(g)).length > 2) return no('emoji');
   const sk = skeleton(name);
-  const forms = [sk, ...leet(sk)].flatMap((f) => [f, squash(f), f.replace(/[^\p{L}\p{N}\s]/gu, '')]);
+  const camel = skeleton(name.replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2'));
+  const forms = [...new Set([sk, camel])].flatMap((s) => [s, ...leet(s)]).flatMap((f) => [f, squash(f), f.replace(/[^\p{L}\p{N}\s]/gu, '')]);
   for (const [re, code] of NAME_WORDS) if (forms.some((f) => re.test(f))) return no(code);
   if (forms.some((f) => roleOnly(f.replace(/[^\p{L}\p{N}]/gu, '')))) return no('role');
   return { ok: true, name };
@@ -217,11 +236,19 @@ export async function recheckDisplayNames(opts: { userIds?: number[]; db?: typeo
 // `name-<code>` or `handle-<verdict>`). Unknown codes show nothing, so the URL can't put words on the page.
 // Fix round 2 (D): taken and look-alike say what to do next ("Try another."); fix round 3: reserved too.
 export const HANDLE_RULE = '3–20 lowercase letters, numbers or _';
-const HANDLE_REASON: Record<Exclude<HandleVerdict, 'ok'>, string> = {
+export const HANDLE_REASON: Readonly<Record<Exclude<HandleVerdict, 'ok'>, string>> = {
   taken: 'That handle is taken. Try another.',
   reserved: 'That handle is reserved. Try another.',
   lookalike: 'That handle looks too much like another one. Try another.',
   format: `Handle: ${HANDLE_RULE}.`,
+  soon: `You can change your handle once every ${RENAME_DAYS} days.`,
+};
+// F-17 (plan §2.6): the rename panel's hint, under HANDLE_RULE (app/u/[handle]/page.tsx renders it).
+export const RENAME_RULE = `You can change your handle once every ${RENAME_DAYS} days. Your old handle stays reserved for you for a year and its links stop working. Changing again releases it.`;
+// F-17: the date line after HANDLE_REASON.soon on the profile ("Next change: Dec 1, 2026."), UTC, en-US short.
+export const nextRenameText = (renamedAt: Date | null): string | undefined => {
+  const at = nextRenameAt(renamedAt);
+  return at ? `Next change: ${at.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}.` : undefined;
 };
 // The profile's handle-change rejection (app/u/[handle]/page.tsx, ?handle=<verdict>): the same words, format without
 // the "Handle:" prefix (the field is already labelled). Unknown values show nothing.

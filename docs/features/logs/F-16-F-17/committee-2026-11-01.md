@@ -78,3 +78,7 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
   404s itself (no proxy fallback needed). `e2e/f16-not-found.spec.ts` passes on the production build.
 - **Fan-out** (four engineers, separate worktrees, disjoint files): A predicate sweep, B reports/hide/digest,
   C UI surfaces, D F-17 handles. Merge order B, A, D, C.
+- **Orchestrator item (2026-11-01, after #82):** key thesis reports by the stable `trade_key` too, accepting both a
+  64-hex key and a row id with the same rules as `lib/likes.ts#close`, plus a test with a rebuild between render and
+  report. Taken after engineer B's `lib/reports.ts` merges (the note slot in `app/user-note.tsx` is F-26's: only
+  `lib/reports.ts` and the action change).

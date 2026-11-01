@@ -8,16 +8,15 @@ type Props = {
   label: string;
   image?: string; // path of a PNG to share as a picture where the device supports it
   className?: string;
-  onShared?: (how: 'copied' | 'shared') => void; // best-effort tracking; never blocks the share
+  // best-effort tracking; never blocks the share. picture: the share sheet took the image (F-15: the story class).
+  onShared?: (how: 'copied' | 'shared', picture: boolean) => void;
   via?: string; // F-15: the source class appended as ?via=; default from what is shared (lib/share.ts#shareVia)
 };
 
 // The product's only share control: one click. Opens the system share sheet (with the image when possible),
 // or copies the link where there is no share sheet. Generic label, no platform names (docs/POLICY.md T5).
 // F-15: the shared or copied link carries ?via=<source class>, set at click time from the path taken (the story class
-// only when the sheet takes the picture).
-// ponytail: no page declares a canonical link, so a search engine may index a ?via= copy of a record page — fix:
-// alternates.canonical on the profile, trade and month metadata (with metadataBase) after F-13 and F-11 merge.
+// only when the sheet takes the picture). The record pages declare the untagged address as canonical (F-15 second half).
 export function ShareButton({ url, title, label, image, className, onShared, via }: Props) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [link, setLink] = useState(url);
@@ -37,7 +36,7 @@ export function ShareButton({ url, title, label, image, className, onShared, via
     return () => { live = false; };
   }, [image]);
 
-  const done = (how: 'copied' | 'shared') => { try { onShared?.(how); } catch { /* tracking is best-effort */ } };
+  const done = (how: 'copied' | 'shared', picture = false) => { try { onShared?.(how, picture); } catch { /* tracking is best-effort */ } };
 
   async function copy(text: string) {
     try {
@@ -57,7 +56,7 @@ export function ShareButton({ url, title, label, image, className, onShared, via
     if (mode === 'copy') return copy(shared);
     try {
       await navigator.share(mode === 'files' ? { title, url: shared, files: [file.current!] } : { title, url: shared });
-      done('shared');
+      done('shared', mode === 'files');
     } catch (e) {
       if ((e as Error).name !== 'AbortError') await copy(linkFor('copy')); // a share sheet that fails still leaves the link copied
     }

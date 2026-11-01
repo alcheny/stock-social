@@ -84,14 +84,14 @@ Every `ponytail:` note on main (`git grep -n "ponytail:" -- app lib scripts db e
 | 78 | `lib/discovery/personal-cache.ts:9` at most PERSONAL_CACHE_MAX lists; past it the oldest go and their sess… | precise and kept (outside this sweep) |
 | 79 | `lib/discovery/weights.ts:48` the implicit weights are the committee's proposal, not tuned on real r… | precise and kept (outside this sweep) |
 | 80 | `lib/display-log.ts:75` one snapshot per trader, one after another (~5 queries and a whole-rec… | resolved here |
-| 81 | `lib/feed.ts:38` a day's list holds at most FEED_LIST_MAX (350) cards, so most of thous… | precise and kept (same file, not on this sweep's list) |
-| 82 | `lib/feed.ts:88` the time is read once, when the close is inserted, so a SELL with the … | precise and kept (same file, not on this sweep's list) |
+| 81 | `lib/feed.ts:38` a day's list holds at most FEED_LIST_MAX (350) cards, so most of thous… | made precise here (rewritten with measured cost and fix) |
+| 82 | `lib/feed.ts:88` the time is read once, when the close is inserted, so a SELL with the … | made precise here (rewritten with measured cost and fix) |
 | 83 | `lib/feed.ts:125` when the window cannot prove the 200, this ranks every close in closed… | made precise here (rewritten with measured cost and fix) |
-| 84 | `lib/feed.ts:199` a page reads its traders' whole records (~50,000 closes for heavy ones… | precise and kept (same file, not on this sweep's list) |
+| 84 | `lib/feed.ts:199` a page reads its traders' whole records (~50,000 closes for heavy ones… | made precise here (rewritten with measured cost and fix) |
 | 85 | `lib/feed.ts:210` every page trader's whole record now also ships opened_at (~15–30 ms m… | precise and kept (same file, not on this sweep's list) |
-| 86 | `lib/feed.ts:332` kept lists and weights are per process, so every server (and every res… | precise and kept (same file, not on this sweep's list) |
+| 86 | `lib/feed.ts:332` kept lists and weights are per process, so every server (and every res… | made precise here (rewritten with measured cost and fix) |
 | 87 | `lib/feed.ts:363` the profile is read on every page, even when the kept personal list is… | made precise here (rewritten with measured cost and fix) |
-| 88 | `lib/feed.ts:445` a trader's symbols are only those of their closes in the kept list (≤ … | precise and kept (same file, not on this sweep's list) |
+| 88 | `lib/feed.ts:445` a trader's symbols are only those of their closes in the kept list (≤ … | made precise here (rewritten with measured cost and fix) |
 | 89 | `lib/fixes-cycle2-trust.test.ts:18` these stock files still read closed_trades / open_positions with their… | precise and kept (outside this sweep) |
 | 90 | `lib/follows.ts:89` every follow and every hidden trader, unpaged (/me/following and the R… | resolved here |
 | 91 | `lib/follows.ts:123` one unpaged list (every expired hide of the viewer) — page it like /me… | resolved here |
