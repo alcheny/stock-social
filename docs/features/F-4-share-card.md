@@ -119,6 +119,11 @@ elements that catch the eye and travel, and leave detail for the profile.
 - 2026-11-01: The link preview keeps every element at 10 CSS px or more by moving the chart caption to its own row
   and the headline label beside the number; its chart is about 27% normally, 24% with an open-positions row or the
   failed-import note, 21% with both; square and story keep 30%. Why: decided by the committee under the owner's instruction of 2026-11-01; the owner's "about 24%, every element kept".
+- 2026-11-01: The profile shows the share card's evidence (the same range, tier and "Past results" verdict), and the
+  preview text ends with the disclaimer; the @handle always shows in full on every card size, only the display name
+  gives way; the New record pill is the trust badge's size. Why: decided by the committee under the owner's instruction of 2026-11-01; the user tests found a shared link landing on a
+  profile with a different range and tier, a figure without the disclaimer in text-only previews, and a long name
+  hiding the handle (the card's one unique identity). Ranking keeps its own interval.
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
@@ -162,3 +167,5 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Build log
 - 2026-10-26: Built to these decisions (record card for the unfurl and the Share button picture, 5-bet floor, ±10-point threshold, trust-line table); details, test results and open items in `docs/features/logs/F-4/build-engineer.md`.
+- 2026-11-01: Rebuilt to the decisions of 2026-10-31 and 2026-11-01 with F-6's share-card part; committee record
+  `docs/features/logs/F-4/committee-2026-11-01.md`, build, QA and test results `docs/features/logs/F-4/build-2026-11-01.md`.
