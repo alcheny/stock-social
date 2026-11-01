@@ -105,6 +105,142 @@ hourly, but each account is read within the vendor's guidance (`lib/sync-cadence
   - the oldest activities and positions reads, with `freshnessAlarm` above 26 h and 18 h (positions normally go 12–13 h unread before
     the read an activities read forces, and up to about 17 h with round jitter).
 
+## Late postings (F-24)
+
+`docs/features/F-24-late-sell-reconciliation.md`; plan and committee record `docs/features/logs/F-24/plan.md` (round 2
+and "Round 3 changes"). Code: `lib/reconcile.ts`, the pass step in `lib/sync.ts#syncUser`, the close-change count in
+`lib/options-sync.ts#rebuildRecord`. The week re-read starts 7 days before the newest stored activity, so a row the
+vendor posts later with an older trade date is never read by it. A periodic full-history read per account (a **pass**)
+finds those rows:
+
+- **Insert only.** A pass inserts with the same `on conflict (source, external_id) do nothing` as every other read. No raw
+  row is ever updated or deleted, and what it finds reaches `closed_trades` only through the rebuild.
+- **Period:** a pass starts at most once per 7 days per account (`RECONCILE_EVERY_MS`). When a pass ends (decided or
+  not), the next one is due 7 days later. A whole-history read made another way (the first sync of a record with
+  nothing stored, the option backfill's last page) restarts the period too.
+- **Stagger:** a null due date is written once, by the first sync that plans the account, as the next occurrence of the
+  account's own weekday (`((hashtext(account_id) % 7) + 7) % 7`, on the database clock), on or after `claimed_at + 7 d`
+  (a just-claimed account has just read its whole history). From then on it compares normally, so no day is missed.
+- **Budget and pacing:**
+  - A pass reads one vendor page per due daily activities read (F-14), **in place of** that day's week read. Requests
+    per account per day do not change, and nor does the shard runner's request plan.
+  - Only under `cadence` (the shard runner), only for accounts due today under F-14 (consented, not frozen, not paper)
+    and never for an account still owed its option backfill (the backfill's page wins).
+  - A later page waits at least 47 h after the previous one (`RECONCILE_PAGE_GAP_MS`), so an account's daily reads go
+    page, week, page, week: its recent trades wait at most one extra day.
+  - A one-page pass (page 0 returns `done`) read the whole history in one call, a superset of the week read: it counts
+    as the week read. Any other page is a history page: the account's positions take the positions-only rule (a sold
+    position is never removed before its close is imported, TR-4) and `last_synced_at` keeps its value, as during an
+    option backfill. ponytail: up to a day of "Updated" skew across accounts on page days.
+- **Overlap:** each later page starts 50 rows back (`RECONCILE_OVERLAP`: offset += limit − 50), so exactly 50 of its
+  vendor ids must also be on the previous page (share, unusable and option rows all count: the order across them is
+  not kept, so the check is on the count). More or fewer means a row was inserted or removed before the cursor and a row
+  may have been skipped: the pass is invalid. A vendor row with no id makes the count short (invalid, the safe side).
+  ponytail: a vendor row with an id but no symbol is in no list either, so inside the overlap it ends that account's
+  multi-page passes `shifted` every time (held rows stay held, counted) — fix: count raw vendor ids (a `lib/broker.ts`
+  change, owner item).
+- **Set completeness:** a pass that ended is complete when it had no overlap break and every `snaptrade` BUY or SELL row
+  of the account stored before the pass started is among the ids it listed (unusable trade rows included), except the
+  originals of the account's held rows, which are what is being tested. Rows that arrive during the pass cannot mask a
+  skipped row.
+- **Stable shortfall:** the stored ids an ended pass did not list are kept (`broker_accounts.reconcile_missing`). A pass
+  without an overlap break whose missing ids are all among the previous pass's missing ids decides too (a stored row the
+  vendor no longer lists, such as a cancel: owner question Q3), so one cancel never leaves an account undecided forever.
+- **Abandoned or invalid passes** decide nothing; the next one starts a period later:
+  - `shifted`: the overlap broke;
+  - `missing`: a shortfall that is not the previous pass's;
+  - `bound`: more pages than `ceil(expected / (limit − 50)) + 2`, where expected is every stored row the read can return
+    at the start (share rows, unusable trade rows and option rows);
+  - `confirm`: 2 failed syncs in a row that were to make the widened confirm read (`sync_read_marks.confirm_failures`);
+  - `busy`: the widened confirm read's window holds a full vendor page (1,000 rows) or more, so it would be several
+    responses and decide nothing. The account's confirm rows are suspected at once and no widened read is made
+    (ponytail: an end date or per-page ids from `lib/broker.ts`, owner);
+  - `failures`: 2 failed page steps in a row (`RECONCILE_MAX_FAILURES`). A failure counts (`pageFailureCounts`) for any
+    error thrown inside the page step, code errors such as a `TypeError` included, except vendor or database outages
+    (429, 5xx, a vendor timeout, transport and database-wide codes) and a cut at the route's end (`RouteDeadlineError`).
+    The count is written after the transaction (`sync_read_marks.reconcile_failures`), and a committed sync clears it.
+    At 2 the pass is given up and the account reads its week instead.
+  Each one adds 1 to `broker_accounts.reconcile_invalid` (passes in a row; a deciding pass resets it) and logs one line.
+- **Restart and retention:** a pass started before the account's latest consent or claim restarts at offset 0. An
+  account that stops being read (frozen, paper, unconsented) drops its running pass, its listed ids and its missing ids
+  in the same sync.
+  ponytail: a trader whose every connection is frozen is never synced, so a pass left running there is not cleared; it
+  holds only vendor ids `activities` already keeps.
+- **Rollbacks:** the cursor and the re-issue states are written inside the sync's transaction, so a failed or cut sync
+  leaves them as they were (only the failure count is written after it).
+- **Re-issues** (`activity_reissues`, one row per newer id). A newly stored row whose account, symbol, side, time, units
+  and price equal a row stored **before this transaction**, under another vendor id, is a possible re-issue. Rows that
+  arrive together were listed by the same read and are never held. The rebuild leaves out every row not `genuine`, so a
+  re-issue is never published twice. The rebuild passes undecided rows (pending, confirm, and give-ups flagged
+  `undecided`) to the matcher as holds (council cycle 5 RT-2): a held row opens no lot, and in the canonical order every
+  later sell of its pair is counted in `users.excluded_held` (shown on the profile when there are any), never priced
+  from a ledger missing a row; a rename carries the mark; each real sell is counted once. A row decided genuine is
+  priced normally; one the count rule decided suspected is a duplicate, left out of the rebuild:
+  - `pending`: held until a read decides it. A week read that finds one and cannot decide it brings the account's next
+    pass forward (never an account whose pass ran in that sync: an ended or given-up pass waits its period);
+  - `genuine`: ONE vendor response (one pass page, one week read, one import page) decides by count. Per twin group, k
+    is the group's rows that response listed and p the group's rows not held (listed or not); at most k − p of the
+    group's listed held rows are cleared, the oldest stored first, so the record keeps as many fills as the vendor lists
+    (a re-issued original, never listed again, cannot hide a genuine late twin). A week read decides only inside its
+    window, a day clear of its time-zone boundary. Never the union of a pass's pages: they are days apart, so it could
+    hold an original from before its re-issue and the re-issue from after. A `fetchActivities` call that returned a
+    full vendor page (1,000 rows) or more is several responses (it pages internally with no overlap), so it decides
+    nothing. ponytail: per-page id lists from `lib/broker.ts` (owner) would let each internal page decide. The row is
+    kept and published. Final;
+  - `confirm`: a complete pass listed enough of the group's rows to clear it by the same count, but never on one page.
+    On a busy account (a full vendor page or more stored since the twins' date) there is no widened read: the rows are
+    suspected (reason `busy`). The account's next daily
+    activities read (inside F-14's budget) is widened to a day before the row's trade date: one call, a superset of the
+    week read. It makes the row genuine when it lists both, otherwise suspected (the one week read that can suspect).
+    Two failed syncs in a row that were to make it give it up (rows suspected, reason `confirm`, the week read). Held;
+  - `suspected`: no single read listed it with every unheld twin, or a twin was not listed at all. Held, counted for the
+    owner; a later pass that lists it and its twins on different pages sets it to `confirm` again. Held rows and their
+    twins never make a pass short.
+  The connect-time import (`importStep`) checks each page on its own; its pages overlap by up to 50 rows so neighbouring
+  twins share a page (an import step can wait an hour or more behind a backoff, so pages are never joined). Option rows are
+  counted (`optionTwins`), not held: a re-issued option close can show twice until the owner decides (owner item).
+- **Close-change count:** every rebuild compares the trader's closes (share and option) before and after, by id and a
+  hash of the shown fields (theses left out). Closes that were shown and are now changed or removed are added to
+  `users.closes_rewritten` and logged. Added closes are not counted. The count is shown nowhere yet.
+  The deploy-time matcher rebuild (`lib/matcher-rebuild.ts`, once per `MATCHER_VERSION`) goes through `rebuildRecord`
+  too, so closes a matcher change rewrites are counted the same way (D4: every rebuild that changes or removes a shown
+  close). A record whose closes it leaves unchanged adds nothing. Separating the two causes would need a cause column:
+  an owner item.
+- **Nothing visible:** a found close renders like any close on the profile, the trade page, the feed card and the share
+  card, with no "late", "corrected" or "new" wording or styling. Its thesis stays attached by `sell_id`. No file under
+  `app/` reads any of this state (`lib/sync-reconcile.copy.test.ts`).
+
+**Log lines** (`const id = userId`: the internal user id and counts only, never a handle, figure or payload):
+
+| Line | When | Shape |
+|---|---|---|
+| `sync closes rewritten <id> {…}` | a rebuild changed or removed a close already shown | `{"changed":n,"removed":n,"added":n}` |
+| `sync reissues <id> {…}` | a sync found, cleared or counted re-issues | `{"found":n,"cleared":n,"pending":n,"confirm":n,"suspected":n,"optionTwins":n}`: found and cleared in this sync; pending, confirm and suspected are the trader's totals |
+| `sync reconcile invalid <id> {…}` | a pass ended without deciding, or was given up | `{"reason":"shifted" \| "missing" \| "bound" \| "failures"}` |
+| `sync reconcile marks failed <id> <error>` | writing the failure count after the transaction failed (never fatal) | `console.error`, `logSafe(e)` |
+
+**Owner queries** (internal ids only):
+
+```sql
+-- Closes already shown that a rebuild changed or removed, per trader.
+select id as user_id, closes_rewritten from users where closes_rewritten > 0 order by closes_rewritten desc;
+
+-- Held rows per trader: pending (waiting for a read to decide) and suspected (a complete pass did not list the original).
+select user_id, count(*) filter (where state = 'pending') as pending, count(*) filter (where state = 'suspected') as suspected
+from activity_reissues where state <> 'genuine' group by user_id order by suspected desc, pending desc;
+
+-- The oldest pending row's age, per account (a held row that may be a genuine fill waits this long).
+select user_id, account_id, now() - min(found_at) as oldest_pending, count(*) as pending
+from activity_reissues where state = 'pending' group by user_id, account_id order by oldest_pending desc limit 50;
+
+-- Passes in a row that ended invalid or were given up, per account, with the pass's position.
+select user_id, account_id, reconcile_invalid, reconcile_offset, reconcile_due_at, reconcile_missing is not null as shortfall
+from broker_accounts where reconcile_invalid > 0 order by reconcile_invalid desc;
+```
+
+Alert on any account whose `reconcile_invalid` keeps growing: its passes never validate, so a held row there (possibly a
+genuine fill) stays held and counted until the owner looks.
+
 ## Logs (numbers only, no personal data)
 
 | Line | When | Fields |

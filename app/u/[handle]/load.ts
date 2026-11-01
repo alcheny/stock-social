@@ -14,7 +14,7 @@ export type PerRequest = <F extends (...args: never[]) => unknown>(fn: F) => F;
 
 export function profileReads(perRequest: PerRequest) {
   return {
-    user: perRequest(async (handle: string) => (await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and deleted_at is null`)[0]),
+    user: perRequest(async (handle: string) => (await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, excluded_held, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and deleted_at is null`)[0]),
     trades: perRequest((userId: number) => sql`
       select id, sell_id, trade_key, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
         thesis_written_at, thesis_edited_at, thesis_hold_rule
