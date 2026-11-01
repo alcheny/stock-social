@@ -232,8 +232,6 @@ jobs:
       FILE: ${{ matrix.task.file }}
       NUMBER: ${{ matrix.task.kind == 'build' && matrix.task.id || matrix.task.number }}
       GH_REPO: ${{ github.repository }}
-      GIT_CONFIG_GLOBAL: /dev/null # never the runner image's git config (lfs filters, credential helpers)
-      GIT_CONFIG_NOSYSTEM: '1'
       GIT_LFS_SKIP_SMUDGE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -257,6 +255,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_DIR: ${{ runner.temp }}/handoff
+          GIT_CONFIG_GLOBAL: /dev/null # never the runner image's git config (lfs filters, credential helpers)
+          GIT_CONFIG_NOSYSTEM: '1'
           BRANCH: ${{ matrix.task.kind == 'build' && matrix.task.branch || '' }}
           BASE_SHA: ${{ matrix.task.kind == 'build' && needs.pick.outputs.base || '' }}
           PR_NUMBER: ${{ matrix.task.kind != 'build' && matrix.task.number || '' }}

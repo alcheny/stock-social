@@ -262,8 +262,6 @@ jobs:
       NUMBER: ${{ needs.pick.outputs.number }}
       VARIANT: ${{ toJSON(matrix.variant) }}
       GH_REPO: ${{ github.repository }}
-      GIT_CONFIG_GLOBAL: /dev/null # never the runner image's git config (lfs filters, credential helpers)
-      GIT_CONFIG_NOSYSTEM: '1'
       GIT_LFS_SKIP_SMUDGE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -287,6 +285,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_DIR: ${{ runner.temp }}/handoff
+          GIT_CONFIG_GLOBAL: /dev/null # never the runner image's git config (lfs filters, credential helpers)
+          GIT_CONFIG_NOSYSTEM: '1'
           BASE_SHA: ${{ needs.pick.outputs.mode == 'build' && needs.pick.outputs.base || '' }}
           PR_NUMBER: ${{ needs.pick.outputs.mode == 'fix' && needs.pick.outputs.number || '' }}
         run: |
@@ -295,6 +295,7 @@ jobs:
           git config user.email "autopilot@users.noreply.github.com"
           node "$GITHUB_WORKSPACE/loop/scripts/handoff.ts" verify
       - name: Publish
+        id: publish
         if: steps.verify.outcome == 'success'
         working-directory: work
         env:
@@ -311,7 +312,7 @@ jobs:
           rm -rf .git/hooks .git/config.worktree
           node "$GITHUB_WORKSPACE/loop/scripts/autopilot.ts" publish
       - name: Retry a line's fix right away if this run crashed # attempts are counted, so this is bounded
-        if: "!cancelled() && (needs.prepare.result == 'failure' || needs.variant.result == 'failure') && inputs.line != '' && needs.pick.outputs.mode == 'fix'"
+        if: "!cancelled() && (needs.prepare.result == 'failure' || needs.variant.result == 'failure' || steps.verify.outcome == 'failure' || steps.publish.outcome == 'failure') && inputs.line != '' && needs.pick.outputs.mode == 'fix'"
         env:
           GH_TOKEN: ${{ github.token }}
           LINE: ${{ inputs.line }} # via env, never interpolated into the shell

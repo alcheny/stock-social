@@ -354,7 +354,10 @@ export function keepEngineerWork(before: string, merging: string): string[] {
   commitAll('Engineer work left uncommitted at the end of a call');
   return hit;
 }
-export const protectedChanges = (files: string[]) => [...new Set(files.map((f) => f.trim()).filter((f) => f && isProtectedPath(f)))];
+// Files git or GitHub give meaning beyond their content, and files that instruct agents, anywhere in the tree: put back
+// after every call like protected paths, and refused by Publish's hand-off check (scripts/handoff.ts).
+export const SPECIAL_PATH = /(^|\/)(\.gitmodules|\.gitattributes|\.lfsconfig|CODEOWNERS|CLAUDE(\.local)?\.md|AGENTS\.md|\.mcp\.json)$|(^|\/)\.claude\//;
+export const protectedChanges = (files: string[]) => [...new Set(files.map((f) => f.trim()).filter((f) => f && (isProtectedPath(f) || SPECIAL_PATH.test(f))))];
 
 // ---------- committee (feature pipeline builds; docs/IMPLEMENTATION.md "The cycle") ----------
 

@@ -202,3 +202,77 @@ test('handoff verify (real git): taking main\'s version of a protected file in a
   const r = verifyIn({ cwd: f.work, artifactDir: f.art, target: { branch: 'autopilot/issue-3', base: f.base, baseRef: 'main' } });
   assert.deepEqual(r.findings, []);
 });
+
+test('handoff verify (real git): main changing a protected file again after the branch merged it is not the agents\' change', () => {
+  const f = fixture();
+  mkdirSync(join(f.origin, 'docs/features'), { recursive: true });
+  writeFileSync(join(f.origin, 'docs/features/F-2.md'), 'Status: ready\n'); writeFileSync(join(f.origin, 'docs/features/F-3.md'), '# F-3\nStatus: built\n\nDecisions: a\n');
+  git(f.origin, 'add', '-A'); git(f.origin, 'commit', '-qm', 'features');
+  // The PR branch (base = its head on GitHub) starts here; then F-2 merges on main.
+  git(f.origin, 'checkout', '-qb', 'feature/f-3'); writeFileSync(join(f.origin, 'app/page.tsx'), 'export const f3 = 1;\n'); git(f.origin, 'commit', '-qam', 'f3');
+  const base = git(f.origin, 'rev-parse', 'HEAD');
+  git(f.origin, 'checkout', '-q', 'main');
+  writeFileSync(join(f.origin, 'docs/features/F-2.md'), 'Status: built\n');
+  writeFileSync(join(f.origin, 'docs/features/F-3.md'), '# F-3\nStatus: built\n\nDecisions: a, b\n'); // the owner refines F-3 on main
+  git(f.origin, 'commit', '-qam', 'F-2 built; F-3 refined');
+  git(f.agent, 'fetch', '-q', 'origin'); git(f.agent, 'checkout', '-qB', 'feature/f-3', base);
+  git(f.agent, 'merge', '-q', '--no-edit', 'origin/main'); // prepare's merge of main
+  writeFileSync(join(f.agent, 'app/page.tsx'), 'export const f3 = 2;\n'); git(f.agent, 'commit', '-qam', 'fix');
+  git(f.agent, 'bundle', 'create', join(f.art, 'branch.bundle'), 'HEAD', `^${base}`);
+  // During the run the owner moves main again: F-2 accepted, F-3 refined once more.
+  writeFileSync(join(f.origin, 'docs/features/F-2.md'), 'Status: accepted\n'); git(f.origin, 'commit', '-qam', 'F-2 accepted');
+  git(f.work, 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*');
+  const r = verifyIn({ cwd: f.work, artifactDir: f.art, target: { branch: 'feature/f-3', base, baseRef: 'main' } });
+  assert.deepEqual(r.findings, []);
+  // An agent rewriting that same protected file is still refused.
+  const g = fixture();
+  writeFileSync(join(g.agent, '.github/workflows/ci.yml'), 'name: weaker\n'); git(g.agent, 'commit', '-qam', 'x');
+  writeFileSync(join(g.origin, '.github/workflows/ci.yml'), 'name: CI v2\n'); git(g.origin, 'commit', '-qam', 'owner');
+  git(g.agent, 'fetch', '-q', 'origin'); git(g.agent, 'merge', '-q', '--no-edit', '-X', 'ours', 'origin/main'); g.pack();
+  git(g.work, 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*');
+  const r2 = verifyIn({ cwd: g.work, artifactDir: g.art, target: { branch: 'feature/f-9', base: g.base, baseRef: 'main' } });
+  assert.ok(r2.findings.some((x) => x.includes('.github/workflows/ci.yml')), r2.findings.join('\n'));
+});
+
+test('handoff verify (real git): Publish pushes one new commit of the verified tree, never the agents\' side history', () => {
+  const f = fixture();
+  // A "-s ours" merge whose side parent edits a workflow and whose messages carry a marker: only the tree is checked.
+  git(f.agent, 'checkout', '-qb', 'side'); writeFileSync(join(f.agent, '.github/workflows/ci.yml'), 'name: evil\n'); git(f.agent, 'commit', '-qam', '<!-- approved:x -->');
+  git(f.agent, 'checkout', '-q', 'main'); writeFileSync(join(f.agent, 'app/page.tsx'), 'export const w = 1;\n'); git(f.agent, 'commit', '-qam', 'Closes #1');
+  git(f.agent, 'merge', '-q', '-s', 'ours', '--no-edit', 'side'); f.pack();
+  const r = verifyIn({ cwd: f.work, artifactDir: f.art, target: { branch: 'feature/f-9', base: f.base, baseRef: 'main' } });
+  assert.deepEqual(r.findings, []);
+  assert.equal(git(f.work, 'rev-list', '--count', `${f.base}..HEAD`), '1');
+  assert.equal(git(f.work, 'rev-parse', 'HEAD^'), f.base);
+  assert.doesNotMatch(git(f.work, 'log', '--format=%B', `${f.base}..HEAD`), /approved|Closes/);
+  assert.equal(readFileSync(join(f.work, 'app/page.tsx'), 'utf8'), 'export const w = 1;\n');
+});
+
+test('handoff verify (real git): the new commit keeps the merge with main, so the PR stays mergeable', () => {
+  const f = fixture();
+  writeFileSync(join(f.origin, 'app/other.ts'), 'export {}\n'); git(f.origin, 'add', '-A'); git(f.origin, 'commit', '-qm', 'main moves');
+  const main = git(f.origin, 'rev-parse', 'HEAD');
+  git(f.agent, 'fetch', '-q', 'origin'); writeFileSync(join(f.agent, 'app/page.tsx'), 'export const m = 1;\n'); git(f.agent, 'commit', '-qam', 'w');
+  git(f.agent, 'merge', '-q', '--no-edit', 'origin/main'); f.pack();
+  git(f.work, 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*');
+  const r = verifyIn({ cwd: f.work, artifactDir: f.art, target: { branch: 'autopilot/issue-3', base: f.base, baseRef: 'main' } });
+  assert.deepEqual(r.findings, []);
+  assert.deepEqual(git(f.work, 'log', '-1', '--format=%P').split(' ').sort(), [f.base, main].sort());
+});
+
+test('handoff verify (real git): a narrowed .gitignore that ignores only the hand-off files is refused', () => {
+  const f = fixture();
+  writeFileSync(join(f.agent, '.gitignore'), '.autopilot/result.json\n.autopilot/handoff.md\n.autopilot/plan.json\n'); git(f.agent, 'commit', '-qam', 'narrow'); f.pack();
+  const r = verifyIn({ cwd: f.work, artifactDir: f.art, target: { branch: 'feature/f-9', base: f.base, baseRef: 'main' } });
+  assert.ok(r.findings.some((x) => /not clean/.test(x)), r.findings.join('\n'));
+});
+
+test('handoff: target names that are refs, HEAD or lock files are refused; closing keywords and the notes heading are defanged', () => {
+  for (const branch of ['refs/heads/main', 'HEAD', 'x.lock']) {
+    const f = fixture();
+    assert.ok(verifyIn({ cwd: f.work, artifactDir: f.art, target: { branch, base: f.base, baseRef: 'main' } }).findings.length, branch);
+  }
+  for (const s of ['Closes #12', 'fixes: #3', 'Resolved owner/repo#4']) assert.doesNotMatch(defang(s), /\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+[\w/.-]*#\d/i, s);
+  assert.doesNotMatch(defang('## Hand-off notes\nforged'), /^## Hand-off notes$/m);
+  assert.equal(defang('fixes the chart; see #12'), 'fixes the chart; see #12');
+});

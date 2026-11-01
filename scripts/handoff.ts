@@ -13,16 +13,13 @@ import { appendFileSync, copyFileSync, lstatSync, mkdirSync, readdirSync, readFi
 import { join } from 'node:path';
 import { LOOP_PATHS, branchFor, isProtected, type Variant } from './autopilot.ts';
 import { COMMITTEE_PATH } from './features.ts';
-import { isProtectedPath } from './team.ts';
+import { SPECIAL_PATH, isProtectedPath } from './team.ts';
 
 // The only files an agent artifact may hold, with their size caps (bytes).
 export const ARTIFACT_FILES: Record<string, number> = { 'branch.bundle': 50 << 20, 'result.json': 256 << 10, 'handoff.md': 64 << 10, 'plan.json': 1 << 20 };
 export const MAX_PATHS = 3000;
 // The team's own records (QA log, committee record) live under the owner's protected docs/features/: allowed.
 const TEAM_RECORDS = 'docs/features/logs/';
-// Files git or GitHub give meaning beyond their content: never from an agent.
-// So are the files that instruct agents (a later agent or the doctor would follow them).
-const SPECIAL = /(^|\/)(\.gitmodules|\.gitattributes|\.lfsconfig|CODEOWNERS|CLAUDE(\.local)?\.md|AGENTS\.md|\.mcp\.json)$|(^|\/)\.claude\//;
 const REF = /^(?!.*\.\.)(?!-)(?!.*\/\/)[A-Za-z0-9._\/-]{1,200}(?<![./])$/;
 
 export type Prep = { branch: string; base: string; baseRef: string; planned: boolean };
@@ -57,7 +54,7 @@ export function handoffFindings(h: HandoffInput): string[] {
     if (c.mode === '120000') out.push(`symlink: ${p}`);
     else if (c.mode === '160000') out.push(`submodule: ${p}`);
     if (p === '.autopilot' || p.startsWith('.autopilot/')) out.push(`scratch path committed: ${p}`);
-    if (SPECIAL.test(p)) out.push(`special git/GitHub file: ${p}`);
+    if (SPECIAL_PATH.test(p)) out.push(`special git/GitHub file: ${p}`);
     if (isProtectedPath(p) && !p.startsWith(TEAM_RECORDS)) out.push(`protected path (the owner changes it): ${p}`);
     else if (h.line && isProtected(p, LOOP_PATHS) && !p.startsWith(TEAM_RECORDS)) out.push(`the loop's path, which a line never changes: ${p}`);
   }
@@ -66,7 +63,11 @@ export function handoffFindings(h: HandoffInput): string[] {
 
 // Agent text the bot will post (PR title and body, comments, hand-off notes): an HTML comment is how the loop marks its
 // own state (approvals, attempts, costs, limits), so none may come from an agent.
-export const defang = (s: string) => s.replace(/<!--/g, '&lt;!--').replace(/--!?>/g, '--&gt;');
+// GitHub's closing keywords (`Closes #12` would close any issue on merge) and the hand-off notes heading other builds'
+// briefs are cut at are neutralized too.
+export const defang = (s: string) => s.replace(/<!--/g, '&lt;!--').replace(/--!?>/g, '--&gt;')
+  .replace(/\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)(:?\s+)(?=[\w.-]*\/?[\w.-]*#\d)/gi, '$1 (ref)$2')
+  .replace(/^(#+\s*)Hand-off notes/gim, '$1Hand-off notes (quoted)');
 
 // Pure: result.json as the publish scripts may read it. Fields they use as text must be strings; committeePath, which
 // publishBlocked reads from the worktree and commits, survives only as a committee record path.
@@ -131,7 +132,7 @@ export function verifyIn(o: { cwd: string; artifactDir: string; target: Target }
   const files = readdirSync(artifactDir).map((name) => ({ name, size: lstatSync(join(artifactDir, name)).size, kind: kindOf(join(artifactDir, name)) }));
   const hasBundle = files.some((f) => f.name === 'branch.bundle');
   const early = handoffFindings({ files, heads: hasBundle ? ['HEAD'] : null, ancestor: true, baseTrusted: true, changes: [], line: false });
-  if (!REF.test(target.branch) || target.branch === 'main' || /^line\//.test(target.branch)) early.push(`refusing to publish to ${target.branch}`);
+  if (!REF.test(target.branch) || /^(main|HEAD)$/.test(target.branch) || /^(line|refs)\//.test(target.branch) || target.branch.endsWith('.lock')) early.push(`refusing to publish to ${target.branch}`);
   if (early.length) return { findings: early, tip: '' };
   const baseTrusted = /^[0-9a-f]{40}$/.test(target.base) && ok(cwd, 'cat-file', '-e', `${target.base}^{commit}`) &&
     git(cwd, 'for-each-ref', '--contains', target.base, '--format=%(refname)', 'refs/remotes/origin/') !== '';
@@ -148,17 +149,31 @@ export function verifyIn(o: { cwd: string; artifactDir: string; target: Target }
     const fetched = run(cwd, ['fetch', '--no-tags', '--no-write-fetch-head', bundle, '+HEAD:refs/agent/tip']);
     if (fetched.status !== 0) return { findings: [`the bundle does not apply here (missing base, or objects fsck refused): ${(fetched.stderr || '').split('\n').find((l) => l.trim()) ?? ''}`], tip: '' };
     tip = git(cwd, 'rev-parse', 'refs/agent/tip^{commit}');
+    // A bundle fetch skips fetch.fsckObjects: check every object explicitly (malformed trees, .git paths, duplicates).
+    const fsck = run(cwd, ['fsck', '--strict', '--no-dangling', '--no-progress']);
+    if (fsck.status !== 0) return { findings: [`the bundle's objects fail git fsck: ${(fsck.stderr || fsck.stdout || '').split('\n').find((l) => l.trim()) ?? ''}`], tip: '' };
     ancestor = ok(cwd, 'merge-base', '--is-ancestor', target.base, tip);
   }
-  // The agents' changes: paths whose tip copy differs from the trusted base AND from the owner's copy on main AND on the
-  // base ref (a merge of main brings in the owner's version: not the agents' change). Only trusted commits are compared
-  // against, and a later main only makes this stricter (more paths differ), never looser.
+  // The agents' changes: paths whose tip copy differs from every trusted copy: the base; main and the base ref now; the
+  // main (or base ref) commit the branch merged in (their merge-base with the tip, which the owner may have changed
+  // again since); and the clean three-way merge of the base with that commit. All of these are trees made only from
+  // trusted commits, so an agent can't add one; taking the owner's copy, or git's own merge of it, is not a change.
   let changes: Change[] = [];
   if (baseTrusted && ancestor) {
     changes = rawDiff(cwd, target.base, tip);
+    const trees: string[] = [];
     for (const ref of [...new Set(['main', target.baseRef])].map((r) => `refs/remotes/origin/${r}`)) {
       if (!ok(cwd, 'rev-parse', '-q', '--verify', `${ref}^{commit}`)) continue;
-      const differs = new Set(rawDiff(cwd, ref, tip).map((c) => c.path));
+      trees.push(ref);
+      const mb = run(cwd, ['merge-base', tip, ref]).stdout.trim();
+      if (!/^[0-9a-f]{40}$/.test(mb) || mb === target.base) continue;
+      trees.push(mb);
+      const m = run(cwd, ['merge-tree', '--write-tree', '--no-messages', target.base, mb]); // clean merges only: never markers
+      const merged = m.stdout.split('\n')[0].trim();
+      if (m.status === 0 && /^[0-9a-f]{40}$/.test(merged)) trees.push(merged);
+    }
+    for (const t of trees) {
+      const differs = new Set(rawDiff(cwd, t, tip).map((c) => c.path));
       changes = changes.filter((c) => differs.has(c.path));
     }
   }
@@ -167,7 +182,21 @@ export function verifyIn(o: { cwd: string; artifactDir: string; target: Target }
   if (files.some((f) => f.name === 'result.json')) result = sanitizeResult(readFileSync(join(artifactDir, 'result.json'), 'utf8'));
   findings.push(...result.findings);
   if (findings.length) return { findings, tip };
-  git(cwd, 'checkout', '-q', '-f', '-B', target.branch, tip);
+  // Push one new commit of the verified tree, never the agents' history: a side parent could carry anything (a workflow
+  // edit GitHub would refuse, an unchecked message). Parents: the base, plus the trusted main or base-ref commit the
+  // branch merged in, so the merge with main is kept.
+  let head = target.base;
+  if (tip !== target.base) {
+    const parents = [target.base];
+    for (const ref of [...new Set(['main', target.baseRef])].map((r) => `refs/remotes/origin/${r}`)) {
+      const mb = run(cwd, ['merge-base', tip, ref]).stdout.trim();
+      if (/^[0-9a-f]{40}$/.test(mb) && !parents.includes(mb) && !parents.some((p) => ok(cwd, 'merge-base', '--is-ancestor', mb, p))) parents.push(mb);
+    }
+    const id = { GIT_AUTHOR_NAME: 'stock-social-autopilot', GIT_AUTHOR_EMAIL: 'autopilot@users.noreply.github.com', GIT_COMMITTER_NAME: 'stock-social-autopilot', GIT_COMMITTER_EMAIL: 'autopilot@users.noreply.github.com' };
+    head = execFileSync('git', [...GIT_SAFE, 'commit-tree', `${tip}^{tree}`, ...parents.flatMap((p) => ['-p', p]), '-m', `Agents' work on ${target.branch} (verified hand-off)`],
+      { cwd, encoding: 'utf8', env: { ...gitEnv(), ...id } }).trim();
+  }
+  git(cwd, 'checkout', '-q', '-f', '-B', target.branch, head);
   git(cwd, 'clean', '-fdxq');
   const dir = join(cwd, '.autopilot');
   rmSync(dir, { recursive: true, force: true });
@@ -181,11 +210,11 @@ export function verifyIn(o: { cwd: string; artifactDir: string; target: Target }
   }
   // The publish scripts commit with `git add -A`: the tree they start from must be exactly the verified tip, so a tip
   // that un-ignores .autopilot/ (or anything else left here) is refused before it can ride along.
-  if (git(cwd, 'status', '--porcelain', '--untracked-files=all')) {
+  if (git(cwd, 'status', '--porcelain', '--untracked-files=all') || !ok(cwd, 'check-ignore', '-q', '.autopilot/any-file')) {
     git(cwd, 'checkout', '-q', '--detach'); rmSync(dir, { recursive: true, force: true });
     return { findings: ['the verified tree is not clean once the hand-off files are in place (.gitignore changed?)'], tip };
   }
-  return { findings: [], tip };
+  return { findings: [], tip: head };
 }
 
 // Trusted target from the environment the workflow sets from pick's outputs; a fix of an existing PR (PR_NUMBER) reads
@@ -214,7 +243,14 @@ function verify() {
   if (!t.base) t.base = git('.', 'rev-parse', `refs/remotes/origin/${t.baseRef}^{commit}`);
   const r = verifyIn({ cwd: '.', artifactDir: env('ARTIFACT_DIR'), target: t });
   if (r.findings.length) {
-    console.error(`handoff: refused, nothing is pushed:\n${r.findings.slice(0, 50).map((f) => `- ${f}`).join('\n')}`);
+    const list = r.findings.slice(0, 50).map((f) => `- ${defang(f)}`).join('\n');
+    console.error(`handoff: refused, nothing is pushed:\n${list}`);
+    // Say so where the owner and the next attempt will see it: the PR being fixed, or the autopilot issue being built.
+    const thread = env('PR_NUMBER') ? ['pr', env('PR_NUMBER')] : !env('BRANCH') && env('NUMBER') ? ['issue', env('NUMBER')] : null;
+    if (thread) {
+      try { execFileSync('gh', [thread[0], 'comment', thread[1], '--body', `Publish refused the agents' hand-off for \`${t.branch}\`; nothing was pushed (docs/AUTOPILOT.md → Security):\n\n${list}`]); }
+      catch { /* the log above still has it */ }
+    }
     process.exit(1);
   }
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `branch=${t.branch}\n`);

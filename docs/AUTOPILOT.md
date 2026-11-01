@@ -36,25 +36,37 @@ Security rules for the loop itself (rule R in the policy; tested by `scripts/wor
     head).
   - `scripts/handoff.ts verify` refuses the hand-off, and nothing is pushed, unless:
     - the artifact holds only the known plain files, within size caps;
-    - the bundle has one head that descends from the trusted base, and git accepts its objects with fsck on;
-    - it changes at most 3000 paths. A path counts as changed when it differs from the base, from main and from the
-      base ref, so taking the owner's copy in a merge is not a change;
+    - the bundle has one head that descends from the trusted base, and its objects pass `git fsck --strict`;
+    - it changes at most 3000 paths. A path counts as changed when it differs from every trusted copy: the base,
+      main and the base ref now, the main commit the branch merged in, and git's clean merge of the base with that
+      commit. So taking the owner's copy in a merge is not a change, even when main has moved on since;
     - none of those paths are protected (`PROTECTED` in `team.ts`; on a line, also `LOOP_PATHS`), apart from the
       team's own `docs/features/logs/`;
     - none are a symlink, a submodule, `.gitattributes`, `.gitmodules`, `.lfsconfig`, a CODEOWNERS file or a file that
       instructs agents (`CLAUDE.md`, `AGENTS.md`, `.mcp.json`, `.claude/`);
     - the target is not `main` or a line branch;
-    - the tree is still clean once the hand-off files are in place.
+    - the tree is still clean once the hand-off files are in place, and `.autopilot/` is still ignored.
+
+    Publish then pushes one new commit of the verified tree, never the agents' history (a side parent or a commit
+    message is never checked). Its parents are the base and the main commit the branch merged in, so the PR stays
+    mergeable. A refusal is posted to the PR or issue when there is one.
 
     It also cleans the agents' text before the bot posts it. Every HTML comment is defanged, so an agent can't forge
-    the loop's markers (`approved:`, attempts, costs, limits). `committeePath` is kept only when it is a committee
+    the loop's markers (`approved:`, attempts, costs, limits). GitHub's closing keywords (`Closes #12`) and the
+    hand-off notes heading are neutralized too. `committeePath` is kept only when it is a committee
     record path. Only after this does Publish run `features.ts publish`/`resolved`/`notes` or `autopilot.ts publish`
     with `GITHUB_TOKEN`. CODEOWNERS-only paths (`package.json`, `lib/broker.ts`, …) may still be published to a PR
     into main, because the Gate never auto-merges them.
   - No job that holds a write token restores a cache, since agents on main's ref can write main's cache.
-  - What remains: a root agent holds its job's Actions runtime token. With it, it could replace a sibling leg's
-    artifact, but verify limits that artifact to what any agent may push to its own branch. It could also seed
-    caches, but npm checks every package against `package-lock.json`, and no write-token job restores one. Agent
+  - What remains: a root agent holds its job's Actions runtime token, which reaches every artifact and cache in the
+    run.
+    - It could replace a sibling leg's artifact (one variant overwriting another, or marking another feature
+      blocked). Verify limits the swapped artifact to what any agent may push to its own branch. Isolating the legs
+      fully means one workflow run per leg.
+    - It could seed main-scoped caches. npm checks every package against `package-lock.json`, and no write-token job
+      restores a cache. But CI's other caches (browsers, the Next.js build) are restored on PRs; they belong to
+      `ci.yml`, which needs its own fix.
+    - It could set `limit: true` in `result.json`, which pauses new work for `LIMIT_COOLDOWN_HOURS`. Agent
     text (PR title, summary, notes) is still agent-authored, passed to `gh` as arguments, never through a shell.
     `doctor.yml`, `plan.yml`, `judge.yml` and `review.yml` still run their agents beside a token and are not split
     yet.
