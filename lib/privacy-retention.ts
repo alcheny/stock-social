@@ -31,7 +31,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   identities: { personal: true, retention: 'account', holds: 'sign-in provider subject and email address' },
   sessions: { personal: true, retention: 'session', holds: 'hashed session token and user id; purged at expiry' },
   login_links: { personal: true, retention: 'session', holds: 'email address of a sign-in link; purged when expired or its attempt finished' },
-  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 3 per account (a further rename ends the oldest hold); purged by the tick once the hold has ended' },
+  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 1 per account (a further rename ends the older hold); purged by the tick once the hold has ended' },
   funnel_events: { personal: false, retention: 'short', holds: 'sign-up step names and times per attempt; purged with an unfinished attempt' },
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot (with a keyed hash of each account\'s institution identity, never the identifier); a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
