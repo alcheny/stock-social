@@ -793,6 +793,28 @@ create table if not exists portal_probes (
   until timestamptz not null
 );
 
+-- F-14 sync cadence (docs/features/F-14-sync-cadence.md; committee docs/features/logs/F-14/committee-2026-11-01.md):
+-- per account, when activities (with share moves) and positions were last read, on the database clock, written inside
+-- the sync's transaction (a failed sync never advances them). Null means "read now".
+select schema_add_column('broker_accounts', 'activities_read_at', 'timestamptz');
+select schema_add_column('broker_accounts', 'positions_read_at', 'timestamptz');
+-- F-14 (G2, round 2): every successful vendor read of an account, recorded after the sync's transaction ends whatever its
+-- outcome (a rolled-back read is still a vendor call): the last activities read (a 6 h floor) and the last 4 positions
+-- reads (the 24 h window that bounds positions reads to 4 a day). Deleted with the user.
+create table if not exists sync_read_marks (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  activities_attempted_at timestamptz,
+  positions_reads timestamptz[] not null default '{}',
+  primary key (user_id, account_id)
+);
+-- F-14 (G9): vendor reads per hour, counts only (the coverage report's 24 h cap check).
+create table if not exists sync_read_counts (
+  hour timestamptz primary key,
+  account_lists int not null default 0,
+  activities int not null default 0,
+  positions int not null default 0
+);
 -- Known limits 2026-11-01 (docs/features/logs/known-limits/committee-2026-11-01.md).
 -- TR-6, a stable account identity: a keyed hash of the institution and the vendor's institution account id
 -- (lib/claims.ts#accountIdentity; never the raw identifier). Not unique: one profile may hold the same brokerage account
