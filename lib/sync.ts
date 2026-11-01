@@ -9,10 +9,13 @@ import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pa
 import { firstByKey, moveUnlistedPositions, replaceListedPositions, settleAccountPositions } from './positions.ts';
 import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
+// F-24 late-posted trades (docs/features/F-24-late-sell-reconciliation.md): the pass cursor, the re-issue states and the
+// rebuild's hold filter.
+import { bringForward, dropUnread, markGenuine, markTwins, notDuplicate, heldRow, pageFailureCounts, passPageLimitOk, plannedConfirm, endConfirm, writeConfirmFailures, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
 import { IDLE_DAYS } from './record-status.ts'; // FIXES-LABELS: status
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
-import { insertOptionActivities, lastOptionActivityAt, markBackfilled, pendingBackfill, moveUnlistedOptionPositions, rebuildRecord, replaceAccountOptionPositions, saveBackfill } from './options-sync.ts';
+import { insertOptionActivities, optionTwins, lastOptionActivityAt, markBackfilled, pendingBackfill, moveUnlistedOptionPositions, rebuildRecord, replaceAccountOptionPositions, saveBackfill } from './options-sync.ts';
 import type { OptionRow } from './options.ts';
 import type { PositionSplit } from './broker.ts';
 
@@ -74,7 +77,7 @@ const thesisMeta = (k: KeptThesis | undefined) => ({
 // history. The order is total (account, symbol, time, then the vendor's id), so same-instant rows always match the same
 // way and repeated rebuilds give byte-identical rows (defect 3: the read had no order at all). Returns what it wrote and
 // the most activity rows it held at once.
-type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string };
+type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string; held: boolean };
 export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number }> {
   const run = async (tx: TransactionSql) => {
     // F-7: a public filer's trades come from its filings only (lib/public-trades.ts); this rebuild never touches them.
@@ -94,7 +97,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const kept = [...aside, ...live] as unknown as KeptThesis[];
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
-    let written = 0, excluded = 0, maxHeld = 0;
+    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0;
     // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
     // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
     const actions = await loadCorporateActions(tx, userId, notFuture(tx));
@@ -107,6 +110,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       for (const k of keys ?? [pairKey(rows[0].accountId, rows[0].symbol)]) flushed.add(k);
       const m = matchTrades(rows, actions.length ? actionsOf(keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : []);
       excluded += m.excluded;
+      excludedHeld += m.excludedHeld ?? 0; // F-24 RT-2
       excludedCorporate += m.excludedCorporate;
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
@@ -127,18 +131,19 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // sharing a vendor id at a page boundary lost a row.
     let after: { account_id: string; symbol: string; at: string; external_id: string; source: string } | null = null;
     for (;;) {
-      const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
+      const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source, ${heldRow(tx)} as held
         from activities a where a.user_id = ${userId}
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
+        and ${notDuplicate(tx)}
         ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
       for (const r of page) {
         const a: Activity = {
           externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, side: r.side, units: r.units,
-          price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
+          price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade', ...(r.held ? { held: true } : {}),
         };
         if (open.length && (open[0].accountId !== a.accountId || open[0].symbol !== a.symbol)) { await flush(open); open = []; }
         if (chainOf.has(pairKey(a.accountId, a.symbol))) continue; // matched with its chain below
@@ -155,17 +160,18 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     for (const [k, root] of chainOf) chains.set(root, [...(chains.get(root) ?? []), k]);
     for (const keys of chains.values()) {
       const pairs = keys.map((k) => [k.slice(0, k.lastIndexOf('|')), k.slice(k.lastIndexOf('|') + 1)]);
-      const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
+      const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source, ${heldRow(tx)} as held
         from activities a where a.user_id = ${userId} and (a.account_id, a.symbol) in (select * from unnest(${pairs.map((x) => x[0])}::text[], ${pairs.map((x) => x[1])}::text[]))
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
+        and ${notDuplicate(tx)}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
       maxHeld = Math.max(maxHeld, rows.length);
       await flush(rows.map((r) => ({
         externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, side: r.side, units: r.units,
-        price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
+        price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade', ...(r.held ? { held: true } : {}),
       })), new Set(keys));
     }
     // F3-1: an unusable sell in a pair with no stored activity is never replayed above; it is still counted.
@@ -178,10 +184,12 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           thesis_hold_rule = excluded.thesis_hold_rule, thesis_reviewed_at = excluded.thesis_reviewed_at,
           thesis_reports_from = excluded.thesis_reports_from, thesis_checked_version = excluded.thesis_checked_version`;
     }
-    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)}
+    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)} and ${notDuplicate(tx)}
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
       and ${notShared(tx, userId)}`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
+    // F-24 RT-2: sells counted while a possible re-issue in their pair is held (owner-visible; shown nowhere yet).
+    await tx`update users set excluded_held = ${excludedHeld} where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
     return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate };
   };
@@ -414,6 +422,12 @@ export async function syncUser(
   const shiftMs = opts.shiftMs ?? 0;
   // The vendor reads that returned (recorded only after each call returns), for the marks written after the transaction.
   const readActs: string[] = [], readPos: string[] = [];
+  // F-24: accounts planned for a pass page this sync, and those whose page step threw an error that counts (after the
+  // transaction: reconcile_failures).
+  let recPlanned: string[] = [];
+  let confirmPlanned: string[] = []; // accounts whose read this sync is the widened confirm read (F-24 committee option C)
+  const recFailed = new Set<string>();
+  let committed = false;
   const consentedAuths = async (tx: TransactionSql) => new Set((await tx`select a->>'authorizationId' as auth from connections c, jsonb_array_elements(c.accounts) a
       where c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`).map((r) => r.auth as string));
   const lock = async (tx: TransactionSql) => (await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${user.id}) as got`)[0].got as boolean;
@@ -517,12 +531,20 @@ export async function syncUser(
       const lastOption = await lastOptionActivityAt(tx, user.id);
       const last: Date | null = lastShare && lastOption ? (lastShare > lastOption ? lastShare : lastOption) : (lastShare ?? lastOption);
       const options: (OptionRow & { raw: unknown })[] = [];
-      const sink = (rows: (OptionRow & { raw: unknown })[]) => { options.push(...rows); };
+      // F-24 (orchestrator review C6): lib/broker.ts#fetchActivities calls the sink once per internal vendor page, so the
+      // calls count the pages a read made (rows dropped by toActivities, e.g. with no symbol, still take a page's room).
+      let sinkPages = 0;
+      const sink = (rows: (OptionRow & { raw: unknown })[]) => { sinkPages++; options.push(...rows); };
       // OPTIONS × F-14: "the whole history was read" holds only when every real account was (a gated account waits).
       const allRead = actIds.length === real.length;
       // Accounts that read a backfill history page this sync in place of their week (their recent sells are not read).
       let pagedIds: string[] = [];
       let read = 0;
+      // F-24: the ids each read listed, so a pair it listed both rows of is genuine (a week read: only inside its window).
+      const listedBy: string[] = [];
+      let weekListed: string[] = [], weekFrom: Date | null = null;
+      let passFound = 0; // possible re-issues a pass page found (counted in the log line)
+      let cleared = 0; // held rows a read cleared (counted in the log line)
       if (!last && broker.fetchActivitiesPage) {
         // No stored history (a pre-F-1 record): the whole history, one vendor page per insert, never held at once.
         const limit = broker.pageLimit ?? PAGE_LIMIT;
@@ -534,9 +556,13 @@ export async function syncUser(
             await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
             await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
             read += page.activities.length;
+            // F-24: a pair is genuine only when one vendor response lists both rows, so each page is checked on its own.
+            await markTwins(tx, user.id);
+            await markGenuine(tx, user.id, page.activities.map((a) => a.externalId));
             if (page.done) break;
           }
         }
+        await restartPeriod(tx, user.id, actIds, t); // F-24: a whole-history read; the next pass a period later
         if (allRead) await markBackfilled(tx, user.id); // OPTIONS: the whole history was read with the option types
         // OPTIONS × F-14 (review nit): a gated account waits, but those read in full owe no backfill (cursor -1).
         else if (actIds.length) await saveBackfill(tx, user.id, real, new Map(actIds.map((id) => [id, -1])));
@@ -548,22 +574,56 @@ export async function syncUser(
         // ponytail: under F-14 a backfill page is that account's daily activities read, so a history of k pages takes about
         // k days to backfill its options — the vendor's written answer (MR-1) on history pages would let them go hourly.
         const backfill = broker.fetchActivitiesPage ? await pendingBackfill(tx, user.id) : new Map<string, number>();
-        const paged = actIds.filter((id) => backfill.has(id));
-        pagedIds = paged;
-        const windowed = actIds.filter((id) => !backfill.has(id));
+        // F-24 (plan §3): a due pass page replaces the account's week read (the option backfill's page wins). Only under
+        // `cadence` (the shard runner's production path), and only for accounts due today (`actIds` ⊆ real: consented,
+        // not frozen, not paper), so the pass stays inside F-14's one activities read per account per 24 h.
+        const passes = opts.cadence && broker.fetchActivitiesPage && passPageLimitOk(broker.pageLimit ?? PAGE_LIMIT) ? await plannedPages(tx, user.id, actIds.filter((id) => !backfill.has(id)), t) : new Map<string, PassPlan>();
+        recPlanned = [...passes.keys()];
+        const paged = actIds.filter((id) => backfill.has(id) || passes.has(id));
+        pagedIds = actIds.filter((id) => backfill.has(id));
+        const windowed = actIds.filter((id) => !backfill.has(id) && !passes.has(id));
+        weekFrom = new Date(since.getTime() + 86_400_000); // a day clear of the window's time-zone boundary
         if (opts.cadence) {
           // F-14 (code review): one call per account, each recorded as it returns, so a failure on a later account
           // still marks the reads already made (G2's floor applies to them).
           for (const id of windowed) {
-            const got = tradeRead(await broker.fetchActivities(bu, since, [id], sink));
+            // F-24 committee (option C): an account with 'confirm' rows reads from a day before their earliest trade date
+            // instead of the week: one call, a superset of the week read (no extra request), that lists both twins if
+            // the vendor still has both. Two failed syncs in a row that were to make it give it up: the rows become
+            // suspected and the plain week is read.
+            // ponytail: the widened read pages internally by 1,000 rows with no overlap (lib/broker.ts#fetchActivities), so
+            // a list shift inside the call can leave a genuine row suspected until the next pass — fix: page with overlap
+            // (a lib/broker.ts change, owner).
+            const from = await plannedConfirm(tx, user.id, id, since);
+            const widened = from ? new Date(Math.min(since.getTime(), from.getTime() - 86_400_000)) : since;
+            if (from) confirmPlanned.push(id);
+            sinkPages = 0;
+            const got = tradeRead(await broker.fetchActivities(bu, widened, [id], sink));
             readActs.push(id);
+            // Orchestrator re-review L1: fetchActivities pages internally by PAGE_LIMIT rows with no overlap, so a call that
+            // returned a full page or more is not one vendor response: it decides nothing (a widened read's rows become
+            // suspected; the next pass re-examines them).
+            // ponytail: a busy account's week or widened read past PAGE_LIMIT rows never clears a held row — fix: per-page id
+            // lists from lib/broker.ts#fetchActivities (owner), so each internal page decides on its own.
+            const oneResponse = sinkPages <= 1 && got.activities.length + got.unusable.length + options.length < PAGE_LIMIT;
             await insertActivities(user.id, 'snaptrade', got.activities, tx);
             await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
             await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
             read += got.activities.length;
+            if (from) {
+              // The widened read decides: rows it lists with every unheld twin (dated a day inside its window) are genuine,
+              // every other 'confirm' row of the account is suspected (the one exception to "a week read never suspects").
+              await markTwins(tx, user.id);
+              if (oneResponse) cleared += await markGenuine(tx, user.id, got.activities.map((a) => a.externalId), id, new Date(widened.getTime() + 86_400_000));
+              await endConfirm(tx, user.id, id, !oneResponse); // a multi-page read decided nothing: those stay held (R1)
+            } else if (oneResponse) weekListed.push(...got.activities.map((a) => a.externalId));
           }
         } else {
+          sinkPages = 0;
           const got = windowed.length ? tradeRead(await broker.fetchActivities(bu, since, windowed, sink)) : { activities: [], unusable: [] };
+          // L1: a call of a full page or more is several vendor responses: it decides nothing (see the cadence branch).
+          // One page per account at most (the sink is called once per internal page of each account read).
+          if (sinkPages <= windowed.length && got.activities.length + got.unusable.length + options.length < PAGE_LIMIT) weekListed = got.activities.map((a) => a.externalId);
           await insertActivities(user.id, 'snaptrade', got.activities, tx);
           await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
           await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
@@ -571,16 +631,39 @@ export async function syncUser(
         }
         const progress = new Map<string, number>();
         for (const id of paged) {
-          const limit = broker.pageLimit ?? PAGE_LIMIT, offset = backfill.get(id)!;
-          const page = await broker.fetchActivitiesPage!(bu, id, offset, limit, sink);
-          readActs.push(id);
-          await insertActivities(user.id, 'snaptrade', page.activities, tx);
-          await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: the option backfill page too
-          await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx);
-          read += page.activities.length;
-          progress.set(id, page.done ? -1 : offset + limit);
+          const limit = broker.pageLimit ?? PAGE_LIMIT;
+          const pass = backfill.has(id) ? undefined : passes.get(id);
+          const offset = pass ? pass.offset : backfill.get(id)!;
+          try {
+            const page = await broker.fetchActivitiesPage!(bu, id, offset, limit, sink);
+            readActs.push(id);
+            await insertActivities(user.id, 'snaptrade', page.activities, tx);
+            await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: the option backfill page too
+            const optionIds = options.map((o) => o.externalId); // F-24: every vendor row of the page counts in the overlap check
+            await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx);
+            read += page.activities.length;
+            const ids = page.activities.map((a) => a.externalId);
+            listedBy.push(...ids);
+            if (!pass) {
+              progress.set(id, page.done ? -1 : offset + limit);
+              if (page.done) await restartPeriod(tx, user.id, [id], t); // F-24: the backfill read the whole history
+              continue;
+            }
+            // F-24: a page of this account's pass. Rows it inserted are checked for twins before the pass end decides.
+            passFound += await markTwins(tx, user.id);
+            const listed = [...ids, ...(page.unusable ?? []).map((u) => u.externalId)];
+            const r = await recordPage(tx, user.id, id, pass, limit, listed, [...listed, ...optionIds], page.done, t);
+            // A one-page pass read the whole history in one call, a superset of the week read; any other page is a
+            // history page: positions-only rule (TR-4) and "Updated" keeps its value (plan §3).
+            // ponytail: "Updated" keeps the trader's value on any page day, so another account's week read that day is not
+            // reflected for up to a day — fix: a per-account recent-read stamp (rejected in round 2 as more than it buys).
+            if (!r.onePage) pagedIds.push(id);
+          } catch (e) {
+            if (pass && pageFailureCounts(e)) recFailed.add(id);
+            throw e;
+          }
         }
-        if (paged.length) await saveBackfill(tx, user.id, real, progress);
+        if (progress.size) await saveBackfill(tx, user.id, real, progress);
         if (!last && allRead) await markBackfilled(tx, user.id); // the since-2000 read is the whole history
       }
       // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
@@ -594,6 +677,23 @@ export async function syncUser(
           await insertCorporateActions(tx, user.id, 'snaptrade', moves.actions);
           read += moves.activities.length;
         }
+      }
+      // F-24 (D5, plan §2): every row this transaction stored with an older twin is held until a read lists both rows or
+      // a complete pass decides it; a pair one read listed both rows of is genuine (a week read: only inside its window).
+      const found = passFound + (await markTwins(tx, user.id));
+      cleared += (await markGenuine(tx, user.id, listedBy)) + (weekFrom ? await markGenuine(tx, user.id, weekListed, undefined, weekFrom) : 0);
+      // A row found by this sync's week read that it could not decide: the next pass comes sooner (never for an account
+      // whose pass ran this sync: an ended or given-up pass waits its period).
+      if (opts.cadence) await bringForward(tx, user.id, t, recPlanned);
+      await dropUnread(tx, user.id, real); // retention: an account no longer read drops its running pass's ids
+      const optTwins = await optionTwins(tx, user.id);
+      // Re-issue states decided in this transaction (a pass end, or a page that listed both rows), so the line is written
+      // whenever any state changed (plan §4).
+      const [{ decided }] = await tx`select count(*)::int as decided from activity_reissues where user_id = ${user.id} and decided_at = now()`;
+      if (found || cleared || optTwins || decided) {
+        const { id } = user; // the internal id and counts only (lib/privacy-logs.test.ts)
+        const counts = await reissueCounts(tx, user.id);
+        console.log('sync reissues', id, JSON.stringify({ found, cleared, pending: counts.pending, confirm: counts.confirm, suspected: counts.suspected, optionTwins: optTwins }));
       }
       // F-14 (G4): rebuilt when activities were read or the account set changed, so last_synced_at means "activities
       // last read" (the freshness line, the queue order, the coverage age). Always without `cadence`.
@@ -664,7 +764,7 @@ export async function syncUser(
         opts.report?.({ accounts: real.length, activitiesRead: actIds.length, positionsRead: broker.fetchPositions ? posIds.length : 0, deferred, rebuilt });
       }
       return read;
-    });
+    }).then((r) => { committed = r !== 'skipped'; return r; });
   } catch (e) {
     // A cut at the route's end (RouteDeadlineError, lib/sync-shard.ts) is not a failed sync: its reads leave no marks, so
     // the next call reads at once instead of waiting out the 6 h floor (orchestrator review).
@@ -675,6 +775,17 @@ export async function syncUser(
     if (opts.cadence && (readActs.length || readPos.length)) {
       const { id } = user; // the internal id only (lib/privacy-logs.test.ts)
       try { await writeMarks(id, readActs, readPos, shiftMs); } catch (e) { console.error('sync marks failed', id, logSafe(e)); }
+    }
+    // F-24 committee (option C): a sync that was to make the widened confirm read and failed (any cause) counts one.
+    if (confirmPlanned.length) {
+      const { id } = user;
+      try { await writeConfirmFailures(id, confirmPlanned, !committed); } catch (e) { console.error('sync confirm marks failed', id, logSafe(e)); }
+    }
+    // F-24 (plan item 7): a page step that failed counts toward giving its pass up; a committed sync clears the counts.
+    const recIds = committed ? recPlanned : [...recFailed];
+    if (recIds.length) {
+      const { id } = user;
+      try { await writeReconcileFailures(id, recIds, !committed); } catch (e) { console.error('sync reconcile marks failed', id, logSafe(e)); }
     }
   }
 }

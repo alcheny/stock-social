@@ -2,6 +2,7 @@
 // import (one vendor page per step, one transaction per step under the per-user advisory lock), expiry and staleness
 // clocks, and vendor cleanup. docs/features/F-1-broker-connection.md decisions; docs/features/logs/F-1/plan.md §1, §8.
 import { sql } from './db.ts';
+import { markGenuine, markTwins } from './reconcile.ts';
 import type { TransactionSql } from 'postgres';
 import * as vendor from './broker.ts';
 import type { BrokerUser, VendorAccount } from './broker.ts';
@@ -110,6 +111,9 @@ export const RETRY_MAX_MS = 3_600_000;
 export const retryDelayMs = (retries: number): number => Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.max(0, retries - 1));
 // The vendor refused or no longer has the link: the import cannot continue and is failed (reason `vendor`).
 export const REFUSED_STATUSES = new Set([401, 403, 404]);
+// F-24: import trade pages overlap by this many rows (at most the page minus one), so twins that are neighbours in the
+// vendor's list are always on one page together.
+export const importOverlap = (limit: number) => Math.max(0, Math.min(50, limit - 1));
 export function advanceCursor(c: Cursor, pageDone: boolean, limit: number): Cursor {
   return pageDone ? { i: c.i + 1, offset: 0, pass: c.pass } : { i: c.i, offset: c.offset + limit, pass: c.pass };
 }
@@ -597,7 +601,15 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         await insertActivities(c.user_id!, 'snaptrade', page.activities, tx);
         await insertCorporateActions(tx, c.user_id!, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
         await insertOptionActivities(c.user_id!, 'snaptrade', options, tx); // OPTIONS
-        return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
+        // F-24 (D5): a row with an older stored twin (a reconnect re-reads the whole history) is held until a read lists
+        // both. A pair is genuine only when ONE vendor response (this page) lists both rows: import steps can be an hour
+        // or more apart (a backoff, a deadline cut), so pages are never joined (orchestrator review of #84, F1). Pages
+        // overlap by IMPORT_OVERLAP rows, so neighbouring twins (sorted by trade date) always share a page; the count
+        // shown while importing is of new rows only.
+        await markTwins(tx, c.user_id!);
+        await markGenuine(tx, c.user_id!, page.activities.map((a) => a.externalId));
+        const [{ fresh }] = await tx`select count(*)::int as fresh from activities where user_id = ${c.user_id!} and xmin = pg_current_xact_id()::xid`; // rows this step stored
+        return save(advanceCursor(cur, page.done, limit - importOverlap(limit)), true, c.imported_count + (fresh as number));
       }
       // Corporate actions (F3c): one account's share-moving rows per step, after its trades and before the rebuild.
       // ponytail: an account with more than one page (1,000) of share-moving rows makes several bounded requests in this
