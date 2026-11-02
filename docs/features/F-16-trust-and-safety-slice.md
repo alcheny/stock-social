@@ -118,6 +118,12 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
   reachable without the contact (recommended by the orchestrator), and noindex until it has one, since the page then
   gives no way to send a notice.
 
+- 2026-11-02: The owner-deletion log follows OD 2.22: each `trust_deletions` row holds the date, the reason code, the
+  actor role word and the counts of what was deleted (closed trades, activities, open positions, notes, reports about
+  the account), and no user id, handle, email or name. `scripts/owner-delete.ts history` lists the latest rows; a
+  restore replays the closings through the closed and retired handles and loads the exported log rows back. Why: the
+  orchestrator's ruling on OD 2.22 (2026-11-02) replaces the earlier decision's user id.
+
 ## Acceptance criteria
 - [x] A test fails on any `from closed_trades` read under `app/` or `lib/` that lacks the shared visible-user predicate
       (veto condition: LG).

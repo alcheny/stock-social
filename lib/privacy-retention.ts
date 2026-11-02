@@ -91,7 +91,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   view_drops: { personal: false, retention: 'short', holds: 'daily counts of beacons the bot filter dropped, per surface and reason (no user id); purged after 120 days' },
   // F-16 follow-up (2026-11-02): the owner's audited account deletions (lib/owner-delete.ts); no foreign key, outlives the account.
   // ponytail: no end date is set for these rows yet; the owner picks the retention period for the deletion record.
-  trust_deletions: { personal: true, retention: 'reserved', holds: 'owner-run account deletions: the deleted account\'s user id, a reason code, the actor role word and the time; no handle, email, name or report; kept as the deletion record (docs/COMPLIANCE.md Sections 7 and 12)' },
+  trust_deletions: { personal: false, retention: 'reserved', holds: 'owner-run account deletions: the date, a reason code, the actor role word and the counts of what was deleted (OD 2.22); no user id, handle, email, name or report; kept as the deletion record (docs/COMPLIANCE.md Sections 7 and 12)' },
   // F-16 (docs/features/logs/F-16-F-17/plan.md §3): the owner's audited hides; deleted with the profile (cascade).
   trust_audit: { personal: true, retention: 'account', holds: 'owner hides and unhides of a profile or thesis: kind, user id, sell id, action, reason code, actor, time; no thesis text or reporter; deleted with the profile (cascade)' },
   // F-31: the address-cap presence marks the owner's readout reads (lib/views.ts#markCapDay).

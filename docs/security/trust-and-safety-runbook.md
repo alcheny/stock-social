@@ -68,9 +68,10 @@ See what was done: `node --env-file=.env scripts/hide.ts history <user_id>` (cod
      `--confirm` must be the account's current handle, so a mistyped id deletes nothing. The deletion is the same
      path the settings page uses (`lib/delete.ts#deleteProfile`): the vendor user, billing, the account's rows, and
      the handle is held (retired for good if the account had a connected record).
-  2. **Log**: the script writes one `trust_deletions` row (user id, reason, actor, time; no handle, email or name) in
-     the same transaction as the deletion mark, so nothing is deleted without its log row. Check it with
-     `node --env-file=.env scripts/owner-delete.ts history <user_id>`. The reports about the account go with it.
+  2. **Log**: the script writes one `trust_deletions` row (date, reason code, actor role word and the counts of what
+     was deleted; no user id, handle, email or name: OD 2.22) in the same transaction as the deletion mark, so nothing
+     is deleted without its log row. Check it with `node --env-file=.env scripts/owner-delete.ts history`. The reports
+     about the account go with it.
   3. **Review the gate**: read the sign-up age attestation path again (F-1, `docs/COMPLIANCE.md` Section 7) and record
      what you found and changed in your own notes, outside the repository.
 - If the vendor step fails, the script exits with the error and the account stays marked (hidden everywhere, its log
@@ -113,10 +114,11 @@ The restore replaces the very tables that record those changes, so read them fro
      psql "$DATABASE_URL" -c "\copy (select handle from handle_reservations where user_id is null and until = 'infinity' order by handle) to 'retired-after-closing.csv' csv header"
      ```
 
-   - every owner deletion made after the backup's time (section 3), so its log row comes back too:
+   - every owner deletion log row made after the backup's time (section 3), so the log comes back too. The rows name
+     no account (OD 2.22); the accounts themselves are found again through the closed and retired handles above:
 
      ```
-     psql "$DATABASE_URL" -c "\copy (select at, user_id, reason, actor from trust_deletions where at > timestamptz 'BACKUP_TIME' order by at, id) to 'deletions-after-backup.csv' csv header"
+     psql "$DATABASE_URL" -c "\copy (select reason, actor, closed_trades, activities, open_positions, notes, reports, at from trust_deletions where at > timestamptz 'BACKUP_TIME' order by at, id) to 'deletions-after-backup.csv' csv header"
      ```
 
    - every hide and unhide made after the backup's time:
@@ -127,9 +129,13 @@ The restore replaces the very tables that record those changes, so read them fro
 
    Keep both files on the owner's machine, outside the repository. Never paste them into an issue, a PR or a log.
 3. Restore the backup.
-4. For each user id in `deletions-after-backup.csv`, if the restored database has that account, re-run
-   `scripts/owner-delete.ts <user_id> <reason> --confirm=<its handle> --actor=<actor>` with the row's own reason and
-   actor (this writes the log row again). Then, for each handle in `closed-after-backup.csv` and in
+4. Put the deletion log back: load `deletions-after-backup.csv` into `trust_deletions` (an insert, no row is removed):
+
+   ```
+   psql "$DATABASE_URL" -c "\copy trust_deletions (reason, actor, closed_trades, activities, open_positions, notes, reports, at) from 'deletions-after-backup.csv' csv header"
+   ```
+
+   Then, for each handle in `closed-after-backup.csv` and in
    `retired-after-closing.csv`, find the restored account that holds it (skip a handle no restored account holds) and
    re-run the product's account-closing path (`lib/delete.ts#deleteProfile`, the same path the settings page uses), so
    the closing is complete again, including the vendor step.

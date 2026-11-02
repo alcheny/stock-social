@@ -72,7 +72,7 @@ test('owner delete: one deletion path (deleteProfile), the audit inside its mark
   assert.match(del, /sql\.begin\(\(tx\) => \[\s*\.\.\.\(deps\.withMark \? \[deps\.withMark\(tx\)\] : \[\]\),\s*tx`update users set deleted_at = coalesce\(deleted_at, now\(\)\) where id = \$\{u\.id\}`/);
 });
 
-test('owner delete: reasons are a fixed list with under-18-founded; trust_deletions has no foreign key, no handle, email or name; mapped for retention', () => {
+test('owner delete: reasons are a fixed list with under-18-founded; trust_deletions holds no user id, handle, email or name (OD 2.22: date, reason, counts); mapped for retention', () => {
   assert.ok(DELETE_REASONS.includes('under-18-founded'));
   for (const r of DELETE_REASONS) assert.match(r, /^[a-z0-9-]+$/);
   assert.equal(isDeleteReason('under-18-founded'), true);
@@ -82,10 +82,11 @@ test('owner delete: reasons are a fixed list with under-18-founded; trust_deleti
   const start = schema.indexOf('create table if not exists trust_deletions');
   assert.ok(start > 0);
   const body = schema.slice(start, schema.indexOf(');', start));
-  assert.doesNotMatch(code(body.replace(/--[^\n]*/g, '')), /references|handle|email|name/i);
-  assert.match(body, /user_id bigint not null/);
+  assert.doesNotMatch(code(body.replace(/--[^\n]*/g, '')), /references|user_id|handle|email|name/i);
+  for (const c of ['closed_trades int not null', 'activities int not null', 'open_positions int not null', 'notes int not null', 'reports int not null']) assert.match(body, new RegExp(c));
   assert.ok(SCHEMA_MAP.trust_deletions);
-  assert.match(SCHEMA_MAP.trust_deletions.holds, /no handle, email, name/);
+  assert.match(SCHEMA_MAP.trust_deletions.holds, /no user id, handle, email, name/);
+  assert.equal(SCHEMA_MAP.trust_deletions.personal, false);
 });
 
 test('owner delete: the runbook points the founded under-18 step at the script, cites Section 7, and gives no agent a deletion step', () => {

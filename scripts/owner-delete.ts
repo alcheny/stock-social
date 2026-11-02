@@ -1,6 +1,6 @@
 // F-16 follow-up (owner decision 2026-11-02): the owner's audited account deletion, run on the owner's machine:
 //   node --env-file=.env scripts/owner-delete.ts <user_id> <reason> --confirm=<current handle> [--actor=<role>]
-//   node --env-file=.env scripts/owner-delete.ts history <user_id>
+//   node --env-file=.env scripts/owner-delete.ts history   (the latest deletions: dates, codes and counts; names no one)
 // Reasons (lib/owner-delete.ts DELETE_REASONS): under-18-founded, legal-notice, owner-decision.
 // --confirm is required and must equal the account's current handle, so a mistyped id deletes nothing.
 // Options: --actor=<role word> (else env TRUST_ACTOR, else 'owner'). The actor never comes from a session.
@@ -11,7 +11,7 @@ import { DELETE_REASONS, RefusedConfirm, deletionHistory, isDeleteReason, ownerD
 import { RefusedInput } from '../lib/trust-hide.ts';
 
 export type Out = (line: string) => void;
-const USAGE = 'usage: owner-delete.ts <user_id> <reason> --confirm=<handle> [--actor=<role>] | history <user_id>';
+const USAGE = 'usage: owner-delete.ts <user_id> <reason> --confirm=<handle> [--actor=<role>] | history';
 const UID = /^[0-9]{1,10}$/;
 
 /** The CLI, testable: returns the exit code. `deps` reaches the library (tests inject a failing audit and no vendor). */
@@ -21,10 +21,10 @@ export async function run(argv: string[], out: Out, env: Record<string, string |
   const confirm = opt('confirm');
   const args = argv.filter((a) => !a.startsWith('--'));
   if (args[0] === 'history') {
-    if (args.length !== 2 || !UID.test(args[1])) { out(USAGE); return 2; }
-    const rows = await deletionHistory(Number(args[1]));
-    if (!rows.length) out('No owner deletions for that user id.');
-    for (const r of rows) out(`${r.at.toISOString()}\tdelete\t${r.reason}\t${r.actor}`);
+    if (args.length !== 1) { out(USAGE); return 2; }
+    const rows = await deletionHistory(undefined, { actor: opt('actor') });
+    if (!rows.length) out('No owner deletions.');
+    for (const r of rows) out(`${r.at.toISOString()}\tdelete\t${r.reason}\t${r.actor}\ttrades ${r.counts.closed_trades}\tactivities ${r.counts.activities}\tpositions ${r.counts.open_positions}\tnotes ${r.counts.notes}\treports ${r.counts.reports}`);
     return 0;
   }
   const [uid, reason] = args;

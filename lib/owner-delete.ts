@@ -5,7 +5,8 @@
 //   row itself.
 // - The audit row goes in trust_deletions, not trust_audit: trust_audit.user_id cascades with the users row, and its
 //   action CHECK allows only hide/unhide (widening it would need a drop). trust_deletions has no foreign key, so the
-//   row outlives the account, and holds no handle, email or name: a user id, a reason code, a role word and a time.
+//   row outlives the account. OD 2.22: it holds no personal data, only the date, a reason code, a role word and the
+//   counts of what was deleted (no user id, handle, email or name).
 // - Atomicity: deleteProfile runs in three steps: (1) a transaction that marks the account (deleted_at) and removes
 //   the rows naming it, (2) the billing and vendor calls, outside any transaction, (3) a transaction that removes the
 //   users row. The audit row is written inside step 1 (DeleteDeps.withMark), together with the confirm check, so a
@@ -23,10 +24,12 @@ export const DELETE_REASONS = ['under-18-founded', 'legal-notice', 'owner-decisi
 export type DeleteReason = (typeof DELETE_REASONS)[number];
 export const isDeleteReason = (v: unknown): v is DeleteReason => typeof v === 'string' && (DELETE_REASONS as readonly string[]).includes(v);
 
-export type DeletionRow = { user_id: number; reason: DeleteReason; actor: string };
+export type DeletionCounts = { closed_trades: number; activities: number; open_positions: number; notes: number; reports: number };
+export type DeletionRow = { reason: DeleteReason; actor: string; counts: DeletionCounts };
 export type OwnerDeleteDeps = { audit: (tx: TransactionSql, row: DeletionRow) => Promise<unknown>; profile: DeleteDeps };
 export const defaultOwnerDeleteDeps: OwnerDeleteDeps = {
-  audit: (tx, r) => tx`insert into trust_deletions (user_id, reason, actor) values (${r.user_id}, ${r.reason}, ${r.actor})`,
+  audit: (tx, r) => tx`insert into trust_deletions (reason, actor, closed_trades, activities, open_positions, notes, reports)
+    values (${r.reason}, ${r.actor}, ${r.counts.closed_trades}, ${r.counts.activities}, ${r.counts.open_positions}, ${r.counts.notes}, ${r.counts.reports})`,
   profile: defaultDeleteDeps,
 };
 
@@ -53,15 +56,25 @@ export async function ownerDeleteAccount(userId: number, reason: DeleteReason, c
     withMark: async (tx) => {
       const [now] = await tx`select handle from users where id = ${userId} for update`;
       if (!now || now.handle !== confirm) throw new RefusedConfirm();
-      await deps.audit(tx, { user_id: userId, reason, actor });
+      // The counts are read here, before deleteProfile's next statements remove the rows (same transaction).
+      const [c] = await tx`select
+        (select count(*)::int from closed_trades where user_id = ${userId}) as closed_trades,
+        (select count(*)::int from activities where user_id = ${userId}) as activities,
+        (select count(*)::int from open_positions where user_id = ${userId}) as open_positions,
+        (select count(*)::int from closed_trades where user_id = ${userId} and thesis is not null and thesis <> '') as notes,
+        (select count(*)::int from thesis_reports where trader_id = ${userId}) as reports`;
+      await deps.audit(tx, { reason, actor, counts: { closed_trades: c.closed_trades, activities: c.activities, open_positions: c.open_positions, notes: c.notes, reports: c.reports } });
     },
   });
   return true;
 }
 
 export type DeletionEntry = DeletionRow & { at: Date };
-/** The deletion log for one user id, oldest first (the CLI's `history`). Codes and times only. */
-export async function deletionHistory(userId: number): Promise<DeletionEntry[]> {
-  const rows = await sql`select user_id, reason, actor, at from trust_deletions where user_id = ${userId} order by at, id`;
-  return rows.map((r) => ({ user_id: Number(r.user_id), reason: r.reason, actor: r.actor, at: r.at }));
+export const HISTORY_LIMIT = 50;
+/** The latest owner deletions, newest first (the CLI's `history`): dates, codes and counts only; it names no one. */
+export async function deletionHistory(limit = HISTORY_LIMIT, opts: { actor?: string } = {}): Promise<DeletionEntry[]> {
+  const rows = await sql`select reason, actor, closed_trades, activities, open_positions, notes, reports, at from trust_deletions
+    ${opts.actor ? sql`where actor = ${opts.actor}` : sql``} order by at desc, id desc limit ${limit}`;
+  return rows.map((r) => ({ reason: r.reason, actor: r.actor, at: r.at,
+    counts: { closed_trades: r.closed_trades, activities: r.activities, open_positions: r.open_positions, notes: r.notes, reports: r.reports } }));
 }

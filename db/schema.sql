@@ -1235,15 +1235,19 @@ select schema_add_column('activity_reissues', 'undecided', 'boolean not null def
 -- under their own reason, never excluded_corporate. A count only: no transfer units, date or account is stored.
 select schema_add_column('users', 'excluded_transfer', 'int not null default 0');
 
--- ---- F-16 follow-up (owner decision 2026-11-02): the owner's audited account deletions (lib/owner-delete.ts) ----
--- Append-only. No foreign key on user_id, so the row outlives the deleted account; no handle, email or name. The reason
--- codes are checked in code (lib/owner-delete.ts DELETE_REASONS), so a new code never needs this table changed; the
--- actor is a role word, never a person (the same rule as trust_audit's actor).
+-- ---- F-16 follow-up (owner decision 2026-11-02, OD 2.22): the owner's audited account deletions (lib/owner-delete.ts) ----
+-- Append-only. Date, reason code and counts of what was deleted, and the actor role word; no user id, handle, email or
+-- name (OD 2.22: no personal data), so the row outlives the account and names no one. The reason codes are checked in
+-- code (lib/owner-delete.ts DELETE_REASONS); the actor is a role word, never a person (as trust_audit's actor).
 create table if not exists trust_deletions (
   id bigint generated always as identity primary key,
-  user_id bigint not null,                              -- the deleted account's id; deliberately no references
   reason text not null,                                 -- lib/owner-delete.ts DELETE_REASONS
   actor text not null check (actor ~ '^[a-z][a-z0-9-]{0,31}$'),
+  closed_trades int not null,                           -- counts at the deletion mark, before any row is removed
+  activities int not null,
+  open_positions int not null,
+  notes int not null,                                   -- closed trades with a thesis
+  reports int not null,                                 -- reports about the account (thesis_reports.trader_id)
   at timestamptz not null default now()
 );
-select schema_add_index('trust_deletions_user', 'create index trust_deletions_user on trust_deletions (user_id, at)');
+select schema_add_index('trust_deletions_at', 'create index trust_deletions_at on trust_deletions (at)');
