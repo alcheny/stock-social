@@ -99,7 +99,7 @@ file's Decisions and Build log are updated.
   - Independent review: one finding, fixed. Its other point is the merge item above.
 - **Gates:**
   - `npx tsc --noEmit`: ok.
-  - `npm test`: GATE_TEST.
+  - `npm test`: 2,363 passed, 0 failed, 26 skipped.
   - `BASE_REF=main node scripts/compliance.ts auto`: ok.
   - `node scripts/autopilot.ts guard origin/main`: ok.
   - `npm run build`: ok.
