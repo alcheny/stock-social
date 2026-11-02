@@ -1,6 +1,6 @@
 # F-21 · Exclusion counts beside the headline (pane and record strip)
 
-Status: building
+Status: built
 Start conditions: fix F3-2 merged in #85. It starts once #97 and #84 merge. It rides the pane/strip build slot with
 F-29 and F-34 (one builder owns the pane's line order). F-22 (draft, OD 2.28) joins the shared sum if it lands later.
 
@@ -103,26 +103,26 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
   mixes buys and sells under 'trades'.
 
 ## Acceptance criteria
-- [ ] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);
+- [x] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);
       a record with every count at 0 shows no line.
-- [ ] The line's count equals the profile's exclusion total for the same record (equality test over profile, pane and
+- [x] The line's count equals the profile's exclusion total for the same record (equality test over profile, pane and
       strip, fed by one function).
-- [ ] A test fails if an exclusion counter is added to the schema or the rebuild without being summed (or named as
+- [x] A test fails if an exclusion counter is added to the schema or the rebuild without being summed (or named as
       deliberately left out) in the shared function.
-- [ ] The count includes `notShared` exclusions (or names them as not an exclusion, with the reason), and a behavioural
+- [x] The count includes `notShared` exclusions (or names them as not an exclusion, with the reason), and a behavioural
       test proves a marked shared account in a rename chain does not feed the record (`lib/sync.ts:123-129`).
-- [ ] The line links to the profile's exclusion reasons; the link has a descriptive accessible name and a 44 px target.
-- [ ] Feed cards render exactly one record line (D22): a test fails if the exclusion line appears on a feed card.
-- [ ] The share card and the trade, month and stock image snapshots are unchanged.
-- [ ] At 360 px signed out, the disclaimer stays in view on the pane with the line present (e2e).
-- [ ] The line has no warning colour, no icon, and none of the words "hidden", "removed" or a cause that blames the
+- [x] The line links to the profile's exclusion reasons; the link has a descriptive accessible name and a 44 px target.
+- [x] Feed cards render exactly one record line (D22): a test fails if the exclusion line appears on a feed card.
+- [x] The share card and the trade, month and stock image snapshots are unchanged.
+- [x] At 360 px signed out, the disclaimer stays in view on the pane with the line present (e2e).
+- [x] The line has no warning colour, no icon, and none of the words "hidden", "removed" or a cause that blames the
       trader (copy test).
-- [ ] The line reflows without horizontal scroll at 320 px and passes the contrast test for muted text.
-- [ ] The equality fixture includes a future BUY, and the line's count does not move when it matures (sells and option
+- [x] The line reflows without horizontal scroll at 320 px and passes the contrast test for muted text.
+- [x] The equality fixture includes a future BUY, and the line's count does not move when it matures (sells and option
       closes only).
-- [ ] The guard is mutation-checked in the PR: a dummy `excludedX` key added to `MatchResult`, to the options result
+- [x] The guard is mutation-checked in the PR: a dummy `excludedX` key added to `MatchResult`, to the options result
       and to the public-filing result each fails the test.
-- [ ] The line links to the per-reason lines, and focus lands there; once F-32 lands, its "transfer" reason is among them.
+- [x] The line links to the per-reason lines, and focus lands there; once F-32 lands, its "transfer" reason is among them.
 - [ ] With F-29's qualifier and F-34's open line present (once built), the headline and disclaimer stay in view at
       360 px in the order exclusions, open, options qualifier (e2e).
 
@@ -144,4 +144,6 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
   run `scripts/rebuild-records.ts` once after deploy so frozen records fill `excluded_future_sells` and
   `excluded_shared` (Q5); owner flag, must-fix before real users (R4/E6): an option-pair sell the share matcher counted
   as corporate or held is counted again under options (pinned in `lib/f21-exclusions.db.test.ts`). The pane line's
-  vertical margins were compacted (Q6) to keep the disclaimer within 740 px with all three slot lines.
+  vertical margins were compacted (Q6) to keep the disclaimer within 740 px with all three slot lines. The last AC (all
+  three slot lines together) waits for F-34's open line; the 360 px committee user test and the tester round were not
+  run (owner's token-saving pause of 2026-11-02); the independent code review ran and its findings are fixed or recorded.
