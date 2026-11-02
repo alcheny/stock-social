@@ -8,14 +8,32 @@ import { readFileSync } from 'node:fs';
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
 before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
-after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
+// FIXES-CYCLE5 (F5-16): the suite deletes exactly what it created before the pool closes: its users (their closes,
+// activities, share rows and connections go by cascade), the handle reservation a deleted profile left, then the
+// connections, funnel rows and sign-up attempts on its attempts. Two runs leave the same row counts.
+const made = { users: [] as number[], attempts: [] as number[], handles: [] as string[] };
+after(async () => {
+  if (!hasDb) return;
+  const { sql } = await import('./db.ts');
+  if (made.users.length) await sql`delete from users where id in ${sql(made.users)}`;
+  if (made.handles.length) await sql`delete from handle_reservations where handle in ${sql(made.handles)}`;
+  if (made.attempts.length) {
+    await sql`delete from connections where attempt_id in ${sql(made.attempts)}`;
+    await sql`delete from funnel_events where attempt_id in ${sql(made.attempts)}`;
+    await sql`delete from signup_attempts where id in ${sql(made.attempts)}`;
+  }
+  await sql.end({ timeout: 1 });
+});
 
 const tag = () => `f15s${Math.random().toString(36).slice(2, 10)}`;
 async function user(o: { trades?: number[]; demo?: boolean } = {}): Promise<{ id: number; handle: string }> {
   const { sql } = await import('./db.ts');
   const handle = tag();
   const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+  made.attempts.push(a.id as number);
+  made.handles.push(handle);
   const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${handle}, ${handle}, now(), ${a.id}) returning id, handle`;
+  made.users.push(u.id as number);
   for (const [i, r] of (o.trades ?? []).entries()) {
     await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
       values (${u.id}, ${`${handle}-${i}`}, 'a', 'F15S', now() - interval '3 days', now() - interval '1 day', ${r}, 2, true)`;
