@@ -101,3 +101,14 @@ F-21 (slot partner) is draft and not built: this cycle owns the pane, pane-chart
   checks `/sitemap.xml`.
 - LOW: the scan spec now covers `/t/<symbol>`, `/t/compare`, `/t` and the feed's paging action.
 - Info: a 4,700-close profile with 25% notes is about 407 KB, not a regression; listed under Known limits.
+
+## 2026-11-02: owner decision on chart precision (closes the probe's curve channel)
+- Decision (owner, 2026-11-02): above ±100% the cumulative chart value prints at about 3 significant figures; below,
+  unchanged. Built on `claude/f23-chart-sigfigs`: `lib/format.ts#curvePct` (display), `lib/public-wire.ts#wireCurve`
+  (payload: chosen from the print, monotone, idempotent), the chart header and accessible name, and the packed chart's
+  point values, totals and y bounds. The OG and share images draw a line only and print no cumulative figure.
+- `PAYLOAD_V` stays 2: the body's structure is unchanged, and the in-flight PRs keep `?v=2`. An edge cache can serve a
+  pre-change body (finer curve values) for at most its 60 s max-age after deploy. Listed as a known limit.
+- Tests: `lib/f23-chart-sigfigs.test.ts` (formatter, wire rule, a curve decode closing the probe item);
+  `e2e/f23-chart-sigfigs.spec.ts` (header, scrub, name and payload on a +381% record); scan spec (curve fields checked
+  with `wireCurve`, plus an old-precision self-check).

@@ -9,7 +9,7 @@
 import { RANGES, curveDomain, equityCurve, maxDrawdown, pct, rangeTrades, type RangeKey } from './trades.ts';
 import { downsampleIndices, FEED_CHART_POINTS, FEED_LITE_POINTS, PANE_EAGER_CLOSES } from './downsample.ts';
 import { byListOrder, noteDaysOf, withNoteDays, type ChartPoint, type PackInput } from './paging.ts';
-import { wireDay, wireHold, wirePct } from './public-wire.ts'; // F-23
+import { wireCurve, wireDay, wireHold, wirePct } from './public-wire.ts'; // F-23
 import { boundedIndices, PROFILE_CHART_POINTS } from './chart-bounded.ts'; // FIXES-CYCLE5 (F5-14)
 
 const DAY = 86_400_000;
@@ -47,10 +47,11 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
 // The pane fetches the full chart (`/u/<handle>/pane-chart`) on its first swipe-open, so the feed page no longer
 // carries each trader's chart data.
 // F-23 (docs/features/F-23-public-payload-precision.md): this is a public payload, so it carries what the chart prints
-// and no more. Every return, point value, total, drawdown and y bound goes out through wirePct (lib/public-wire.ts:
-// the printed precision), every time as a UTC day (`base`, `t0`, `t1` are days since 1970-01-01; a point is days after
-// `base`), hold days at one decimal. Every figure is computed first, from stored values (chartSeries on the caller's
-// stored closes); only the output is rounded. `v` is the format version (PAYLOAD_V): the routes' URLs carry it too, so
+// and no more. Every close's return and the drawdown go out through wirePct (lib/public-wire.ts: the printed
+// precision); the cumulative curve (point values, totals, y bounds) through wireCurve (owner decision 2026-11-02: wirePct
+// below +100%, 3 significant figures of the percent from there, what curvePct prints); every time as a UTC day (`base`,
+// `t0`, `t1` are days since 1970-01-01; a point is days after `base`), hold days at one decimal. Every figure is
+// computed first, from stored values (chartSeries on the caller's stored closes); only the output is rounded. `v` is the format version (PAYLOAD_V): the routes' URLs carry it too, so
 // no cache serves a pre-F-23 body to a new client.
 export const PAYLOAD_V = 2;
 // FIXES-CYCLE4-PART2 (F4-16): a dated published note adds its written and edited UTC day numbers (lib/paging.ts#noteDays).
@@ -85,10 +86,10 @@ export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, li
           out.push(withNoteDays<PackedTrade>([t.id, t.symbol, wirePct(t.returnPct), wireHold(t.holdingDays), t.thesis, t.index], 6, days)); // FIXES-CYCLE4-PART2 (F4-16)
         }
       }
-      if (lite) p.push(wireDay(pt.at) - base, wirePct(pt.value)); // no close: pairs
-      else p.push(wireDay(pt.at) - base, wirePct(pt.value), i);
+      if (lite) p.push(wireDay(pt.at) - base, wireCurve(pt.value)); // no close: pairs
+      else p.push(wireDay(pt.at) - base, wireCurve(pt.value), i);
     }
-    ranges[key] = { t0: wireDay(s.t0), t1: wireDay(s.t1), last: wirePct(s.last), n: s.n, dd: -wirePct(-s.drawdown) || 0 /* printed negated ("max drawdown -99.999%"): rounded as printed */, min: wirePct(s.min), max: wirePct(s.max), p };
+    ranges[key] = { t0: wireDay(s.t0), t1: wireDay(s.t1), last: wireCurve(s.last), n: s.n, dd: -wirePct(-s.drawdown) || 0 /* printed negated ("max drawdown -99.999%"): rounded as printed */, min: wireCurve(s.min), max: wireCurve(s.max), p };
   }
   if (lite) return { v: PAYLOAD_V, base, trades: out, ranges, lite: 1 };
   const full: PackedChart = { v: PAYLOAD_V, base, trades: out, ranges };

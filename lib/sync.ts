@@ -138,7 +138,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
         and ${notDuplicate(tx)}
-        ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
+        ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::text::timestamptz, ${after.external_id}, ${after.source})` : tx``}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
       for (const r of page) {
         const a: Activity = {
@@ -410,6 +410,28 @@ export async function syncTick<R>(opts: {
 // (syncTick, tests) every account is read on every call, as before.
 export type CadenceReport = { accounts: number; activitiesRead: number; positionsRead: number; deferred: number; rebuilt: boolean };
 export type SyncOpts = { cadence?: boolean; shiftMs?: number; report?: (r: CadenceReport) => void };
+// FIXES-CYCLE5 (F5-15): the vendor positions reads run before the rebuild, so the rebuild's row locks on the trader's
+// closed trades (a note save waits on them) are never held across a vendor call. Only the reads move: every write stays
+// after the rebuild, in the same transaction and order, so the freeze and option-split atomicity is unchanged. Each read
+// is reported as it returns (`onRead`, the G2 marks: a read that returned is marked even if the sync then fails, as
+// before). The calls run one after another, in the order the write loops used.
+export type VendorPositions = Map<string, { rows: { accountId: string; symbol: string; unrealizedPct: number }[]; split?: PositionSplit }>;
+export async function readVendorPositions(
+  fetch: NonNullable<Broker['fetchPositions']>,
+  bu: Parameters<typeof fetchPositions>[0],
+  ids: string[],
+  onRead: (id: string) => void = () => {},
+): Promise<VendorPositions> {
+  const out: VendorPositions = new Map();
+  for (const id of ids) {
+    let split: PositionSplit | undefined;
+    const rows = (await fetch(bu, id, (s) => { split = s; })).map((p) => ({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct }));
+    out.set(id, split === undefined ? { rows } : { rows, split });
+    onRead(id);
+  }
+  return out;
+}
+// end FIXES-CYCLE5 (F5-15)
 export async function syncUser(
   user: { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null },
   broker: Broker = defaultBroker,
@@ -699,12 +721,17 @@ export async function syncUser(
       // last read" (the freshness line, the queue order, the coverage age). Always without `cadence`.
       const rebuilt = actIds.length > 0 || changed;
       const [{ prev }] = opts.cadence ? await tx`select last_synced_at as prev from users where id = ${user.id}` : [{ prev: null }];
+      // FIXES-CYCLE5 (F5-15): the vendor positions reads, before the rebuild takes its row locks (writes stay below).
+      const vendorPos = broker.fetchPositions
+        ? await readVendorPositions(broker.fetchPositions, bu, opts.cadence ? posIds : real, opts.cadence ? (id) => { readPos.push(id); } : undefined)
+        : null;
       if (rebuilt) await rebuild(user.id, tx);
-      if (broker.fetchPositions) {
+      if (vendorPos) {
         const splits = new Map<string, PositionSplit>(); // OPTIONS (D7)
+        for (const [id, r] of vendorPos) if (r.split !== undefined) splits.set(id, r.split);
         if (!opts.cadence) {
           const positions = [];
-          for (const id of real) for (const p of await broker.fetchPositions(bu, id, (s) => { splits.set(id, s); })) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
+          for (const id of real) positions.push(...vendorPos.get(id)!.rows);
           await replaceListedPositions(tx, user.id, real, positions); // F3-4: per account read
           // OPTIONS (D7), per account read (F3-4): unlisted accounts' rows move aside, then every listed account is replaced
           // (replaceAccountOptionPositions' user-wide path: the totals are this read's, never added to).
@@ -718,8 +745,7 @@ export async function syncUser(
           // unread for days: its positions take the positions-only rule (never removed), not the combined one.
           const withActs = new Set(actIds.filter((id) => !pagedIds.includes(id)));
           for (const id of posIds) {
-            const rows = (await broker.fetchPositions(bu, id, (s) => { splits.set(id, s); })).map((p) => ({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct }));
-            readPos.push(id);
+            const rows = vendorPos.get(id)!.rows; // FIXES-CYCLE5 (F5-15): read before the rebuild
             if (withActs.has(id)) {
               // Read with this account's activities (and its rebuild): listed positions are updated and added; one the
               // vendor no longer lists goes once its sell is imported (or after 3 days unlisted), lib/positions.ts.

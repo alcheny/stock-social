@@ -90,7 +90,7 @@ export async function rebuildOptionTrades(userId: number, tx: TransactionSql, as
     const page: Stored[] = await tx<Stored[]>`select ${cols(tx)} from option_activities o where o.user_id = ${userId} and o.contract_key is not null and o.account_id is not null
       and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)}
       ${after ? tx`and (o.account_id collate "C", o.contract_key collate "C", o.executed_at, o.external_id collate "C", o.source collate "C")
-        > (${after.account_id}::text collate "C", ${after.contract_key}::text collate "C", ${after.at}::timestamptz, ${after.external_id}::text collate "C", ${after.source}::text collate "C")` : tx``}
+        > (${after.account_id}::text collate "C", ${after.contract_key}::text collate "C", ${after.at}::text::timestamptz, ${after.external_id}::text collate "C", ${after.source}::text collate "C")` : tx``}
       order by o.account_id collate "C", o.contract_key collate "C", o.executed_at, o.external_id collate "C", o.source collate "C" limit ${OPTION_PAGE}`;
     for (const r of page) {
       const base = `${r.account_id}#${r.contract_key}`;
