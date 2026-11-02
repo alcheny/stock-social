@@ -5,13 +5,16 @@
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { deleteUser } from './broker.ts';
-import { HANDLE_RESERVED_DAYS } from './handles.ts';
+import { HANDLE_RESERVED_DAYS, holdUntil } from './handles.ts';
 import { endBillingForDeletion } from './billing.ts';
 import { logSafe } from './privacy-log.ts';
 
 export type DeletableUser = { id: number; handle: string; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // F-3: endBilling cancels the processor subscription and deletes the processor customer first (committee condition 20).
-export type DeleteDeps = { deleteVendorUser: (u: { snaptradeUserId: string; secretEnc: string }) => Promise<void>; endBilling?: (userId: number) => Promise<void> };
+// F-16 follow-up (owner decision 2026-11-02): withMark runs inside the first transaction, before the mark, so an owner-run
+// deletion's audit row (lib/owner-delete.ts) commits with the mark or not at all. It may throw to refuse; then nothing
+// is marked. The settings path passes none.
+export type DeleteDeps = { deleteVendorUser: (u: { snaptradeUserId: string; secretEnc: string }) => Promise<void>; endBilling?: (userId: number) => Promise<void>; withMark?: (tx: TransactionSql) => Promise<unknown> };
 
 export { HANDLE_RESERVED_DAYS };
 
@@ -40,6 +43,8 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
   // F-2 PR-2: the first step, with the mark: follows and exclusions made by this account or naming it go before the
   // vendor call, so a failed vendor call still leaves none (the cascade covers any written meanwhile).
   await sql.begin((tx) => [
+    // Queued first, so its statements run before the mark on this transaction's connection; a rejection rolls back all.
+    ...(deps.withMark ? [deps.withMark(tx)] : []),
     tx`update users set deleted_at = coalesce(deleted_at, now()) where id = ${u.id}`,
     // Security hardening (2026-11-01), F17: every session of the profile ends with the mark, not when the row goes.
     tx`delete from sessions where user_id = ${u.id}`,
@@ -77,8 +82,10 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
     // The shared Similar-trades pools (lib/similar.ts) are a cache that names traders by id with derived numbers: any pool
     // naming this trader goes now; the next profile view rebuilds it (tester QA Q2). The pool is JSON.stringify output.
     await tx`delete from similar_pools where pool ~ ${`"trader":${u.id}[,}]`}`;
-    await tx`insert into handle_reservations (handle, until) values (${u.handle}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day')
-      on conflict (handle) do update set until = excluded.until`;
+    // OD 2.17 (2026-11-02): a connected record's handle is retired (until = infinity, lib/handles.ts#holdUntil, read
+    // before the users row and its activities go); a retired row stays retired. Otherwise the year's hold, as before.
+    await tx`insert into handle_reservations (handle, until) values (${u.handle}, ${holdUntil(tx, u.id)})
+      on conflict (handle) do update set until = case when handle_reservations.until = 'infinity' then handle_reservations.until else excluded.until end`;
     // Privacy work (committee D17): the account's attempts stay as anonymous funnel rows (user_id goes null with the
     // users row, F-1 design); any vendor id left on one is blanked here, so nothing on them points at the person.
     // Only the vendor user just deleted above (orchestrator review nit): any other vendor id stays for its own cleanup.

@@ -101,6 +101,28 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
   all raw and derived data the way in-app deletion does, writes an audit record with no personal data (date, reason
   code, counts), and runs only when the owner runs it. The F-16/F-17 session builds it. Why: the owner's decision of
   2026-11-02 (OD 2.22); POLICY H (deleting data stays the owner's act), P6.
+- 2026-11-02: The owner deletes an account for a founded "May be under 18" report (and any other deletion the owner
+  decides) with `scripts/owner-delete.ts <user_id> <reason> --confirm=<handle> [--actor=<role>]`. Reasons are a fixed
+  list (`under-18-founded`, `legal-notice`, `owner-decision`); `--confirm` must equal the account's current handle. It
+  uses the one deletion path (`lib/delete.ts#deleteProfile`), never a web route, and never reads a session. Its audit
+  row goes in a new append-only table, `trust_deletions` (user id with no foreign key, reason, actor, time; no handle,
+  email or name), written in the same transaction as the deletion mark, so a failed audit insert deletes nothing. Why:
+  owner decision of 2026-11-02, relayed by the orchestrator; `docs/COMPLIANCE.md` Section 7 (delete, log, review the
+  gate). `trust_audit` was not used: its `user_id` cascades with the account and its action CHECK allows only hide and
+  unhide (widening a CHECK needs a drop, which CI forbids). The script is the owner's; no agent runs it.
+- 2026-11-02: The anti-impersonation line and the takedown page wording are approved as drafted: `TRUST_LINE.approved`
+  and `TAKEDOWN.approved` are true, and the draft banner is gone. The takedown page is reachable on every deploy; while
+  the role mailbox (env `TAKEDOWN_CONTACT`) is unset it says "The contact address is not set yet." and is `noindex`,
+  and it never shows a value that is not an address. Why: owner decision OD 2.18 (accepted), relayed by the
+  orchestrator; the wording is the owner's call and is made, the contact is deploy config. The engineer's choice:
+  reachable without the contact (recommended by the orchestrator), and noindex until it has one, since the page then
+  gives no way to send a notice.
+
+- 2026-11-02: The owner-deletion log follows OD 2.22: each `trust_deletions` row holds the date, the reason code, the
+  actor role word and the counts of what was deleted (closed trades, activities, open positions, notes, reports about
+  the account), and no user id, handle, email or name. `scripts/owner-delete.ts history` lists the latest rows; a
+  restore replays the closings through the closed and retired handles and loads the exported log rows back. Why: the
+  orchestrator's ruling on OD 2.22 (2026-11-02) replaces the earlier decision's user id.
 
 ## Acceptance criteria
 - [x] A test fails on any `from closed_trades` read under `app/` or `lib/` that lacks the shared visible-user predicate
@@ -155,19 +177,23 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
 - Hiding a single trade (never: TR-1).
 - The anti-impersonation line on share cards, link previews or story images (F-4 owner decisions).
 - F-7's T2 question and its source label: F-7's committee and the owner.
-- Retiring handles forever (O-9): owner.
+- Retiring handles forever (O-9): owner. (Decided 2026-11-02 for connected records, OD 2.17: F-17 Decisions.)
 
 ## Open questions
 - Owner: K18's age-assurance method stays the owner's (approval council cycle 3, flag 6); this feature uses no date of
   birth, ID or age estimation.
 - Owner: approve the takedown page wording and the anti-impersonation line before real users reach them.
+  **Answered 2026-11-02 (OD 2.18): approved as drafted; see Decisions.** Setting the role mailbox stays the owner's.
 - Owner: choose an email sender, if the digest should ever be emailed.
 - Owner (2026-11-01, orchestrator review of PR #100): an audited, owner-run account-closing path for a founded
   under-18 report (`docs/COMPLIANCE.md` Section 7: delete, log, review the gate) doesn't exist yet; until it does the
   hide stays in place (runbook Section 3).
+  **Answered 2026-11-02 (owner decision): `scripts/owner-delete.ts`, owner-run and audited; see Decisions and runbook
+  Section 3.**
 
 ## Build log
 - 2026-11-01: F-16 and F-17 built as one slot on `claude/f16-f17-trust-safety` (committee record `docs/features/logs/F-16-F-17/committee-2026-11-01.md`, plan `plan.md` v3); Status set to built in its PR. Every acceptance criterion is met except the axe scan: hand-built checks (labels, roles, focus, keyboard-only, 44 px) stand in until the owner authorizes axe-core (MPL-2.0) or accepts them, so that box stays open. Owner items: approve the anti-impersonation line and the takedown wording, set the role mailbox, choose an email sender, the K18 age-assurance method, accept the ≤300 s image / ≤60 s JSON cache window after a hide.
 - 2026-11-01: integration step. Merged main (#87 F-26, #77 F-20, #90, #91); the report page's focus outline uses F-20's `--focus` token; main's C1 route walk maps `/u/[handle]/report`; T3 asserts the pane's stats start on the first screen (after #85's pane F3 line). F4-17 (assigned by the orchestrator): the author's held line has id `held-<trade id>` (an optional `id` on F-26's `HeldNote`), and that row's thesis input names it in `aria-describedby` and is `aria-invalid` while held (`lib/f4-17-held-field.test.ts`, `e2e/f4-17-held-field.spec.ts`).
+- 2026-11-02: follow-up on `claude/f16-owner-delete`: `lib/owner-delete.ts` + `scripts/owner-delete.ts` + `trust_deletions` (tests `lib/f16-owner-delete.test.ts`, `lib/f16-owner-delete.db.test.ts`); OD 2.18 flips `TRUST_LINE.approved` and `TAKEDOWN.approved` (the f16 assertions that pinned the draft changed with that decision, `lib/f16-static.test.ts`, `e2e/f16-pages.spec.ts`); runbook Section 3 points the founded under-18 step at the script.
 
 ## Rework notes

@@ -8,6 +8,19 @@ import { LAUNCH, SIGNIN } from './copy.ts';
 
 // A deleted or renamed handle stays unavailable to others for a year (lib/delete.ts re-exports this).
 export const HANDLE_RESERVED_DAYS = 365;
+// F-17 / OD 2.17 (owner decision, accepted 2026-11-02): a handle whose account had a connected record (any `activities`
+// row with source 'snaptrade', the meaning of Verified) is retired, never reissued: its hold's `until` is 'infinity'.
+// Every reader already treats `until > now()` as active, and the purge (lib/privacy-purge.ts) removes only rows with
+// `until <= now`, which infinity never is. A retired hold is exempt from the one-hold cap (lib/auth/attempts.ts) and is
+// never ended by a take-back. A demo or unconnected account's old handle keeps the HANDLE_RESERVED_DAYS hold.
+/** SQL fragment: the end of a new hold on `userId`'s handle (retired if the account had a connected record). */
+export const holdUntil = (db: Db, userId: number) => db`case when exists (select 1 from activities where user_id = ${userId} and source = 'snaptrade')
+  then 'infinity'::timestamptz else now() + ${HANDLE_RESERVED_DAYS} * interval '1 day' end`;
+/** Whether this account's handles retire when it leaves them (its profile's rename hint says so). */
+export async function retiresHandle(userId: number, db: Db = sql): Promise<boolean> {
+  const [r] = await db`select exists (select 1 from activities where user_id = ${userId} and source = 'snaptrade') as yes`;
+  return r?.yes === true;
+}
 
 // F-17: 'soon' is the 30-day rename rule (lib/auth/attempts.ts#changeHandle); handleVerdict itself never returns it.
 export type HandleVerdict = 'ok' | 'taken' | 'reserved' | 'lookalike' | 'format' | 'soon';
@@ -263,6 +276,10 @@ export const HANDLE_REASON: Readonly<Record<Exclude<HandleVerdict, 'ok'>, string
 // sentence and the date; "releases the old one" (BL5).
 export const RENAME_HOLD = 'Your old handle stays reserved for you for a year and its links stop working. Changing again releases the old one.';
 export const RENAME_RULE = `${HANDLE_REASON.soon} ${RENAME_HOLD}`;
+// OD 2.17 (2026-11-02): the same hint for an account with a connected record, whose old handles are retired, not held
+// for a year (app/u/[handle]/page.tsx picks it with retiresHandle).
+export const RENAME_RETIRE = 'Your record is connected, so your old handle is retired: its links stop working and it is never given to anyone else. You can still take it back.';
+export const RENAME_RULE_RETIRED = `${HANDLE_REASON.soon} ${RENAME_RETIRE}`;
 // Fix round 2 (UX1): the focused role=status line after a successful rename (app/u/[handle]/page.tsx, ?renamed=1).
 export const renamedText = (handle: string): string => `Your handle is now @${handle}. Links to your old handle no longer work.`;
 // Fix round 2 (UX4): beside the dev form's display-name field after any refusal. The name never rides in the URL

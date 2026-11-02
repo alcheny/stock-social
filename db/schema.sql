@@ -1256,3 +1256,21 @@ select schema_add_column('users', 'excluded_transfer', 'int not null default 0')
 select schema_add_column('users', 'excluded_future_sells', 'int not null default 0');
 -- excluded_shared: sells and option closes in accounts marked as another profile's (lib/options-sync.ts#rebuildRecord).
 select schema_add_column('users', 'excluded_shared', 'int not null default 0');
+
+
+-- ---- F-16 follow-up (owner decision 2026-11-02, OD 2.22): the owner's audited account deletions (lib/owner-delete.ts) ----
+-- Append-only. Date, reason code and counts of what was deleted, and the actor role word; no user id, handle, email or
+-- name (OD 2.22: no personal data), so the row outlives the account and names no one. The reason codes are checked in
+-- code (lib/owner-delete.ts DELETE_REASONS); the actor is a role word, never a person (as trust_audit's actor).
+create table if not exists trust_deletions (
+  id bigint generated always as identity primary key,
+  reason text not null,                                 -- lib/owner-delete.ts DELETE_REASONS
+  actor text not null check (actor ~ '^[a-z][a-z0-9-]{0,31}$'),
+  closed_trades int not null,                           -- counts at the deletion mark, before any row is removed
+  activities int not null,
+  open_positions int not null,
+  notes int not null,                                   -- closed trades with a thesis
+  reports int not null,                                 -- reports about the account (thesis_reports.trader_id)
+  at timestamptz not null default now()
+);
+select schema_add_index('trust_deletions_at', 'create index trust_deletions_at on trust_deletions (at)');

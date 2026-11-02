@@ -6,7 +6,7 @@ import { recordFunnel } from '../funnel.ts';
 import { legacyVia, normalizeHandle, type ReferredSurface } from '../referral.ts';
 import { handleReserved, SignUpClosedError } from '../launch-gate.ts';
 import type { Env } from '../vendor-env.ts';
-import { checkDisplayName, checkHandle, HANDLE_RESERVED_DAYS, lockHandleSkeleton, nextRenameAt, type HandleVerdict, type NameReasonCode } from '../handles.ts';
+import { checkDisplayName, checkHandle, holdUntil, lockHandleSkeleton, nextRenameAt, type HandleVerdict, type NameReasonCode } from '../handles.ts';
 import { sanitizeUserText } from '../text-safety.ts';
 import { isFilerHandle } from '../public-gate.ts';
 
@@ -194,13 +194,18 @@ export async function changeHandle(userId: number, raw: unknown, opts: ChangeHan
             handle_renamed_at = ${clock},
             provisional_handle = null
         where id = ${userId} returning handle`;
-      await tx`insert into handle_reservations (handle, until, user_id) values (${me.handle as string}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day', ${userId})
-        on conflict (handle) do update set until = excluded.until, user_id = excluded.user_id`;
-      // Taking back an own held handle: that hold has done its job and ends now (v2 B3: ended, never deleted).
-      await tx`update handle_reservations set until = now() where handle = ${handle} and user_id = ${userId} and until > now()`;
-      // At most RENAME_HOLD_CAP active holds per account: past it, the account's older ones end now.
+      // OD 2.17 (2026-11-02): an account with a connected record retires the old handle (until = infinity, lib/handles.ts
+      // #holdUntil); otherwise it is held HANDLE_RESERVED_DAYS. A retired row stays retired on a later write.
+      await tx`insert into handle_reservations (handle, until, user_id) values (${me.handle as string}, ${holdUntil(tx, userId)}, ${userId})
+        on conflict (handle) do update set user_id = excluded.user_id,
+          until = case when handle_reservations.until = 'infinity' then handle_reservations.until else excluded.until end`;
+      // Taking back an own held handle: that hold has done its job and ends now (v2 B3: ended, never deleted). A retired
+      // one never ends: the holder may take it back (as before), and it stays out of everyone else's reach.
+      await tx`update handle_reservations set until = now() where handle = ${handle} and user_id = ${userId} and until > now() and until <> 'infinity'`;
+      // At most RENAME_HOLD_CAP active holds per account: past it, the account's older ones end now. Retired holds are
+      // exempt from the cap (and never counted toward it), so a rename never releases a retired handle.
       await tx`update handle_reservations set until = now() where handle in (
-        select handle from handle_reservations where user_id = ${userId} and until > now() order by until desc, handle offset ${RENAME_HOLD_CAP})`;
+        select handle from handle_reservations where user_id = ${userId} and until > now() and until <> 'infinity' order by until desc, handle offset ${RENAME_HOLD_CAP})`;
       return u.handle as string;
     });
   } catch (e) {

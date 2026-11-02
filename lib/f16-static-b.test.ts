@@ -77,8 +77,11 @@ test('the audit row is written in the same transaction as the change, and carrie
   assert.deepEqual(cols, ['id', 'kind', 'user_id', 'sell_id', 'action', 'reason', 'actor', 'at']);
 });
 
-test('reporter identity: thesis_reports appears only in the report, review, save, digest and privacy files', () => {
-  const allowed = new Set(['lib/reports.ts', 'lib/thesis-review.ts', 'lib/thesis-save.ts', 'lib/trust-digest.ts', 'lib/privacy-retention.ts', 'lib/report-copy.ts']);
+test('reporter identity: thesis_reports appears only in the report, review, save, digest, owner-delete and privacy files', () => {
+  const allowed = new Set(['lib/reports.ts', 'lib/thesis-review.ts', 'lib/thesis-save.ts', 'lib/trust-digest.ts', 'lib/privacy-retention.ts', 'lib/report-copy.ts', 'lib/owner-delete.ts']);
+  // OD 2.22: the owner-deletion log counts the reports about the account (by trader_id) and never reads a reporter.
+  const od = code('lib/owner-delete.ts');
+  for (const m of od.matchAll(/thesis_reports[^`]*/g)) assert.doesNotMatch(m[0], /reporter/, 'owner-delete never reads a reporter');
   const found = SOURCES.filter((f) => /\bthesis_reports\b/.test(read(f)));
   for (const f of found) assert.ok(allowed.has(f), `${f} must not read thesis_reports (reporter identity stays with the owner)`);
   // lib/report-copy.ts is client-safe copy and names the table only in a comment.

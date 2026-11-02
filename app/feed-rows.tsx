@@ -31,7 +31,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   // pane is built once per trader and the same element placed in each of that trader's rows.
   // FIXES-LABELS (D-09): keyed `${user_id}:${flag}`: a card's pane carries the F3 line, a sheet's pane does not (the
   // sheet has its own .sheet-note, so each sheet shows one).
-  const trustShown = impersonationLineShown(); // F-16: the draft line renders in the sandbox until the owner approves it
+  const trustShown = impersonationLineShown(); // F-16: approved (OD 2.18), so shown on every deploy
   const panes = new Map<string, ReturnType<typeof ProfilePane>>();
   const paneOf = (t: { user_id: number; handle: string; display_name: string }, disclaimer = true) => {
     const key = `${t.user_id}:${disclaimer}`;
