@@ -344,6 +344,10 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     // F-36: a sell drawing a lot with no basis, or with no positive denominator, is a broker row the importer can't price
     // (excludedCorporate), whatever else holds; it never shows a return priced from fees alone.
     if (openedAt && !(cost + entryFees > 0)) noBasis = true;
+    // ponytail: a lot priced just above zero (a vendor price of 1e-12) is still priced, so its fee is nearly its whole
+    // basis — fix: a minimum price per unit, an owner/vendor question (no such floor is decided) (tester, F-36 QA note 2).
+    // ponytail: a negative fee (a rebate) would lower the denominator; the importer reads fees with Math.abs today, and the
+    // matcher does not check it — fix: count a sell drawing a lot with a negative fee if a vendor ever sends rebates.
     if (tainted || noBasis || latePosted(a) || sameDayAction(a)) excludedCorporate++;
     else if (gapped) excluded++; // C4-2: a short or earlier history: no buy can be matched for certain
     else if (openedAt) {

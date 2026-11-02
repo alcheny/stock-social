@@ -41,3 +41,25 @@ Engineer r2: SIGNED. Notes: the audit must prove its hook loaded (anchor found o
 only when every test exited cleanly); `|new| ≤ |legacy|` and the zero-fee equality are exact float comparisons.
 
 ## Build
+- Engineer (fresh context, same reviewer as rounds 1-2): tests first (`5febd93`, failing on the old code: the first
+  error was the missing `signChanges` export), then the change (`1442c3d`). Deviations from the plan, recorded: the
+  no-positive-denominator check runs only when a lot was drawn (a zero-unit sell keeps today's behaviour); sign counts
+  are summed only after a record's transaction commits; `scripts/f36-audit.test.ts` pins the hook's anchor. No axe
+  library is in the repo, so the e2e checks heading order and no horizontal scroll instead of an axe pass.
+- Tester QA: PASS, no defects. 2393 tests, 0 fail. 3,000 random histories: order independence and the partition
+  invariant hold (held-row partition misses exist on main too, by design); main shows 153 infinite or NaN returns on
+  them, this branch none; a 50k-activity history completes with every return finite. Notes taken: 2 and 3 as ponytails
+  in `lib/trades.ts` (near-zero price; negative fee). Note 1 (guard bucket moves are not in the audit's list): the only
+  bucket move is a gapped sell drawing an untainted price-0 lot (`excluded` → `excludedCorporate`), pinned in
+  `lib/f36-fees.test.ts`; no existing expectation moved for it (the suite's only changed expectations are the audit's).
+  Note 4 (zero-unit rows) predates F-36.
+- Leads' user test at 360 and 320 px, light and dark (/how, a demo profile, a trade page): PASS. Formula as text, no
+  horizontal scroll, example fictional and correct, dated note under "Changes to the math", Disclaimer right after the
+  math list, no fee anywhere on profile or trade pages. Not taken: breaking the example inside a bracket (cosmetic; the
+  copy is signed and pinned verbatim); "larger in size, whether up or down" (the business lead's signed wording stands).
+  Outside F-36, for the fixes lane: the trade page's h2 "This trade" precedes its h1; the profile's "What's this?"
+  toggle is 21 px tall.
+- Independent code review: no blocking findings. Taken: finding 2 (the audit now fails unless the legacy run collects a
+  failure in `lib/trades.test.ts`) and finding 1 (a ponytail: records the hourly sync rebuilt first are not in the
+  deploy's counts). Findings 3-5 (per-file cross-check backed by the per-trade `entryFee=no` check; the date constant,
+  an owner item; DB fixture legacy rows written by hand) are noted, not changed.
