@@ -46,7 +46,11 @@ const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale
 // `excludedTransfer` (F-32 Part A, council cycle 5 C5-1): sells a transfer row excludes (its backward window, its day, or a
 // draw on a lot only a transfer tainted), present only when nonzero. Their own count, never `excludedCorporate`: when a
 // split, stock dividend or other action excludes the sell too, that action's reason wins.
-export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number; excludedTransfer?: number };
+// `transfersOut` (F-22): transfer rows with units out of a pair, each counted once, present only when nonzero. It counts
+// transfers, not sells, so it is not an `excluded*` key (those partition the sells); F-21's sum names it in its own unit.
+export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number; excludedTransfer?: number; transfersOut?: number };
+// F-22: a transfer out with units (lib/sync.ts counts one in a pair with no activity, which is never replayed).
+export const isTransferOut = (ca: CorporateAction) => ca.kind === 'unpriceable' && ca.reason !== 'trade' && ca.transfer === true && (ca.units ?? 0) < 0;
 // Every `excluded*` key of MatchResult, and their one sum (F-21's shared sum reads this; lib/f32-transfers.test.ts fails,
 // in tsc too, when a new `excluded*` key is not listed here).
 export const EXCLUDED_KEYS = ['excluded', 'excludedCorporate', 'excludedHeld', 'excludedTransfer'] as const satisfies readonly (keyof MatchResult)[];
@@ -87,13 +91,17 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 //   ponytail: a thesis on a later sell that a hold counts goes to kept_theses (lib/sync.ts#rebuildTrades) and comes back
 //   when the sell is shown again, but the kept copy stays behind (a kept row is only removed when the trader edits or
 //   clears that thesis) — fix: remove the kept row when its trade is shown again, in the same rebuild.
-// - Transfers (F-32 Part A; council cycle 5 C5-1): a vendor transfer row is an unpriceable action like any other (the
-//   window, the same-day rule and forward taints are unchanged), but the sells it alone excludes are counted in
-//   `excludedTransfer`, so the profile names them. When another action excludes the sell too (in its window, on its day,
-//   or by tainting a lot it draws), the sell keeps that action's reason. Part A changes no shown figure.
-//   ponytail: a transfer still excludes sells up to LATE_POSTING_DAYS before it and, dated before a sell, taints every open
-//   lot of the pair (probe p4), so a trader can remove a chosen loss, now counted under its own reason — fix: F-22's
-//   basis rule (owner OD 2.28) and F-32 Part B (the vendor's MRC2-10 answer).
+// - Transfers (F-32 Part A; council cycle 5 C5-1; F-22, owner OD 2.28): a vendor transfer row is a share move. With
+//   units, it taints no recorded lot: a transfer in adds one no-basis lot (a sell drawing it is counted); a transfer out
+//   is always counted (`transfersOut`) and removes units oldest first, and the lots left stay priced only where that
+//   cannot change a figure (the whole position moved, or every lot alike), else they are tainted. A unit-less transfer
+//   taints like any unpriceable action. Its window and same-day rule are unchanged. The sells a transfer alone excludes
+//   are counted in `excludedTransfer`; when another action excludes the sell too, the sell keeps that action's reason.
+//   ponytail: a transfer still excludes sells up to LATE_POSTING_DAYS before it and on its day, so a trader can remove a
+//   chosen recent loss, counted under its own reason — fix: F-32 Part B (the vendor's MRC2-10 answer: does a split ever
+//   arrive as a transfer row?).
+//   ponytail: a split the vendor sends as a transfer-in row leaves older lots at the old basis, so a partial sell after it
+//   is priced on that basis (as an unreported split) — fix: the vendor's MRC2-10 answer, or a position-units check.
 // - Same instant (F3-5): symbol changes, then other corporate actions, then buys, then sells, then the vendor id. In a
 //   long-only ledger a sell is filled from shares held, so a same-instant buy before it is the only order that can be
 //   true when the sell needs it; when older lots cover the sell, FIFO draws them first and the order changes nothing. A
@@ -108,8 +116,8 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 // before trades (trade dates are often day-only and an action is dated on its effective day).
 // Bumped when a change to the matcher can change a published figure: a deploy then rebuilds every record once
 // (lib/matcher-rebuild.ts). 2: fixes cycle 4 (C4-1 ties, C4-2 the gap). 3: F-32 Part A (the transfer count; ships only
-// after chore C5-43(b), never in the same deploy as F-36's bump).
-export const MATCHER_VERSION = 3;
+// after chore C5-43(b), never in the same deploy as F-36's bump). 4: F-22 (transfers as share moves; its own deploy).
+export const MATCHER_VERSION = 4;
 
 // `orderKnown` (independent review, finding 1): the input order is the true order at a tie (public filings pass rows in
 // filing order, lib/public-trades.ts), so ties fall back to it instead of the vendor id.
@@ -160,7 +168,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   const books = new Map<string, Book>();
   const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
   const trades: ClosedTrade[] = [];
-  let excluded = 0, excludedCorporate = 0, excludedHeld = 0, excludedTransfer = 0;
+  let excluded = 0, excludedCorporate = 0, excludedHeld = 0, excludedTransfer = 0, transfersOut = 0;
   const note = (id: string, r: SellReason) => opts.reasons?.set(id, r);
   // F-24 RT-2 (final review R2): the pairs a held row has been reached in, in the canonical order. Every later sell of
   // such a pair is counted, so no shown figure depends on how the held row is decided: a sell before it in the order is
@@ -310,6 +318,28 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
         if (r.p !== r.q) exchangedInto.set(toKey, e.at);
       } else {
+        if (isTransfer(ca) && ca.units) {
+          // F-22 (owner OD 2.28): a transfer with units is a share move, not a repricing (see the header).
+          if (ca.units > 0) {
+            // In: one no-basis lot for the moved-in units; older recorded lots stay priced. (F-32 Part A: it names the
+            // transfer as its cause only when no other action shares its day.)
+            b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true, ...(!sameDay(days, ca) ? { cause: 'transfer' as const } : {}) });
+          } else {
+            // Out: always counted. Units leave oldest first; the lots left stay priced only where that cannot change a
+            // figure: the whole position moved, or every lot is alike (price, fee, opening date, state). Otherwise the
+            // trader's broker chose which shares left, so the lots left are tainted (their sells counted, "transfer").
+            transfersOut++;
+            if (!b.lots.length) { if (moved?.at !== e.at) addGap(b, -ca.units); } // nothing recorded to move: the gap
+            else {
+              const h = held(b.lots), f = b.lots[0];
+              const whole = Math.abs(h + ca.units) <= RATIO_TOLERANCE * Math.max(1, h);
+              const alike = b.lots.every((l) => l.price === f.price && l.feePerUnit === f.feePerUnit && l.at.getTime() === f.at.getTime() && l.verified === f.verified && !!l.tainted === !!f.tainted && l.cause === f.cause);
+              addGap(b, removeOldest(b.lots, -ca.units)); // C4-2: more out than held leaves the gap, as today
+              if (!whole && !alike) taintBy(b.lots, ca);
+            }
+          }
+          continue;
+        }
         if (ca.scope === 'account') {
           for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`)) taint(other.lots);
         } else taintBy(b.lots, ca);
@@ -407,7 +437,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     if (n > 0) { countedTwins.set(sig(h), n - 1); note(h.externalId, 'twin'); } // its twin is counted already
     else { excludedHeld++; note(h.externalId, 'held'); } // a possible further sell beyond a shown twin
   }
-  return { result: { trades, excluded, excludedCorporate, ...(excludedHeld ? { excludedHeld } : {}), ...(excludedTransfer ? { excludedTransfer } : {}) }, books };
+  return { result: { trades, excluded, excludedCorporate, ...(excludedHeld ? { excludedHeld } : {}), ...(excludedTransfer ? { excludedTransfer } : {}), ...(transfersOut ? { transfersOut } : {}) }, books };
 }
 
 export type Stats = {
