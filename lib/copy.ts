@@ -72,6 +72,8 @@ export const PROFILE = {
   // users.excluded_positions) and names both causes without saying which applied.
   excludedPositions: (n: number) => `${counted(n, 'sell')} excluded: a short sale or earlier history means no buy in the imported history can be matched to ${n === 1 ? 'it' : 'them'} for certain.`,
   excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
+  // ponytail: the line counts waiting buys and sells together as imported trades, so after a buy matures the viewer sees no
+  // new close for it (it opens a position) — fix: name sells and buys apart once F-21's sells-only count exists.
   // F-35: the profile's future line. The first sentence is excludedFuture's (kept, pinned); the second describes this
   // line only, so it stays true whatever happens once the date passes (a sell with no entry is counted, not shown).
   futureWaiting: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker. ${n === 1 ? 'It waits on this line until that date passes.' : 'They wait on this line until their dates pass.'}`,
