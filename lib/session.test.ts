@@ -58,7 +58,8 @@ dbTest('O1 currentUser: a session for a profile marked for deletion returns no u
   const { sql } = await import('./db.ts');
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
   const { createSession, SESSION_COOKIE, sessionSecret, signToken } = await import('./auth/sessions.ts');
-  const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }));
+  const attemptId = await createAttempt({ method: 'dev', attested: true });
+  const u = await createUserForAttempt(attemptId);
   try {
     g.__cookies.set(SESSION_COOKIE, signToken(await createSession(u.id, new Date()), sessionSecret()));
     assert.equal((await currentUser())?.id, u.id);
@@ -67,5 +68,7 @@ dbTest('O1 currentUser: a session for a profile marked for deletion returns no u
   } finally {
     g.__cookies.clear();
     await sql`delete from users where id = ${u.id}`;
+    await sql`delete from funnel_events where attempt_id = ${attemptId}`;
+    await sql`delete from signup_attempts where id = ${attemptId}`;
   }
 });

@@ -175,4 +175,7 @@ test('O3: the stored vendor secret decrypts only with its full 16-byte GCM tag; 
   const [iv, tag, body] = u.secretEnc.split('.');
   const cut = Buffer.from(tag, 'base64').subarray(0, 4).toString('base64');
   await assert.rejects(() => b.listAccounts({ ...u, secretEnc: [iv, cut, body].join('.') }), /auth(entication)? tag length/i);
+  const flipped = Buffer.from(tag, 'base64');
+  flipped[0] ^= 1;
+  await assert.rejects(() => b.listAccounts({ ...u, secretEnc: [iv, flipped.toString('base64'), body].join('.') }), /unable to authenticate/i);
 });
