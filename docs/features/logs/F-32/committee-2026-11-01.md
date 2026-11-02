@@ -46,3 +46,18 @@ plus "Round 2 changes").
   later sells a reason that depended on which vendor id sorted first; the lot now names the transfer as its cause only
   when no other action shares its day (as a buy that day). Pinned in both id orders; the test fails without the fix.
   Finding 2: the report wiring (same as the engineer's condition).
+- Business lead round 3: SIGN, no demands. Engineer: SIGN (condition above).
+
+## QA and user test (2026-11-02)
+- Tester: PASS, no verified defects. Every Part A criterion has a passing test; 60,000 own random fictional ledgers
+  (transfers with splits, stock dividends, spin-offs, renames, unusable rows, held rows, two accounts, same-day ties)
+  checked against the unflagged run: trades, `excluded` and `excludedHeld` identical, old corporate = corporate +
+  transfer, each sell's reason unchanged or moved corporate → transfer. A DB run of its own user: corporate 1, transfer
+  2; the transfer's units, account and dates appear nowhere in the HTML or the flight payload.
+- UX lead and business lead user test at 360 and 320 px, light and dark, signed out: PASS both. The link is 46 px tall,
+  contrast about 5.0:1 (light) and 6:1 (dark), focus ring visible, reflows at 320 px, lands on /how#transfers below
+  the sticky header. Optional, not taken here: a `:target` highlight on /how; the corporate line counts "trades" while
+  the transfer and held lines count "sells" (the corporate line's wording is outside Part A; noted for F-21's sum
+  wording). Note for F-21: its pane line should sit next to the headline.
+- Full Playwright: 337 passed, 1 failed (`e2e/fixes-labels.spec.ts:242`, the day-seeded feed swipe; it failed on
+  origin/main too and #105 fixed it; main merged at 1b0dbcc).
