@@ -43,6 +43,8 @@ test('F-24 RT-2: excluded_held = 2 → the profile names the 2 sells with PROFIL
   const line = page.locator('[data-excluded-held]');
   await expect(line).toHaveCount(1);
   await expect(line).toHaveText(PROFILE.excludedHeld(2));
+  // FIXES-CYCLE5 (owner decision 2026-11-02, 1): the owner's exact wording, pinned literally as well.
+  await expect(line).toHaveText('2 sells excluded while a possible duplicate is checked.');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 

@@ -4,7 +4,8 @@ import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { startSignIn } from '../auth/actions.ts';
 import { normalizeHandle, normalizeVia } from '@/lib/referral.ts';
-import { LAUNCH, SIGNIN } from '@/lib/copy.ts';
+import { FC5, FC5_WP4, LAUNCH, SIGNIN } from '@/lib/copy.ts';
+import { ATTEST_KEEP_COOKIE, keepsTick } from '@/lib/auth/attest-keep.ts'; // FIXES-CYCLE5 (F5-7)
 import { signUpOpen } from '@/lib/launch-gate.ts';
 import { FocusHeading } from '../connect/result/focus-heading.tsx';
 import { deviceFirst, orderMethods, providersFromEnv, type MethodKey } from '@/lib/auth/providers.ts';
@@ -31,6 +32,10 @@ export default async function Login({ searchParams }: { searchParams?: Promise<S
   const error = sp.error;
   const linkAgain = error === 'expired' || error === 'used';
   const typed = error ? jar.get(EMAIL_COOKIE)?.value ?? '' : ''; // the address typed before a validation redirect, or the one the link went to
+  // FIXES-CYCLE5 (F5-7; legal committee 2026-11-02 A4, A7): the trader's own tick, back for the one render their email
+  // bounce makes, only from the cookie together with error=email (never a URL). The error then says the box is still
+  // ticked; otherwise it asks for the tick again. Exactly one of the two, matching the box.
+  const ticked = keepsTick(jar.get(ATTEST_KEEP_COOKIE)?.value, error);
   // Launch gate (D6): while sign-up is closed the page says so before anyone starts, and the brokerage-first button
   // (it only ever creates an account) is hidden; email and providers stay for existing accounts.
   const open = signUpOpen();
@@ -40,9 +45,10 @@ export default async function Login({ searchParams }: { searchParams?: Promise<S
     email: (
       <div className="email-block">
         <label htmlFor="email">{SIGNIN.emailLabel}</label>
-        <input id="email" name="email" type="email" inputMode="email" autoComplete="email" defaultValue={typed} aria-describedby={error === 'email' ? 'email-err' : undefined} aria-invalid={error === 'email' || undefined} />
-        {error === 'email' && <p id="email-err" role="alert" className="down small">{SIGNIN.emailError}</p>}
-        {error === 'rate' && <p role="alert" className="muted small">{SIGNIN.tooMany}</p>}
+        {/* FIXES-CYCLE5 (F5-7): the email error keeps the trader in the field, with the typed address. */}
+        <input id="email" name="email" type="email" inputMode="email" autoComplete="email" defaultValue={typed} aria-describedby={error === 'email' ? 'email-err' : undefined} aria-invalid={error === 'email' || undefined} autoFocus={error === 'email'} />
+        {error === 'email' && <p id="email-err" role="alert" className="down small">{SIGNIN.emailError} {ticked ? FC5_WP4.tickKept : FC5.attestAgain}</p>}
+        {error === 'rate' && <><p id="email-rate" role="alert" tabIndex={-1} className="muted small">{SIGNIN.tooMany}</p><FocusHeading id="email-rate" /></>}
         <button name="method" value="email" className="button wide">{linkAgain ? SIGNIN.newLink : SIGNIN.emailButton}</button>
       </div>
     ),
@@ -71,7 +77,7 @@ export default async function Login({ searchParams }: { searchParams?: Promise<S
         <button type="submit" name="method" value="email" hidden tabIndex={-1} aria-hidden="true" />
         {/* The legal links open in a new tab so the checked box is still there when the trader comes back. */}
         <label className="check attest">
-          <input type="checkbox" name="adult" aria-describedby={error === 'attest' ? 'adult-err' : undefined} aria-invalid={error === 'attest' || undefined} autoFocus={error === 'attest'} />
+          <input type="checkbox" name="adult" defaultChecked={ticked} aria-describedby={error === 'attest' ? 'adult-err' : undefined} aria-invalid={error === 'attest' || undefined} autoFocus={error === 'attest'} />
           <span>{SIGNIN.attest}<Link href="/terms" target="_blank" rel="noopener noreferrer">{SIGNIN.terms}</Link>{SIGNIN.and}<Link href="/privacy" target="_blank" rel="noopener noreferrer">{SIGNIN.privacy}</Link></span>
         </label>
         {error === 'attest' && <p id="adult-err" role="alert" className="down">{SIGNIN.attestError}</p>}

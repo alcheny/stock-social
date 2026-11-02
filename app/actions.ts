@@ -208,6 +208,9 @@ export async function setRule(form: FormData) {
       on conflict (user_id, kind) do update set days = excluded.days, updated_at = now()`;
   }
   revalidatePath('/me/record');
+  // FIXES-CYCLE5 (F5-22, C5-25): back to the same rule card, which names what changed and takes focus. `c.kind` passed
+  // isRuleKind (checkRule), so the URL holds only a fixed kind and a fixed verb.
+  redirect(`/me/record?rule=${c.kind}&did=${c.days === null ? 'clear' : 'set'}#rule-${c.kind}`);
 }
 
 // fix-user-text B (F-9): report a published thesis (app/report-note.tsx). The session user only, never an id from the

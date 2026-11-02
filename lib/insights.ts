@@ -1,6 +1,7 @@
 // Private "My record" insights: pure computation on read from closed trades. Percentages only.
 import { pct } from './trades.ts';
 import type { ClosedTrade } from './trades.ts';
+import { FC5 } from './copy.ts'; // FIXES-CYCLE5 (F5-9)
 
 export const MIN_TRADES = 5;
 
@@ -61,8 +62,10 @@ export function insights(trades: InsightTrade[]): Insights {
   const winLoss = {
     enough: avgWin !== null || avgLoss !== null, wins: wins.length, losses: losses.length, avgWin, avgLoss,
     takeaway: avgWin !== null && avgLoss !== null ? `Your average win was ${pct(avgWin)} and your average loss was ${pct(avgLoss)}.`
-      : avgWin !== null ? `Your average win was ${pct(avgWin)}.`
-      : avgLoss !== null ? `Your average loss was ${pct(avgLoss)}.` : null,
+      // FIXES-CYCLE5 (F5-9, C5-19): one side averaged names the other side's count, never that side alone. Flats (0)
+      // are on neither side (filtered above). Both under MIN_TRADES: no takeaway.
+      : avgWin !== null ? FC5.winOnly(pct(avgWin), losses.length)
+      : avgLoss !== null ? FC5.lossOnly(pct(avgLoss), wins.length) : null,
   };
 
   let streak: Insights['streak'] = { enough: false, longestLosing: null, takeaway: null };

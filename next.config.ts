@@ -6,6 +6,8 @@ import { hstsWanted, securityHeaders } from './lib/csp.ts';
 // the vendor's page, unaffected. Security hardening (2026-11-01), F27: the static security headers (lib/csp.ts); the
 // pages' full Content-Security-Policy, with its per-request nonce, is set in proxy.ts.
 const config: NextConfig = {
+  // FIXES-CYCLE5 (F5-19, C5-17): no `X-Powered-By` header (it names the framework and its version to any scanner).
+  poweredByHeader: false,
   // F4-6 half (1) (cycle 4, C4-3): lib/moderation.ts imports the scanner's word list from scripts/compliance.ts, whose
   // file reads make the tracer copy docs/, e2e/, team/ and the root Markdown into every route with a server action
   // (130-160 MB each). No route reads them at run time. Keys match every route (picomatch, `contains`); values are

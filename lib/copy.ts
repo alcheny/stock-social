@@ -19,7 +19,7 @@ export const SIGNIN = {
   and: ' and ',
   privacy: 'Privacy Policy',
   attestError: 'Confirm you are 18 or older to continue.',
-  emailError: 'Enter an email address to get a link.',
+  emailError: 'Enter a full email address, like name@example.com.', // FIXES-CYCLE5 (F5-7, C5-9)
   providerError: 'That sign-in did not complete. Try again or use an email link.',
   linkSent: 'Check your email. The link works for 15 minutes.',
   sendAgain: 'Send again',
@@ -48,7 +48,10 @@ export const TRUST_NOTICE = {
     'Read-only. Stock Social can never place trades or move money.',
     'Your broker password is not shared with SnapTrade or with us when your broker uses a login handoff.',
     'SnapTrade reports an independent audit of its security controls.',
-    'Every account under this login and your full trade history are included. Nothing is imported until you confirm on the next screen.',
+    // FIXES-CYCLE5 (F5-6, C5-8; legal committee 2026-11-02 2a, signed wording): "full" is tied to what the broker
+    // provides (no completeness claim), simulated accounts are named (found, never imported), and only trades wait for
+    // consent (pending account rows are written before it).
+    'Every account under this login, except simulated ones, and the full trade history your broker provides are included. No trades are imported until you confirm on the next screen.',
   ],
   vendorLink: "SnapTrade's security page",
   vendorLinkNote: "opens SnapTrade's site",
@@ -80,12 +83,13 @@ export const PROFILE = {
   excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a share move, corporate action or broker row the importer can't price.`,
   // F-24 (council cycle 5 RT-2; final review: POLICY F3c "excluded and counted" requires the line): sells counted, not
   // priced, while a broker row that may repeat an earlier one is checked (users.excluded_held). Neutral cause words, no
-  // claim. ponytail: the committee's wording; the owner's final wording is an owner item.
+  // claim. FIXES-CYCLE5: the owner's final wording (2026-11-02) below.
   // ponytail: shown on the public profile and in record tools only; the owner's /me/record line needs the session user row
   // (lib/session.ts, protected) — fix: add excluded_held there with a line, as for excluded_corporate above.
+  // FIXES-CYCLE5 (owner decision 2026-11-02, 1): the owner's wording.
   // ponytail: rows a give-up left held (a busy account; failed or multi-page widened reads) are no longer being checked
-  // until a later pass, yet the line says "checks" — fix: a second line for given-up rows once the owner words it.
-  excludedHeld: (n: number) => `${counted(n, 'sell')} excluded while the importer checks a broker row that may repeat an earlier one.`,
+  // until a later pass, yet the line says "is checked" — fix: a second line for given-up rows once the owner words it.
+  excludedHeld: (n: number) => `${counted(n, 'sell')} excluded while a possible duplicate is checked.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
@@ -1107,3 +1111,9 @@ export const FC5 = {
   ruleCleared: 'Rule cleared.',
 } as const;
 // end FIXES-CYCLE5
+// FIXES-CYCLE5 WP4 (legal committee 2026-11-02 A7): strings the build needed beyond FC5.
+export const FC5_WP4 = {
+  // F5-7: in the email error's description while the 18+ box shows the trader's own kept tick (FC5.attestAgain otherwise).
+  tickKept: 'The “I am 18 or older” box is still ticked; untick it if that is not right.',
+} as const;
+// end FIXES-CYCLE5 WP4

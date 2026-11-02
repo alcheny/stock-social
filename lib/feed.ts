@@ -7,7 +7,8 @@ import { feedReadySql, filerVisibleSql } from './public-gate.ts';
 import { groupByUser } from './pane.ts';
 import { confidence, evidenceWeight, rankTraders, type ConfidenceInput } from './trades.ts';
 import { discounted, mixFeed } from './discovery/explore.ts';
-import { CURSOR_MAX_AGE_MS, encodeCursor, pageOf, readCursor, type Cursor } from './discovery/pager.ts';
+import { CURSOR_MAX_AGE_MS, encodeCursor, FEED_BUCKET_MAX_MS, FEED_SKEW_MS, flooredFirstPage, pageOf, readCursor, type Cursor } from './discovery/pager.ts'; // FIXES-CYCLE5 (F5-5): + bucket
+import { bucketCache, type BucketCache } from './bucket-cache.ts'; // FIXES-CYCLE5 (F5-5)
 import { displayFilter, shapeList, splitExclusions } from './discovery/exclusions.ts';
 import { exclusionsFor, followingAmong, sectionSkips } from './follows.ts';
 import { rejectedAmong } from './likes.ts';
@@ -465,23 +466,95 @@ type Kept = { asOf: number; mixed: Slot[]; ranked: Slot[]; pool: SectionTrader[]
 // server never built re-ranks (page 2: 55–78 ms median with weights kept, 146–175 ms cold, lib/feed.crafted.load.test.ts)
 // — keep the built list per (day, asOf, ids) in a shared table (slots jsonb, deleted past CURSOR_MAX_AGE_MS, a
 // lib/privacy-retention.ts SCHEMA_MAP entry) once there is more than one server.
-const lists = new Map<string, Kept>();
+// FIXES-CYCLE5 (F5-5, C5-7): the kept lists live in lib/bucket-cache.ts: one build in flight per key (50 concurrent
+// visitors run one candidate statement), a true LRU of LIST_CACHE_MAX (a hit moves the key to the newest end, so a
+// reader still paging is not pushed out by other keys), a failed build is not kept, and a list older than a cursor's
+// lifetime (against the call's clock) is dropped on read. Was: a Map whose insert loop cleared every entry at 256.
 const LIST_CACHE_MAX = 256;
+const lists: BucketCache<Kept> = bucketCache<Kept>(LIST_CACHE_MAX);
 // Tests: forget every kept list and weight (a cold server), or only the lists (fix round 2: a page whose list this
 // server never built, such as a crafted `?after=`, on a server whose weights are warm).
 export function clearFeedCache(what: 'all' | 'lists' = 'all') { lists.clear(); if (what === 'all') weightCache.clear(); }
 
 async function listFor(c: Cursor, now: number, ids?: number[]): Promise<Kept> {
   const key = `${c.day}|${c.asOf}|${ids ? ids.join(',') : '*'}`;
-  const kept = lists.get(key);
-  if (kept) return kept;
-  const { list, ranked, pool, extra } = await feedList({ asOf: new Date(c.asOf), day: c.day, ids });
-  const slot = (t: FeedCandidate, explore: boolean): Slot => ({ key: t.sell_id, trader: t.user_id, symbol: t.symbol, explore, score: Number(t.score) });
-  for (const [k, v] of lists) if (v.asOf < now - CURSOR_MAX_AGE_MS || lists.size >= LIST_CACHE_MAX) lists.delete(k);
-  const out = { asOf: c.asOf, mixed: list.map((t) => slot(t, t.explore)), ranked: ranked.map((t) => slot(t, false)), pool, extra: extra.map((t) => slot(t, true)) };
-  lists.set(key, out);
-  return out;
+  const hit = lists.peek(key);
+  if (hit && hit.asOf < now - CURSOR_MAX_AGE_MS) lists.delete(key);
+  return lists.get(key, async () => {
+    FEED_SEAMS.builds++;
+    const { list, ranked, pool, extra } = await FEED_SEAMS.build({ asOf: new Date(c.asOf), day: c.day, ids });
+    const slot = (t: FeedCandidate, explore: boolean): Slot => ({ key: t.sell_id, trader: t.user_id, symbol: t.symbol, explore, score: Number(t.score) });
+    return { asOf: c.asOf, mixed: list.map((t) => slot(t, t.explore)), ranked: ranked.map((t) => slot(t, false)), pool, extra: extra.map((t) => slot(t, true)) };
+  });
 }
+
+// FIXES-CYCLE5 (F5-5): page 1's asOf is floored to a bucket on the database clock, so every visitor and every server in
+// one bucket asks for one list (importedBy(..., asOf) is a hard filter). Gate: on when VERCEL_ENV is 'production' (the
+// signal lib/secret-env.ts uses) or FEED_BUCKET_MS > 0 (its size; else 60 s); FEED_BUCKET_MS=0 forces it off. It never
+// reads ALLOW_DEV_AUTH. Off, or with `opts.now` given (tests), page 1 is today's exact clock. The cost: a close imported
+// in the last bucket reaches the signed-out page 1 up to one bucket later; profiles and trade pages stay live.
+// ponytail: the cross-server "same list" holds only for committed rows: activities.created_at (so sell_imported_at) is
+// the import transaction's start time, so a sync that commits after one server built a bucket's list adds rows dated
+// inside that bucket to a later build elsewhere — fix: pin lists to a commit-ordered import sequence, not a timestamp.
+export function feedBucketMs(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.FEED_BUCKET_MS?.trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.min(Math.floor(n), FEED_BUCKET_MAX_MS);
+  }
+  return env.VERCEL_ENV === 'production' ? 60_000 : 0;
+}
+const OFFSET_EVERY_MS = 5 * 60_000;
+// The database clock's offset from this server's, sampled at most every 5 minutes, one sample in flight, kept at its last
+// value when a sample fails (0 before the first). An offset beyond FEED_SKEW_MS is not used (flooredFirstPage) and is
+// counted with one warning that carries no values.
+type OffsetState = { value: number; at: number; flight: Promise<number> | null; skewWarned: number; samples: number };
+const freshOffset = (): OffsetState => ({ value: 0, at: Number.NEGATIVE_INFINITY, flight: null, skewWarned: 0, samples: 0 });
+let offset = freshOffset();
+function dbOffset(): Promise<number> {
+  const o = offset;
+  if (FEED_SEAMS.clock() - o.at < OFFSET_EVERY_MS) return Promise.resolve(o.value);
+  if (!o.flight) {
+    o.flight = (async () => {
+      try {
+        o.samples++;
+        const t0 = FEED_SEAMS.clock();
+        const db = await FEED_SEAMS.sampleDbMs();
+        const v = db - (t0 + FEED_SEAMS.clock()) / 2;
+        if (Number.isFinite(v)) {
+          o.value = v;
+          if (Math.abs(v) > FEED_SKEW_MS) { o.skewWarned++; console.warn('feed bucket: database clock skew past the limit; the app clock is used'); }
+        }
+      } catch { /* keep the last value */ }
+      o.at = FEED_SEAMS.clock();
+      o.flight = null;
+      return o.value;
+    })();
+  }
+  return o.flight;
+}
+// Test seams (lib/fixes-cycle5-feed*.test.ts): the list build, the clock the gate floors, the database-clock sampler and
+// a build counter. Production code never reassigns them.
+export const FEED_SEAMS = {
+  build: (o: { asOf: Date; day: string; ids?: number[] }) => feedList(o),
+  clock: () => Date.now(),
+  sampleDbMs: async (): Promise<number> => Number((await sql`select (extract(epoch from clock_timestamp()) * 1000)::float8 as ms`)[0].ms),
+  builds: 0,
+  listFor,
+  keptKeys: () => lists.keys(),
+  resetOffset: () => { offset = freshOffset(); },
+  offsetState: () => ({ value: offset.value, skewWarned: offset.skewWarned, samples: offset.samples }),
+};
+// Page 1's cursor for loadFeedPage: today's (no factory) when the gate is off or the caller fixed the clock (opts.now);
+// the sampler is never called then.
+async function pageOneCursor(fixedNow: boolean): Promise<{ now: number; first?: () => Cursor }> {
+  const bucket = fixedNow ? 0 : feedBucketMs();
+  if (!bucket) return { now: FEED_SEAMS.clock() };
+  const off = await dbOffset();
+  const now = FEED_SEAMS.clock();
+  return { now, first: () => flooredFirstPage(now, off, bucket) };
+}
+// end FIXES-CYCLE5
 
 // One page of the feed for a `?after=` value (or the paging action's cursor). Anything invalid is page 1.
 // F-2 PR-2: `viewer` (lib/viewer.ts, signed in only): that viewer's exclusions shape the list (made by asOf) or filter
@@ -490,8 +563,10 @@ async function listFor(c: Cursor, now: number, ids?: number[]): Promise<Kept> {
 // orders the list (lib/discovery/personal.ts); "Personalize my feed" Off gives the order everyone gets minus the viewer's
 // own hides; a loader that fails gives the impersonal page. Without it nothing personal is read here.
 export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: number[]; viewer?: number; personal?: PersonalLoader } = {}): Promise<FeedPage> {
-  const now = opts.now ?? Date.now();
-  const c = readCursor(after, now, FEED_LIST_MAX);
+  // FIXES-CYCLE5 (F5-5): page 1 floored to the bucket when the gate is on and no clock is given (pageOneCursor).
+  const p1 = await pageOneCursor(opts.now !== undefined);
+  const now = opts.now ?? p1.now;
+  const c = readCursor(after, now, FEED_LIST_MAX, p1.first);
   const [kept, mine, skips0, personal] = await Promise.all([listFor(c, now, opts.ids), opts.viewer ? exclusionsFor(opts.viewer, new Date(Math.min(c.asOf, now))) : [],
     opts.viewer ? sectionSkips(opts.viewer) : [],
     // ponytail: the profile is read on every page (settings, then follows, likes, rejects, exclusions and events side by
