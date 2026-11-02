@@ -1,7 +1,7 @@
 # F-36 · Fees in the return's denominator
 
 Status: blocked
-Blocked: its MATCHER_VERSION bump ships only once chore C5-43(b) (`claude/chores-cycle5-matcher-catchup`) is on main (merge order; the owner answered Q1 yes on 2026-11-02 and F-24 merged as #84)
+Blocked: development paused by the owner 2026-11-02 (resume: set back to ready). The owner answered Q1 yes on 2026-11-02; F-24 merged as #84 and chore C5-43(b) as #107, so nothing else blocks it
 Start conditions: the owner answers cycle-5 Q1 yes (`docs/direction/cycle5-2026-11-01.md` §8), and #84 merges. It is
 the matcher build slot, shared with F-32: one builder, separate version bumps that never ship in the same deploy.
 
@@ -33,8 +33,9 @@ conditions).
   dropped" message. Why: approved by the approval council (cycle 5); TR.
 - 2026-11-02: The owner answered cycle-5 Q1 yes: a return divides by entry cost plus entry fees, with a
   MATCHER_VERSION bump and a dated /how note. The DESIGN §2.5 text edit goes to the protected-files session, never in
-  the build PR. Only the merge-order condition on chore C5-43(b) remains. Why: the owner's decision of 2026-11-02
-  (cycle-5 Q1, accepted en bloc).
+  the build PR. Only the merge-order condition on chore C5-43(b) remained; it merged as #107, and the feature now
+  waits only for the owner to resume development. Why: the owner's decision of 2026-11-02 (cycle-5 Q1, accepted en
+  bloc).
 
 ## Acceptance criteria
 - [ ] The probe (fictional: buy 2 @5, fee 10, sell @15) prints +50%.

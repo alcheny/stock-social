@@ -127,7 +127,7 @@ protected-files session, merged by the orchestrator once green and independently
 
 | Q | Decision | Covered by | Kind |
 |---|---|---|---|
-| Q1 | Fees in the denominator | **F-36** (blocked only on chore C5-43(b)); DESIGN §2.5 text | code, protected |
+| Q1 | Fees in the denominator | **F-36** (chore C5-43(b) merged as #107; held by the pause); DESIGN §2.5 text | code, protected |
 | Q2 | The 18+ tick survives one email-error round trip, if the legal committee confirms | F5-7's last part on `claude/fixes-cycle5`, after the committee's confirmation | code |
 | Q3 | Evidence floor: moderate tier, 1-point spread floor | **F-33**; TR-9 text | code, protected |
 | Q4 | Row-count check around `npm test` in CI | protected (`.github/workflows/ci.yml`) | protected |
