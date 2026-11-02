@@ -58,3 +58,16 @@ Build session for F-34 (`docs/features/F-34-one-open-positions-line.md`), branch
 - Build conditions:
   - The source scan matches string literals only, not comments (avoids comment edits in files #100 touches).
   - The month label may reach 26 px in 6 states, never below the record rows.
+
+## Build (2026-11-02)
+- The engineer wrote the tests first (9a8c3e8), then the build. Main was merged after #100 (F-16/F-17) and #102 (F-25)
+  landed (e02bb5d). The open_positions statements keep both conditions (F-16 visibility AND `positionInRecord`), and the
+  trade view keeps F-25's `tradeKey` with `openOf(openRead)`.
+- Deviations, recorded for the business lead:
+  - BL-R2-3: the feed card's line needs four lines at 320 px (measured 3.998). The as-of words step down and the
+    leading tightens at ≤ 340 px; F-10 AC8's 15% headroom check is unchanged and passes.
+  - The band search lives in `lib/open-band.ts`.
+  - `layoutBand` skips the gaps inside a wrapped open block (2 px minimum), only when an open block is present.
+  - The unfurl's "failed note onto the label line" (BL3, worst-case chart share 12.5%) is not built: an owner note.
+- Not run: the tester's QA round, the 360 px user test and the independent code review. The owner paused review rounds
+  on 2026-11-02 (orchestrator message).

@@ -1,6 +1,6 @@
 # F-34 · One open-positions line on every surface
 
-Status: building
+Status: built
 Start conditions: OD 2.25 is answered (`docs/direction/owner-decisions-2026-11-01.md` §2), and #100, #102 and #97
 merge. It is the pane/strip build slot; F-29 and F-21 (re-approved this cycle) ride in the same slot with one builder
 owning the line order.
@@ -70,19 +70,27 @@ all with conditions).
 - 2026-11-02: The pane JSON carries the server-built line (PAYLOAD_V 3); an absent F-21/F-29 slot renders nothing. The
   chart note drops its open-figure tail ("Not plotted: open positions."). Why: committee round 1 (BL2, BL6, EN optional).
 
+- 2026-11-02: The feed card's open line may wrap to four lines at 320 px (BL-R2-3 asked for at most three): with every
+  value and word at body size, the full line measured 3.998 lines in a 320 px card. At ≤ 340 px only its as-of words step
+  down to the small size and its leading tightens to 1.2, so the card keeps F-10 AC8's 15% headroom (unchanged). Why:
+  the orchestrator's call during the build, with review rounds paused by the owner; listed for the business lead in the
+  PR.
+
 ## Acceptance criteria
-- [ ] Until OD 2.25 is answered, a guard test pins "no unrealized value on the strips or their images". After 2.25, a
+- [x] Until OD 2.25 is answered, a guard test pins "no unrealized value on the strips or their images". After 2.25, a
       render-equality test replaces it: a fictional record with a −15% open loser gives byte-identical open-line text
       on the profile card, pane, trade page, month page, the three images' text and alt texts, and the trade and month
       link-preview descriptions.
-- [ ] Image snapshot tests for every link preview. The expected values change only on the open line.
-- [ ] A fixture with a paper account and a `notShared` account: neither feeds the open line.
-- [ ] Every unrealized value on an image has the positions' as-of date beside it, with the year (render test).
-- [ ] The images make no vendor call and no extra per-request query (test with the vendor fake asserting no calls).
-- [ ] The down colour on images comes from the F-20 image colour table (literal scanner).
+- [x] Image snapshot tests for every link preview. The expected values change only on the open line.
+- [x] A fixture with a paper account and a `notShared` account: neither feeds the open line.
+- [x] Every unrealized value on an image has the positions' as-of date beside it, with the year (render test).
+- [x] The images make no vendor call and no extra per-request query (test with the vendor fake asserting no calls).
+- [x] The down colour on images comes from the F-20 image colour table (literal scanner).
 - [ ] In the pane, with the exclusions, open and options lines all present, the headline and the disclaimer stay in
       view at 360 px and reflow at 320 px (e2e).
-- [ ] A source scan finds one producer of the open line, paired with the render-equality test above.
+- [x] A source scan finds one producer of the open line, paired with the render-equality test above.
+      The pane AC above is partly built: the open line is covered at 360/320 px (e2e/f34-open-line.spec.ts); the exclusions line (F-21) is
+      not built and the e2e does not seed the options qualifier, so the three-line case waits for F-21's build.
 
 ## Out of scope
 - Whether unrealized values show at all (OD 2.25).
@@ -106,3 +114,4 @@ all with conditions).
 ## Rework notes
 
 ## Build log
+- 2026-11-02: Built on `claude/f34-open-positions-line` (committee record docs/features/logs/F-34/committee-2026-11-01.md); plan signed off in round 3; tests first; main merged after #100 and #102 landed. QA, the 360 px user test and the independent code review were not run: the owner paused review rounds on 2026-11-02.
