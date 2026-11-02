@@ -4,6 +4,7 @@
 import { sql } from './db.ts';
 import { logSafe } from './privacy-log.ts';
 import { CHORES_3 } from './copy.ts';
+import { visibleUser } from './visible-users.ts';
 import { FIXES_CYCLE4_PART2 } from './copy.ts'; // FIXES-CYCLE4-PART2 (F4-8)
 
 export type HomePreview = { title: string; description: string; cardText: string; metaDescription: string };
@@ -20,7 +21,7 @@ export function homePreview(demo: boolean, pub = false): HomePreview {
   };
 }
 
-// Any non-deleted user with a demo activity (public filers are flagged on public_filers, not here). On error: true,
+// Any visible user (not deleted, not hidden: F-16) with a demo activity (public filers are flagged on public_filers, not here). On error: true,
 // so the preview errs on saying demo records are marked. Remembered per server instance for DEMO_TTL_MS, so the feed's
 // metadata adds no query to most requests (demo data changes only when the seed or a deletion runs).
 export const DEMO_TTL_MS = 5 * 60_000;
@@ -28,7 +29,7 @@ let memo: { at: number; demo: boolean } | null = null;
 export async function demoShown(now = Date.now()): Promise<boolean> {
   if (memo && now - memo.at < DEMO_TTL_MS) return memo.demo;
   try {
-    const [r] = await sql`select exists (select 1 from activities a join users u on u.id = a.user_id and u.deleted_at is null where a.source = 'demo') as demo`;
+    const [r] = await sql`select exists (select 1 from activities a join users u on u.id = a.user_id and ${visibleUser('u')} where a.source = 'demo') as demo`;
     memo = { at: now, demo: r.demo === true };
     return memo.demo;
   } catch (e) {

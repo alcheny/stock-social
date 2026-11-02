@@ -1,6 +1,6 @@
 # F-17 · Handle and name integrity: reserved handles, rename hold, display-name rules
 
-Status: ready
+Status: built
 Start conditions: F-9 merges first (its normaliser in `lib/moderation.ts` is reused). Security hardening (#42, which
 edits `lib/auth/attempts.ts` and `app/auth/actions.ts`) has merged (ea7cd52).
 
@@ -63,7 +63,14 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 - 2026-11-01: A rename changes every handle-keyed share image, card and cache key, so no card or image is served under
   a freed or held handle. Rejection messages name the field and the rule in visible text, use `role=alert` and move
   focus to the field. Why: approved by the approval council (cycle 3); RE, EN, A11Y, UX.
-- 2026-11-02: Unblocked: F-9 merged in #65 (ff25ad5). Being built on `claude/f16-f17-trust-safety` (#100). Why: the
+- 2026-11-01: The integrated vendor's word stays in the reserved list under POLICY T1's integrated-vendor exception, pinned by a test as the only vendor entry; the owner may read the decision literally and remove it. Why: decided by the committee under the owner's instruction of 2026-11-01; removal would weaken four existing assertions and let vendor-impersonating handles through (Q1).
+- 2026-11-01: A hold row is `{handle, until, user_id}`: the account link (needed for rename-back and the one-hold cap) is nulled on deletion and the release date stays. Why: decided by the committee under the owner's instruction of 2026-11-01; "only the handle and a release date" read as no personal data beyond the holding account's id (Q2).
+- 2026-11-01: Look-alike checks keep the existing superset (every account's handle, plus reserved, demo and F-7 handles at runtime). Why: decided by the committee under the owner's instruction of 2026-11-01; stricter, and narrowing it would weaken existing tests (Q3).
+- 2026-11-01: NFKC applies when matching; stored names stay NFC. Why: decided by the committee under the owner's instruction of 2026-11-01; storing NFKC damages some scripts (F-9 fix round 5); full-width forms are still refused (Q4).
+- 2026-11-01: Leaving the untouched provisional handle and renaming back to one's own held handle don't start the 30-day clock; a taken-back hold ends with `until = now()`, never a delete. Why: decided by the committee under the owner's instruction of 2026-11-01; at most one hold exists either way, and nothing is deleted (Q8, business lead B3).
+- 2026-11-01: The "New handle" label is visible. Why: decided by the committee under the owner's instruction of 2026-11-01; WCAG 3.3.2, and the rule message sits beside a visible field name (Q11).
+- 2026-11-01: Brand words stay substring rules; only "Verified" and "Official" match on word boundaries. Why: decided by the committee under the owner's instruction of 2026-11-01; a name that embeds the product's name still impersonates it (engineer E7).
+- 2026-11-02: Unblocked: F-9 merged in #65 (ff25ad5). Built in #100 (841d723d). Why: the
   stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02.
 - 2026-11-02: The owner accepted OD 2.17 (OD-12): an old handle is reserved for 365 days; a handle that ever had a
   connected record is retired and never reissued; one rename per 30 days. Where #100 already builds part of this, the
@@ -71,35 +78,35 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
   (OD 2.17, accepted en bloc).
 
 ## Acceptance criteria
-- [ ] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and
+- [x] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and
       a test find no third-party or person name in it, its tests or fixtures (veto condition: DK, LG, CS).
-- [ ] Sign-up and rename refuse every reserved handle and a look-alike of a reserved, demo, connected or F-7 handle
+- [x] Sign-up and rename refuse every reserved handle and a look-alike of a reserved, demo, connected or F-7 handle
       (unit test per class).
-- [ ] A db test renames one user 50 times in a loop: the second rename within 30 days is refused, and at most one hold
+- [x] A db test renames one user 50 times in a loop: the second rename within 30 days is refused, and at most one hold
       row exists for that user.
-- [ ] A new rename releases the older hold, and the holder can rename back to its held handle (db test).
-- [ ] A hold row stores only the handle string and a release date, at most one year out. `deleteProfile` leaves no
+- [x] A new rename releases the older hold, and the holder can rename back to its held handle (db test).
+- [x] A hold row stores only the handle string and a release date, at most one year out. `deleteProfile` leaves no
       orphan hold linked to the person, and a hold never blocks deletion (db test) (veto condition: DK, LG).
-- [ ] The old path returns 404 with a neutral "This handle is no longer in use" page, its own title, no profile content
+- [x] The old path returns 404 with a neutral "This handle is no longer in use" page, its own title, no profile content
       and no link to the new handle (e2e).
-- [ ] Display names: NFKC applied, direction controls stripped, check and seal glyphs refused, whole words "Verified"
+- [x] Display names: NFKC applied, direction controls stripped, check and seal glyphs refused, whole words "Verified"
       and "Official" refused (unit tests, including a bidi name) (veto condition: LG).
-- [ ] A name that contains "official" only inside a longer word is accepted (unit test).
-- [ ] The display-name check calls F-9's normaliser; a test fails on a second confusables map (veto condition: DK).
-- [ ] Each rejection names its rule beside the field, with `aria-describedby` and `aria-invalid`, and is announced on
+- [x] A name that contains "official" only inside a longer word is accepted (unit test).
+- [x] The display-name check calls F-9's normaliser; a test fails on a second confusables map (veto condition: DK).
+- [x] Each rejection names its rule beside the field, with `aria-describedby` and `aria-invalid`, and is announced on
       submit. An e2e checks one reserved-handle and one bidi rejection on sign-up and on rename.
-- [ ] Rejection logs hold no handle attempt tied to a person, no email and no display name (log scanner test) (veto
+- [x] Rejection logs hold no handle attempt tied to a person, no email and no display name (log scanner test) (veto
       condition: LG).
-- [ ] While the launch gate is closed, a rename onto a listed handle is refused (test).
-- [ ] The PR answers COMPLIANCE §1 Q2 (fields, location, visibility, deletion).
-- [ ] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
+- [x] While the launch gate is closed, a rename onto a listed handle is refused (test).
+- [x] The PR answers COMPLIANCE §1 Q2 (fields, location, visibility, deletion).
+- [x] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
       the PR's hand-off note lists it.
-- [ ] A test fails if any of sign-up, rename, display name, search or reports normalises text without importing the
+- [x] A test fails if any of sign-up, rename, display name, search or reports normalises text without importing the
       one normaliser.
-- [ ] The confusables set (mixed script, zero-width, bidi override, full-width, case fold) is refused or folded as the
+- [x] The confusables set (mixed script, zero-width, bidi override, full-width, case fold) is refused or folded as the
       decisions above require (unit tests).
-- [ ] After a rename, the old handle's share image, card and og:image URLs no longer serve the trader's content (test).
-- [ ] A rejected handle or name shows its rule in visible text tied to the field, announced with `role=alert`, focus on
+- [x] After a rename, the old handle's share image, card and og:image URLs no longer serve the trader's content (test).
+- [x] A rejected handle or name shows its rule in visible text tied to the field, announced with `role=alert`, focus on
       the field (e2e at 360 px).
 
 ## Out of scope
@@ -109,5 +116,8 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 
 ## Open questions
 - None from the council.
+
+## Build log
+- 2026-11-01: F-16 and F-17 built as one slot on `claude/f16-f17-trust-safety` (committee record `docs/features/logs/F-16-F-17/committee-2026-11-01.md`, plan `plan.md` v3); Status set to built in its PR. Every acceptance criterion is met. Owner items: confirm Q1 (the integrated vendor's word kept in the reserved list under POLICY T1).
 
 ## Rework notes

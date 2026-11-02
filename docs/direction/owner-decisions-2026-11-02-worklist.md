@@ -75,7 +75,7 @@ protected-files session, merged by the orchestrator once green and independently
 | 2.14 | Implicit logging stays off; only the owner flips it | none: off by default (`lib/discovery/activity.ts:23-33`); F-2 dated line corrects the +2 weight note | none |
 | 2.15 | F-15 defaults en bloc | the 120-day bound is on main (`lib/privacy-retention.ts:89-93`); the rest is pinned by **F6-15** | code |
 | 2.16 | Lured link: no session; decline and clean up | **F-37** | code |
-| 2.17 | Handles: 365-day reservation, retire handles that had a record, one rename per 30 days | 365 days on main (`lib/handles.ts:10`); F-17 (#100) builds the 30-day rename; retirement is hand-off **H-1** | code |
+| 2.17 | Handles: 365-day reservation, retire handles that had a record, one rename per 30 days | 365 days on main (`lib/handles.ts:10`); F-17 (#100, merged) built the 30-day rename; retirement is **F6-18** | code |
 | 2.18 | Takedown wording, anti-impersonation line, report on thesis and profile; copyright agent before theses go live | F-16 (#100); the agent is an owner action | code, owner |
 | 2.19 | One transactional-only sender in one file, listed as a sub-processor | the file exists (`lib/auth/email.ts`); the listing is in the Privacy Policy (L-1) | docs |
 | 2.20 | Held-thesis release duty, daily during Beta | owner checklist | owner |
@@ -144,12 +144,9 @@ protected-files session, merged by the orchestrator once green and independently
 
 ## Hand-offs to in-flight work
 
-- **H-1 (#100, F-17):** 2.17 says a handle that ever had a connected record is retired and never reissued. #100's F-17
-  file says "Nothing is retired forever". Before #100 merges, change it to retire such handles (the neutral 404 for the
-  old URL stays), or record why it can't.
-- **#100 and #102 status lines:** both PRs set F-16, F-17 and F-25 to `built` on their branches; this PR sets them to
-  `ready` on main. Whichever merges second gets a one-line conflict on `Status:`: keep `built` and both sides' dated
-  decision lines.
+- **H-1 (F-17, merged in #100):** #100 merged with "Nothing is retired forever" (F-17), so 2.17's retirement of handles
+  that had a connected record is not built; it is fixes-list item **F6-18**.
+- **#100 and #102 status lines:** both merged; this PR took their `built` status lines and kept its dated lines.
 - **F-34 and F-35:** this PR carries their branches' file versions word for word, so their merges stay clean.
 - **`claude/fixes-cycle5`:** F6 items that edit `lib/copy.ts` use that branch's `FC5` copy object if it merges first.
 - **`lib/copy.ts:746`:** F-42 owns its rewrite; F6-5 and F6-6 leave it alone.
@@ -303,6 +300,15 @@ Every test is added, never weakened; a pinned copy test changes only its expecte
   profiles today; profile `noindex` is set only for F-7 filers, `app/u/[handle]/page.tsx:139`).
 - Test: a viewer-only profile returns `noindex` and is absent from every sitemap; trader profiles are unchanged.
 - Files: the profile page, sitemaps, tests. Home: #100 edits the profile page; rebase.
+
+**F6-18: a handle that had a connected record is never reissued (OD 2.17).** Added after the committee check, when #100
+merged without it; not reviewed (reviews paused by the owner).
+- Fix: when a handle that ever had a connected record is released (rename or deletion), it is retired: it never returns to
+  the pool, and its old URL keeps #100's neutral 404. Handles that never had a connected record keep the 365-day
+  reservation. F-17's "Nothing is retired forever" line gets a dated decision naming this change.
+- Test: a handle with a connected record, released by rename and by deletion, can never be claimed again (DB test);
+  a handle without one is free after 365 days; the stored retirement holds no personal data beyond the handle.
+- Files: `lib/handles.ts`, `lib/auth/attempts.ts`, additive `db/schema.sql`, tests.
 
 ## Docs and chore work (no product code)
 

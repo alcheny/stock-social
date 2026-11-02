@@ -35,7 +35,7 @@ strongest signal after `docs/DESIGN.md`'s rules.
 
 ### 2026-11-02 · Development paused
 
-**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** development pauses once the outstanding work is complete: in-flight work (open PRs and features already assigned to sessions) is finished, and nothing new starts. The new items from these decisions (fixes-list items F6-1 to F6-17 and features F-37 to F-48) stay queued until the owner resumes development; the new feature files carry `Status: blocked` with a `Blocked:` line naming the pause, so the feature pipeline cannot pick them up. To resume, the owner says so and each file goes back to its previous status.
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** development pauses once the outstanding work is complete: in-flight work (open PRs and features already assigned to sessions) is finished, and nothing new starts. The new items from these decisions (fixes-list items F6-1 to F6-18 and features F-37 to F-48) stay queued until the owner resumes development; the new feature files carry `Status: blocked` with a `Blocked:` line naming the pause, so the feature pipeline cannot pick them up. To resume, the owner says so and each file goes back to its previous status.
 
 ### 2026-11-02 · Owner decisions brief 2026-11-01 (§2, items 2.1-2.63) and cycle-5 owner questions Q1-Q4 → accepted en bloc, with the exceptions in the entries below
 
