@@ -42,7 +42,9 @@ the profile every close is a point (full resolution), so consecutive pairs alway
 only some of them. F-23's contract still holds: these values are printed on screen while scrubbing, so the payload
 carries nothing the screen does not. The leak is in what the screen prints.
 
-**Options for the owner** (each changes the CH-1 display, so it is the owner's call; not part of this build):
+**Closed by the owner's decision of 2026-11-02 (option 1).** From +100% the cumulative value prints, and goes out, at about 3 significant figures (`curvePct`, `wireCurve`). The decoded return's uncertainty from two consecutive points is then at least the row's own (0.1 point). `lib/f23-chart-sigfigs.test.ts` shows this on a record compounded past +12,000%, where one absolute decimal had given it back 10x finer than the row. Below +100% the curve is unchanged, and there 2ε/(1 + C) ≥ ε already holds. Residual (independent review, 2026-11-02): this bounds each single decode. Intersecting it with the row's own interval, or with the same close decoded from another range's curve (each dated range re-compounds from 0%), can narrow it below the row's 0.1 point, by a small factor at most (two or three overlapping intervals of similar width). That is printed on screen too.
+
+The options that were put to the owner:
 1. Print the cumulative value at about 3 significant figures once it is above ±100% (e.g. "+1,230%", not "+1,234.5%"),
    and send it at that precision: the error on r_k then stays near 1e-3 whatever the curve level.
 2. Draw the "same size" line as a simple sum of returns (Σ r_i) instead of compounding: consecutive points then differ by
@@ -54,7 +56,7 @@ for a $2 round-trip commission (about $6,700 for $10), can still have their size
 the published return and the day's prices, as the screen itself already allows. **Through the compounding chart the
 threshold rises to about F · (1 + C) / (6 × 0.0005)**, where 1 + C is the record's curve level: ~$6,700 at 1 + C = 10 and
 ~$67,000 at 100, for F = $2. That is what the screen prints while scrubbing; closing it means changing the chart's
-display (the options above, owner's call). Before F-23, every position size could be recovered from the payloads.
+display (the options above, owner's call). **Closed 2026-11-02:** the owner chose option 1, so above +100% the curve now prints 3 significant figures and gives no return back finer than the row. The threshold is then the per-close one above (~$1,300 at F = $2) at any curve level. Before F-23, every position size could be recovered from the payloads.
 
 Same-day order (the chart's spread of one day's closes) reveals only the order the list already shows. Hold days at one
 decimal (ε = 0.05 day) and close days add no fee information.
