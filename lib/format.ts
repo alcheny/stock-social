@@ -94,7 +94,7 @@ export function winPct(wins: number, n: number): string | null {
 // (docs/features/logs/F-23/probe.md). A cumulative value never falls below -100%, so only gains change.
 export function curvePct(x: number, digits = 1): string {
   const p = x * 100;
-  if (!(Number(p.toFixed(digits)) >= 100)) return pct(x, digits);
+  if (!Number.isFinite(p) || !(Number(p.toFixed(digits)) >= 100)) return pct(x, digits);
   const unit = 10 ** (Math.floor(Math.log10(p)) - 2);
   return `+${count(Math.round(p / unit) * unit)}%`;
 }

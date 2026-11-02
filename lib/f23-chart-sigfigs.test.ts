@@ -16,6 +16,7 @@ test('curvePct: unchanged below +100%; from +100% three significant figures with
   assert.equal(curvePct(12.3456), '+1,230%');
   assert.equal(curvePct(1234.5678), '+123,000%');
   assert.equal(curvePct(9.996), '+1,000%');
+  assert.equal(curvePct(Infinity), pct(Infinity)); // never "+NaN%"
 });
 
 test('wireCurve: what curvePct prints and no more; idempotent, monotone, never a different tone', () => {
@@ -42,7 +43,7 @@ const interval = (printed: string): [number, number] => {
   return [(n - half) / 100, (n + half) / 100];
 };
 
-test('probe curve channel closed: on a record compounded to +12,000%, no close comes back from the curve finer than its row prints', () => {
+test('probe curve channel: on a record compounded to +12,000%, no single pair of curve points gives a close back finer than its row prints', () => {
   const DAY = 86_400_000, t0 = Date.parse('2025-01-01T12:00:00Z'), now = new Date('2026-10-31T00:00:00Z');
   const trades = Array.from({ length: 400 }, (_, i) => ({ id: String(1000 + i), symbol: 'X', returnPct: ((i * 37) % 23) / 1000 + 0.0123456 - 0.004, closedAt: new Date(t0 + i * DAY), holdingDays: 1, thesis: null }));
   const exact = chartSeries(chartPoints(trades), 'ALL', now);
@@ -57,7 +58,8 @@ test('probe curve channel closed: on a record compounded to +12,000%, no close c
       const width = (1 + b1) / (1 + a0) - (1 + b0) / (1 + a1); // the decoded return's uncertainty
       if (all.pts[k].value >= 1) minWidth = Math.min(minWidth, width);
     }
-    // Every decode from the 3-figure part of the curve is at least as uncertain as the row itself.
+    // Every single-pair decode from the 3-figure part of the curve is at least as uncertain as the row itself. (Intersecting
+    // it with the row, or with the same close decoded from another range's curve, can still narrow it: probe.md.)
     assert.ok(minWidth >= rowWidth, `${make.name}: decoded width ${minWidth}`);
   }
   // Before the decision (one absolute decimal everywhere) the same decode was 10x finer than the row at this level.

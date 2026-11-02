@@ -10,7 +10,7 @@ import { wireCurve } from '../lib/public-wire.ts';
 const DAY = 86_400_000;
 const tag = Math.random().toString(36).slice(2, 7);
 const H = `f23g${tag}`;
-const R = [0.31234, 0.27891, 0.33333, 0.29876, 0.3011, 0.28765]; // compounds to about +381%
+const R = [0.31234, 0.27891, 0.33333, 0.29876, 0.3011, 0.28765]; // compounds to about +387%
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 let release: (() => Promise<void>) | null = null;
 
@@ -52,8 +52,10 @@ test('F-23 owner decision 2026-11-02: a curve above +100% prints 3 significant f
   }
   // The public chart payload: every curve value is what the chart prints.
   const chart = await (await request.get(`/u/${H}/pane-chart?v=2`)).json();
-  for (const r of Object.values(chart.ranges) as { last: number; max: number; p: number[] }[]) {
-    for (const v of [r.last, r.max]) expect(wireCurve(v), String(v)).toBe(v);
+  // (the compact form: ALL as [day, value] pairs, a dated range as values only; else [day, value, close] triples)
+  for (const [k, r] of Object.entries(chart.ranges) as [string, { last: number; min: number; max: number; p: number[] }][]) {
+    const values = chart.sfx ? (k === 'ALL' ? r.p.filter((_, i) => i % 2 === 1) : r.p) : r.p.filter((_, i) => i % 3 === 1);
+    for (const v of [r.last, r.min, r.max, ...values]) expect(wireCurve(v), `${k} ${v}`).toBe(v);
   }
   expect(chart.ranges.ALL.last).toBe(wireCurve(total));
 });
