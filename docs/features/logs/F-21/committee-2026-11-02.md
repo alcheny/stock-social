@@ -70,3 +70,22 @@ the committee's recommended option). Blockers F-23 (#97, ca34767) and F-24 (#84,
 ## Sign-off
 Business lead and engineer: their demands are adopted above (the business lead's Q2 wording merged with the engineer's
 unit). Re-review at the build verdict.
+
+## AI legal committee sign-off (decision 1): SIGNED with conditions R1–R6 (binding as rules)
+- **R1.** With the options gate closed, `#excluded` shows `OPTIONS.gated(...)` word for word, plus `OPTIONS.exerciseShares`
+  when it applies. The short, technical and openOther lines show only with the gate open, where they were signed.
+  Reason: with the gate closed, the short/technical split would let the long count be worked out by subtraction.
+- **R2.** n = share exclusions + `closesOf(c)` (every option close: shown, short and other) + exercise shares, counted once.
+  Open options never count. Reason: a count that left out long option closes would understate the exclusions (F3a, F4).
+  This widens cycle 5's sum. If the council rejects it, the fallback is to leave options out of n entirely; a mix is not
+  acceptable.
+- **R3.** Signed line, gate open: "‹n› option trades are summarized in their own row, outside these figures."
+- **R4.** The reason lines sum to the heading in both gate states; with the gate closed, the gated line contributes its
+  closes part only; each trade is counted once. The E6 double count may stay as a ponytail with an owner flag, but it
+  must be fixed before real users.
+- **R5.** The line wording is accepted, with `counted()` for the singular. The link's accessible name states where it goes.
+- **R6.** Shared-account line: "‹n› trades excluded: their account is part of another profile's record." Singular: "1
+  trade excluded: its account is part of another profile's record." This replaces decision 2's wording ("the account" is
+  wrong for several accounts). It never names or links the other profile. The OD 2.7 consent version names this count and
+  the other exclusion counts before real users (owner item).
+- Also binding: any cache key for `#excluded` includes the gate state (F-29). The PR records this sign-off with the words.

@@ -88,6 +88,16 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 - 2026-11-02: One PR with layered commits (counters and guard, then surfaces); no `PAYLOAD_V` bump; the owner runs
   `scripts/rebuild-records.ts` once after deploy. Why: decided by the committee under the owner's instruction of 2026-11-01; the owner's instruction of 2026-11-02 is to finish to one open,
   green PR; the layers meet the council's size concern (D5, E9).
+- 2026-11-02: AI legal committee sign-off on decision 1: SIGNED with conditions R1–R6, which apply as rules
+  (`docs/features/logs/F-21/committee-2026-11-02.md`):
+  - with the gate closed, only the signed gated line (plus exercise shares) explains options;
+  - n counts every option close (long ones included) and exercise shares once, never open options;
+  - with the gate open, a signed line explains the long closes;
+  - the reason lines sum to the heading in both gate states;
+  - the singular reads "1 trade";
+  - the shared-account line reads "their account is part of another profile's record" ("its account" in the singular).
+  Why: POLICY's owner decision of 2026-11-01 makes the legal committee's conditions rules; leaving the long option closes
+  out would understate the exclusions (F3a, F4).
 
 ## Acceptance criteria
 - [ ] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);
