@@ -7,7 +7,7 @@ import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
 import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
 
-export type RecapTrade = ConfidenceInput & { sellId: string };
+export type RecapTrade = ConfidenceInput & { sellId: string; tradeKey?: string }; // F-25: tradeKey builds the row's link
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 

@@ -146,7 +146,8 @@ export async function setHandle(form: FormData) {
     throw e;
   }
   revalidatePath('/', 'layout'); // the root-layout nav shows the handle; without this it keeps the old one (now a 404) until a reload
-  redirect(`/u/${h}`);
+  // F-17 fix round 2 (UX1): a real change lands on ?renamed=1, where a focused status line says the old links stopped working.
+  redirect(h === user.handle ? `/u/${h}` : `/u/${h}?renamed=1`);
 }
 
 // Deletion (POLICY P6). The two-step screen is PR-2a; this is its only deleting action, session user only.

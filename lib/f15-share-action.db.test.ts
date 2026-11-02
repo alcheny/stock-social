@@ -4,6 +4,8 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+const tradeKey = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex'); // F-25: as closed_trades.trade_key
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
@@ -32,7 +34,8 @@ dbTest('F-15 share_action: one row per completed own share (surface, outcome, si
   const me = { id: u.id, handle: u.handle };
   assert.equal(await writeShareAction(me, `/u/${u.handle}`, 'copied', false), true);
   assert.equal(await writeShareAction(me, `/u/${u.handle}?via=card`, 'shared', true), true);
-  assert.equal(await writeShareAction(me, `/u/${u.handle}/trade/${u.handle}-0`, 'shared', false), true);
+  // F-25: the trade page's address is its trade_key form (lib/trade-href.ts), so that is what its Share sends.
+  assert.equal(await writeShareAction(me, `/u/${u.handle}/trade/${tradeKey(`${u.handle}-0`)}`, 'shared', false), true);
   const ym = new Date(Date.now() - 86_400_000).toISOString().slice(0, 7); // the fixture's closes are a day old
   assert.equal(await writeShareAction(me, `/u/${u.handle}/month/${ym}`, 'copied', false), true);
   // An address that is not a page (QA note 3): no such trade, no close in that month.

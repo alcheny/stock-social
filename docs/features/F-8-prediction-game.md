@@ -53,6 +53,8 @@ Standing rules that apply unchanged (POLICY and CLAUDE.md product rules, not own
   advice or signals; adults only (18+).
 - Game results are kept apart from verified records: a game score is never shown as, or mixed into, a trader's
   verified record.
+- 2026-11-02: The owner accepted OD 2.50: F-8 stays parked (off the owner's list, $0 ceiling). O6 describes its method
+  in plain words and never names it after a person (POLICY T2). Why: the owner's decision of 2026-11-02 (OD 2.50).
 
 ## Acceptance criteria
 For F-A, proposed by the F-8 design council under the owner's instruction of 2026-11-01 and pending the owner's

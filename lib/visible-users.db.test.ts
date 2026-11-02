@@ -11,8 +11,8 @@ before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readF
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 
 test('isVisibleUser: only a user with no deletion mark is visible', () => {
-  assert.equal(isVisibleUser({ deleted_at: null }), true);
-  assert.equal(isVisibleUser({ deleted_at: new Date() }), false);
+  assert.equal(isVisibleUser({ deleted_at: null, hidden_at: null }), true);
+  assert.equal(isVisibleUser({ deleted_at: new Date(), hidden_at: null }), false);
 });
 
 dbTest('visibleUser / visibleUserIds skip a user marked for deletion', async () => {
@@ -35,8 +35,8 @@ dbTest('visibleUser / visibleUserIds skip a user marked for deletion', async () 
     assert.deepEqual(joined.map((r) => r.user_id), [live.id]);
     const sub = await sql`select count(*)::int as n from closed_trades where symbol = ${sym} and user_id in (${visibleUserIds()})`;
     assert.equal(sub[0].n, 1);
-    const users = await sql`select deleted_at from users where id in (${live.id}, ${gone.id}) order by id`;
-    assert.deepEqual(users.map((u) => isVisibleUser(u as { deleted_at: Date | null })), [true, false]);
+    const users = await sql`select deleted_at, hidden_at from users where id in (${live.id}, ${gone.id}) order by id`;
+    assert.deepEqual(users.map((u) => isVisibleUser(u as { deleted_at: Date | null; hidden_at: Date | null })), [true, false]);
   } finally {
     await sql`delete from users where id in (${live.id}, ${gone.id})`;
     {

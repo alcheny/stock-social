@@ -7,21 +7,23 @@ import { sql } from './db.ts';
 import type { Signal } from './discovery/weights.ts';
 import { followable, unfollowsFor } from './follows.ts';
 import { filerVisibleSql } from './public-gate.ts';
+import { visibleUser } from './visible-users.ts';
 
 export const tradeKey = (sellId: string) => createHash('sha256').update(sellId, 'utf8').digest('hex');
 export const LIKES_PAGE = 50;
 const ID = /^[0-9]{1,18}$/;
 
-// The close a feed card names, never the viewer's own: by its trade_key (64 hex, what cards send: it survives
-// rebuildTrades, which deletes and re-inserts closed_trades with new ids, so a page rendered before a rebuild still
-// acts on the right close) or by its closed_trades id (older pages, no-JS forms rendered before this change). Both are
-// checked by shape before any query; the same live-trader and not-your-own rules apply either way.
+// The close a feed card names, never the viewer's own and never a hidden trader's (F-16: like targets are public reads;
+// the viewer's own lists below keep showing what they stored, E12): by its trade_key (64 hex, what cards send: it
+// survives rebuildTrades, which deletes and re-inserts closed_trades with new ids, so a page rendered before a rebuild
+// still acts on the right close) or by its closed_trades id (older pages, no-JS forms rendered before this change). Both
+// are checked by shape before any query; the same visible-trader and not-your-own rules apply either way.
 const TRADE_KEY = /^[0-9a-f]{64}$/;
 async function close(viewer: number, ref: unknown): Promise<{ key: string; trader: number } | null> {
   if (typeof ref !== 'string' || !(TRADE_KEY.test(ref) || ID.test(ref))) return null;
   const [r] = TRADE_KEY.test(ref)
-    ? await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.trade_key = ${ref} limit 1`
-    : await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.id = ${ref}`;
+    ? await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')} where t.trade_key = ${ref} limit 1`
+    : await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')} where t.id = ${ref}`;
   return r && r.user_id !== viewer ? { key: r.trade_key as string, trader: r.user_id as number } : null;
 }
 
@@ -74,7 +76,8 @@ export async function rejectedAmong(viewer: number, sellIds: readonly string[]):
 // statistics could walk the trader's closes newest first until it met the like's, so an older like, deeper in the
 // list, cost more (up to all 10,000 of a trader's closes per like), or AND every like's lookup with all of them.
 // ponytail: before planner statistics exist the first page (no cursor) and shallow pages may sort all of the viewer's likes below the cursor instead of reading 51 in index order (about 13 ms vs 1 ms for 10,000 likes; fast in time, not in rows read) — autovacuum's analyze fixes it; an analyze after bulk imports, or a plan the planner cannot choose (no hints in Postgres), would remove the dependence
-// A like whose close is gone after a rebuild, or whose trader was deleted, is skipped (its page is one row shorter).
+// A like whose close is gone after a rebuild, or whose trader was deleted or hidden by the owner (F-16 visibleUser), is
+// skipped (its page is one row shorter).
 export type Liked = { key: string; handle: string; name: string; symbol: string; sellId: string; returnPct: number; closedAt: Date };
 // The page's query, not yet run (lib/likes.test.ts EXPLAINs it to hold that a deep page reads no more rows than the first).
 export function ownLikesQuery(viewer: number, after?: unknown) {
@@ -86,7 +89,7 @@ export function ownLikesQuery(viewer: number, after?: unknown) {
     select l.trade_key, l.us, u.handle, u.display_name, t.symbol, t.sell_id, t.return_pct, t.closed_at
     from l left join lateral (select symbol, sell_id, return_pct, closed_at from (select symbol, sell_id, return_pct, closed_at, user_id from closed_trades
         where trade_key = l.trade_key offset 0) c where c.user_id = l.trader_id limit 1) t on true
-      left join users u on u.id = l.trader_id and u.deleted_at is null
+      left join users u on u.id = l.trader_id and ${visibleUser('u')}
     order by l.created_at desc, l.trade_key desc`;
 }
 export async function ownLikes(viewer: number, after?: unknown): Promise<{ rows: Liked[]; next: string | null }> {
@@ -110,7 +113,7 @@ export async function signalsFor(viewer: number): Promise<Signal[]> {
 
 // ---- F-2 PR-5 (criterion 15, shipped before behavior-based ordering): the viewer's own hidden trades (/me/hidden). ----
 // A rejected trade stays out of that viewer's feed until they show it again. A hidden trade whose close is gone or whose
-// trader was deleted is not listed or counted (lib/privacy-purge.ts removes it 30 days after it is first seen gone).
+// trader was deleted (or hidden by the owner, F-16 visibleUser) is not listed or counted (lib/privacy-purge.ts removes it 30 days after it is first seen gone).
 const KEY = /^[0-9a-f]{64}$/;
 const AFTER = /^([0-9]{1,17})\.([0-9a-f]{64})$/;
 // ponytail: a page skips hidden trades whose close is gone (until the privacy purge removes them), so it can show fewer
@@ -124,7 +127,7 @@ export const HIDDEN_COUNT_MAX = 1_000;
 // ponytail: hiddenTradeCount, ownHiddenTrades, likesAt and rejectsAt still look a close up by `trade_key = … and user_id = …`, which a planner misled by stale statistics could serve by walking closed_trades (user_id, closed_at desc) — give them ownLikesQuery's trade_key-only lookup behind an `offset 0` fence, with an EXPLAIN rows-read test like lib/likes.test.ts's heavy test
 export async function hiddenTradeCount(viewer: number): Promise<number> {
   return (await sql`select 1 from trade_exclusions x
-    where x.viewer_id = ${viewer} and exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
+    where x.viewer_id = ${viewer} and exists (select 1 from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
       where t.trade_key = x.trade_key and t.user_id = x.trader_id) limit ${HIDDEN_COUNT_MAX + 1}`).length;
 }
 
@@ -138,7 +141,7 @@ export async function ownHiddenTrades(viewer: number, after?: unknown): Promise<
       order by created_at desc, trade_key desc limit ${HIDDEN_PAGE + 1})
     select x.trade_key, x.us, u.handle, u.display_name, t.symbol, t.sell_id, t.closed_at, t.verified, (select pf.demo from public_filers pf where pf.id = u.public_filer_id) as pf_demo
     from x left join lateral (select symbol, sell_id, closed_at, verified from closed_trades where trade_key = x.trade_key and user_id = x.trader_id limit 1) t on true
-      left join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
+      left join users u on u.id = x.trader_id and ${visibleUser('u')} and ${filerVisibleSql('u')}
     order by x.created_at desc, x.trade_key desc`;
   const page = rows.slice(0, HIDDEN_PAGE), last = page.at(-1);
   return {
@@ -163,7 +166,7 @@ export async function showTradeAgain(viewer: number, key: unknown): Promise<bool
 // hidden by this viewer now, so a crafted link can only state something true.
 export async function backHandle(viewer: number, key: unknown): Promise<string | null> {
   if (typeof key !== 'string' || !KEY.test(key)) return null;
-  const [r] = await sql`select u.handle from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
+  const [r] = await sql`select u.handle from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
     where t.trade_key = ${key} and t.user_id <> ${viewer}
       and not exists (select 1 from trade_exclusions x where x.viewer_id = ${viewer} and x.trade_key = ${key}) limit 1`;
   return r ? (r.handle as string) : null;

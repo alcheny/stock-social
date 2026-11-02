@@ -12,6 +12,7 @@ import { exclusionsAt, followsAt } from '../follows.ts';
 import { likesAt, rejectsAt } from '../likes.ts';
 import { FADE_DAYS, viewerProfile, type Profile } from './personal.ts';
 import { sql } from '../db.ts';
+import { visibleUser } from '../visible-users.ts';
 
 export type Personal = { personalize: false } | { personalize: true; profile: Profile; handles: Map<number, string> };
 export type PersonalLoader = (asOf: Date) => Promise<Personal>;
@@ -33,7 +34,7 @@ export async function loadPersonal(viewer: number, asOf: Date): Promise<Personal
   // Handles for "Similar holding period to @x": followed traders and traders of liked trades.
   const handles = new Map(follows.map((f) => [f.trader, f.handle]));
   const more = profile.liked.filter((t) => !handles.has(t));
-  if (more.length) for (const r of await sql`select id, handle from users where id = any(${more}) and deleted_at is null`) handles.set(r.id as number, r.handle as string);
+  if (more.length) for (const r of await sql`select v.id, v.handle from users v where v.id = any(${more}) and ${visibleUser('v')}` /* F-16: never a hidden trader */) handles.set(r.id as number, r.handle as string);
   return { personalize: true, profile, handles };
 }
 

@@ -1,7 +1,7 @@
 // Fixed product copy for F-1 (docs/features/logs/F-1/plan.md §2, the UX lead's strings verbatim).
 // Every string here is tested against the banned-claims list (lib/copy.test.ts). Change copy here only.
 // F-1 PR-3 fix round 4 (UX lead demand 2): every count goes through lib/format.ts (thousands grouped: "2,828").
-import { count, counted, toneWord } from './format.ts';
+import { count, counted, pct as pct1, toneWord } from './format.ts';
 import { CLOSES_PAGE } from './paging.ts';
 import { EXCLUSION_DAYS } from './discovery/weights.ts';
 import { tone, type Tone } from './open-split.ts'; // A11Y-FIXES #23 (group 3)
@@ -829,7 +829,8 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy(), /* OPTIONS */ OPTIONS, /* F-29 */ F29].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy(), /* OPTIONS */ OPTIONS,
+    /* F-16 */ HIDDEN_NOTICE, RETIRED_NOTICE, HIDDEN_OWN, TRUST_LINE, TAKEDOWN, /* F-29 */ F29].forEach(walk);
   return out;
 }
 
@@ -940,6 +941,22 @@ export const BILLING = {
   deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
 } as const;
 export { billingDate };
+// ---- F-25 one link rule for trade rows (docs/features/F-25-one-link-rule-for-trade-rows.md). Before PUBLIC, which reads
+// RECORD_LINK. No advice, promotion or completeness words (lib/f25-trade-link.test.ts).
+export const TRADE_LINK = {
+  // Shape C (a figure link inside a row that holds other links): its whole accessible name.
+  name: (symbol: string, returnPct: number) => `${symbol} ${signWord(returnPct)} ${pct1(returnPct)}, open trade page`,
+  // Shape R (the whole row is the link): a visually hidden suffix after the row's visible text.
+  suffix: (symbol: string) => `, open ${symbol} trade page`,
+  // The feed card's footer trade link: visible text, then the visually hidden symbol and figure.
+  card: 'This trade',
+  cardName: (symbol: string, returnPct: number) => `: ${symbol} ${signWord(returnPct)} ${pct1(returnPct)}`,
+} as const;
+// The card footer's profile link on connected and F-7 public-record cards alike (amends F-7 AC20; F-25 decision).
+export const RECORD_LINK = 'Record, wins and losses';
+export const RECORD_LINK_ARROW = `${RECORD_LINK} →`;
+// end F-25
+
 // ---- F-7 public-record traders (docs/features/logs/F-7/plan.md Round 4 item 1, Round 5 items 3-6; legal C9-C12, C15, C18,
 // C24). Never "Verified"; no advice, signals or completeness claims (lib/f7-trust.test.ts walks every string).
 export const isPublicRecord = (s: string): s is 'public' | 'public_demo' => s === 'public' || s === 'public_demo';
@@ -953,7 +970,7 @@ export const PUBLIC = {
   imageLine: 'This person has not joined Stock Social.', // the share image's line (the alt and unfurl carry notJoined)
   // The trade and month images' alt (og and twitter): the label and the not-joined line, never Verified or an amount.
   imageAlt: (what: string, s: 'public' | 'public_demo'): string => `${what} on Stock Social: ${publicLabel(s)}. ${PUBLIC.notJoined}`,
-  cardLine: 'Company insider · from a public filing', cardFooter: 'See their record, wins and losses →',
+  cardLine: 'Company insider · from a public filing', cardFooter: RECORD_LINK_ARROW, // F-25: one constant with app/ui.tsx
   filing: 'Filing ↗', filingName: (symbol: string, day: string) => `Public filing for the ${symbol} sale closed ${day}, opens another site`,
   sold: 'Sold: filing ↗', bought: 'Bought: filing ↗', boughtName: (symbol: string) => `Public filing for the ${symbol} purchase, opens another site`, soldName: (symbol: string) => `Public filing for the ${symbol} sale, opens another site`,
   // F4-10 (cycle 4, C4-14; WCAG 2.5.3, 2.4.4): the trade page's filing link names start with their visible words and
@@ -1049,6 +1066,61 @@ export const CHORES_3 = {
   backToFeed: 'Back to the feed',
 } as const;
 // end CHORES-3
+
+// ---- F-16 · Trust and safety slice (docs/features/F-16-trust-and-safety-slice.md; plan
+// docs/features/logs/F-16-F-17/plan.md §0.6, §5.4). Additive block. PRODUCT_NAME is used by the new F-16/F-17 copy
+// only (existing literals stay); a future rename (POLICY T5a) then changes one constant.
+export const PRODUCT_NAME = 'Stock Social';
+// The neutral 404 notices of app/u/[handle]/not-found.tsx (plan §2.1). Never "reported", "review" or a reason, no
+// name, figure or badge, no link to a new handle. Unknown handles keep app/not-found.tsx's generic page and title.
+export const HIDDEN_NOTICE = {
+  title: `Profile not available · ${PRODUCT_NAME}`,
+  h1: 'Profile not available',
+  line: 'This profile is not available right now.',
+  // Fix round 1 (review item 2): the name shown in a viewer's own lists (follows, Not interested, Record tools views)
+  // for a trader the owner hid, in place of their display name; the row and its unfollow or remove keep working.
+  name: 'Profile not available',
+} as const;
+export const RETIRED_NOTICE = {
+  title: `Handle no longer in use · ${PRODUCT_NAME}`,
+  h1: 'This handle is no longer in use',
+  line: 'Links to this address no longer lead to a profile.',
+} as const;
+// Q9 (plan §2.1): the one private line a hidden trader sees on their own profile's notice. Neutral: never "reported",
+// "review" or a reason. Rendered only to that signed-in trader, on a private, no-store 404.
+// Fix round 1 (review item 7): the download is Record tools' "Download my data" (/account/export: saved views, notes and
+// subscription status), so the line says what it holds and links to it, beside the settings link.
+export const HIDDEN_OWN = {
+  line: 'Only you see this: your profile is not shown to others right now. Your settings still work, and you can still download your saved views and notes.',
+  settings: 'Settings',
+  download: 'Download my data',
+} as const;
+// The anti-impersonation line (plan §5.4, v2 B7; app/trust-foot.tsx). Draft: the owner flips `approved` after approving
+// the wording (F-16 Open questions); until then it renders only in the sandbox (lib/takedown.ts#impersonationLineShown).
+// Plain text, names no platform, says nothing about identity or verification. Literally true while no record-based
+// message exists (the only mail is the sign-in link, LOGIN_MAIL).
+export const TRUST_LINE = {
+  approved: false,
+  text: `${PRODUCT_NAME} never messages anyone about a trading record. Anyone who contacts you elsewhere using this profile isn't acting for ${PRODUCT_NAME}.`,
+} as const;
+// The notices and takedown page (plan §5.7; app/takedown/page.tsx). Draft until the owner flips `approved` (and sets
+// TAKEDOWN_CONTACT, a role mailbox). No legal-status wording, agent title or reply time (lib/f16-static.test.ts).
+export const TAKEDOWN = {
+  approved: false,
+  title: `Notices and takedown requests · ${PRODUCT_NAME}`,
+  draft: 'Draft: this wording has not been approved yet.',
+  h1: 'Notices and takedown requests',
+  lines: [
+    `Use this page to tell us about something on ${PRODUCT_NAME} that you believe infringes your copyright, impersonates you or someone else, shares personal information or breaks the law.`,
+    'To report a profile, use "Report this profile" on it instead.', // fix round 2 (BL6)
+    'Include the page address, what is wrong and how we can reply. For a copyright notice, say which of your works it uses.',
+    'Sending a notice does not remove anything by itself. A person reads each one.',
+  ],
+  contactTitle: 'Where to send it',
+  unset: 'The contact address is not set yet.',
+  link: 'Notices and takedown requests',
+} as const;
+// end F-16
 
 // F-23 · Public payload precision (docs/features/F-23-public-payload-precision.md)
 export const F23_COPY = {

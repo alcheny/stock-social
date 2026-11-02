@@ -21,7 +21,8 @@ const OWNER = 'fl_owner';
 const DAY = 86_400_000;
 const THESIS = `${'Bought the breakout after earnings and sold into strength two days later. '.repeat(4)}`.slice(0, 280);
 const OLD_CLOSE = new Date('2020-05-30T15:00:00Z');
-const BASE = 'http://localhost:3000'; // playwright.config.ts baseURL
+// playwright.config.ts baseURL, read inside a test (orchestrator review item 5: never a hard-coded host).
+const base = () => test.info().project.use.baseURL!;
 // QA round 2 (B1, B2, Q4): two public-filing (F-7) filers of this spec's own, fictional, feed-eligible (6 closes past
 // their floor, one flat), one Demo and one not.
 const PUB_DEMO = 'fl_pub_demo', PUB_REAL = 'fl_pub_real';
@@ -122,6 +123,7 @@ for (const VIEW of [{ width: 360, height: 740 }, { width: 320, height: 740 }]) t
     '/u/[handle]': '/u/momentum_maya',
     '/u/[handle]/trade/[sellId]': `/u/momentum_maya/trade/${encodeURIComponent(maya.sell)}`,
     '/u/[handle]/month/[ym]': `/u/momentum_maya/month/${maya.ym}`,
+    '/u/[handle]/report': '/u/momentum_maya/report', // F-16: the profile report page (no percent figure)
     '/t/[symbol]': '/t/NVDA',
     '/t/compare': '/t/compare?a=NVDA&b=AMD',
   };
@@ -216,7 +218,7 @@ test('C1 (AC7): the feed: the fixture card with a 280-character thesis, its open
 
 // A plain GET to the app (node:http: no proxy settings from the environment apply to localhost).
 const getText = (p: string) => new Promise<string>((resolve, reject) => {
-  http.get(new URL(p, BASE), (res) => { let b = ''; res.setEncoding('utf8'); res.on('data', (c) => (b += c)); res.on('end', () => resolve(b)); }).on('error', reject);
+  http.get(new URL(p, base()), (res) => { let b = ''; res.setEncoding('utf8'); res.on('data', (c) => (b += c)); res.on('end', () => resolve(b)); }).on('error', reject);
 });
 
 // The feed page (server-rendered, as without JavaScript) that holds a card of `handle`, walking at most 40 pages.
@@ -261,9 +263,12 @@ test('C1 (AC7): with the sign-in line and the Undo bar raised, the first card\'s
     await page.goto('/');
     const row = page.locator(`.feed > .row[data-trade]:not([data-handle="${OWNER}"])`).first();
     const card = row.locator('article.card');
-    const box = (await card.boundingBox())!;
+    // The feed order is seeded per UTC day: the first card not the owner's may be below the first screen, where a touch
+    // lands outside the viewport. Bring it into view before measuring it.
+    await row.evaluate((el) => el.scrollIntoView({ block: 'start' }));
     // A rightward swipe past half the card hides the trade (leftward opens the pane), as in likes.spec.ts.
     await page.waitForTimeout(500); // hydrated
+    const box = (await card.boundingBox())!;
     const y = Math.round(box.y + box.height / 2), x0 = Math.round(box.x + 10), dx = Math.round(box.width * 0.6);
     await touches(page, async (send) => {
       await send('touchStart', x0, y);

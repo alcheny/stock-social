@@ -3,7 +3,7 @@
 // JSON body and every client prop that carries a return, a stat, a hold time or a date goes through these helpers at
 // the moment it is serialised. Nothing stored changes, and every figure (stats, intervals, ranks, chart totals) is still
 // computed on stored values before it reaches here.
-import { pct, tone } from './format.ts';
+import { curvePct, pct, tone } from './format.ts';
 
 const DAY = 86_400_000;
 
@@ -67,3 +67,9 @@ export const numericDay = (d: Date | number): string => NUMERIC.format(d);
 export const wireToday = (now: Date = new Date()): Date => new Date(wireDay(now) * DAY);
 // A relative time's instant ("2 hours ago": the line prints hours), truncated to its UTC hour: 'YYYY-MM-DDTHH:00Z'.
 export const isoHour = (d: Date | number): string => `${new Date(Math.floor(+d / 3_600_000) * 3_600_000).toISOString().slice(0, 13)}:00Z`;
+// A chart's cumulative value (owner decision 2026-11-02): from +100% up, the value curvePct prints (3 significant figures
+// of the percent: "+9,810%" goes out as 98.1); below, wirePct. Chosen from the print, monotone, idempotent.
+export function wireCurve(v: number): number {
+  if (!Number.isFinite(v) || !(Number((v * 100).toFixed(1)) >= 100)) return wirePct(v);
+  return Number(`${curvePct(v, 1).slice(1, -1).replace(/,/g, '')}e-2`);
+}

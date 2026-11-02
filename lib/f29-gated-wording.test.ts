@@ -83,12 +83,12 @@ test('AC6: every URL-keyed public cache reference goes through withGate, and the
   assert.match(read('app/u/[handle]/share-prompt.tsx'), /src=\{withGate\(`\/u\/\$\{handle\}\/opengraph-image`\)\}/);
   assert.match(read('app/u/[handle]/page.tsx'), /url: withGate\(`\/u\/\$\{user\.handle\}\/opengraph-image`\)/);
   assert.match(read('app/u/[handle]/month/[ym]/page.tsx'), /url: withGate\(`\/u\/\$\{r\.handle\}\/month\/\$\{r\.recap\.ym\}\/opengraph-image`\)/);
-  assert.match(read('app/u/[handle]/trade/[sellId]/page.tsx'), /const url = withGate\(`\/u\/\$\{t\.handle\}\/trade\/\$\{encodeURIComponent\(sellId\)\}\/opengraph-image`\)/);
+  assert.match(read('app/u/[handle]/trade/[sellId]/page.tsx'), /images: \[\{ url: withGate\(url\)/); // F-25 builds the trade href and url
   for (const f of ['app/u/[handle]/pane/route.ts', 'app/u/[handle]/story/route.tsx']) {
     const s = read(f);
     const at = s.indexOf("isFilerHandle(handle) ? 'no-store' : gateCacheControl(");
     assert.ok(at > 0, f);
-    const last404 = Math.max(s.lastIndexOf('status: 404'), s.lastIndexOf('return no()'));
+    const last404 = Math.max(s.lastIndexOf('status: 404'), s.lastIndexOf('return no()'), s.lastIndexOf('return imageNotFound()')); // imageNotFound: main's 404 image helper
     assert.ok(last404 > 0 && last404 < at, `${f}: the key check comes after every 404`);
   }
   // F-23's pins stay (lib/pane-model.test.ts:70-71).
