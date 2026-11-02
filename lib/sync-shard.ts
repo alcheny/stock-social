@@ -415,7 +415,8 @@ function emit(kind: LogKind, report: object, log?: (line: string) => void) {
 export type Coverage = {
   of: number; missingShards: number; unclaimedPrevRound: number; neverSynced: number; stalestHours: number;
   inBackoff: number; refused: number; quarantined: number; oldestRefusalHours: number; dbConfigOk: boolean; dbProblems: string[];
-  db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number };
+  // C5-40: `jit` is the session's JIT flag as a number (1 on, 0 off), so the log line's db values stay numbers.
+  db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number; jit: 0 | 1 };
   // FIXES-LABELS: status (F-11): idle records (no successful sync for IDLE_DAYS, lib/sync.ts#idleCount), over the same
   // scope (the whole fleet on the route); null when the count failed. A count only, never an id.
   idle: number | null;
@@ -427,6 +428,16 @@ export type Coverage = {
   activitiesReads24h: number; realAccounts: number; capRatio: number; capBreach: boolean;
   oldestActivitiesReadHours: number; oldestPositionsReadHours: number; freshnessAlarm: boolean;
 };
+// The settings the coverage check reads, as this session sees them (role-level settings apply to every session). `q` is a
+// test hook (a client with its own session settings).
+// C5-40: plus the JIT flag (`jit = off` for the app role, docs/SYNC.md → Database); reported, and a problem when on.
+export async function dbSettings(q: typeof sql = sql): Promise<Coverage['db']> {
+  const rows = await q`select name, setting from pg_settings
+    where name in ('statement_timeout', 'idle_in_transaction_session_timeout', 'max_connections', 'jit')`;
+  const settings = Object.fromEntries(rows.map((x) => [x.name as string, x.setting as string]));
+  const num = (k: string) => Number(settings[k] ?? 0) || 0;
+  return { statementTimeoutMs: num('statement_timeout'), idleInTxMs: num('idle_in_transaction_session_timeout'), maxConnections: num('max_connections'), jit: settings.jit === 'on' ? 1 : 0 };
+}
 export const ACTIVITIES_STALE_ALARM_H = 26;
 export const POSITIONS_STALE_ALARM_H = 18;
 export const CAP_BREACH_RATIO = 1.05;
@@ -458,9 +469,7 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
       (select case when bool_or(ba.positions_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.positions_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null
         and exists (select 1 from connections lc, jsonb_array_elements(lc.accounts) la where lc.user_id = s.id and lc.state = 'connected'
           and lc.disconnected_at is null and la->>'id' = ba.account_id), clock group by clock.t) as "oldestPositionsReadHours"`;
-  const settings = Object.fromEntries((await sql`select name, setting from pg_settings
-    where name in ('statement_timeout', 'idle_in_transaction_session_timeout', 'max_connections')`).map((x) => [x.name as string, Number(x.setting)]));
-  const db = { statementTimeoutMs: settings.statement_timeout ?? 0, idleInTxMs: settings.idle_in_transaction_session_timeout ?? 0, maxConnections: settings.max_connections ?? 0 };
+  const db = await dbSettings();
   let idle: number | null = null;
   try { idle = await idleCount(scope.ids, scope.idRange); /* QA round 2 (N5): the same scope */ } catch (e) { console.error('sync idle count failed', logSafe(e)); } // FIXES-LABELS: status
   const workers = Math.max(1, Math.min(cfg.concurrency, POOL_MAX - 2));
