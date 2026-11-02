@@ -1,6 +1,7 @@
 import { sql } from './db.ts';
 import { MODERATION_VERSION, moderateDetail } from './moderation.ts';
-import { KEPT_RULE } from './report-copy.ts';
+import { HIDDEN_RULE, KEPT_RULE } from './report-copy.ts';
+import { thesisHiddenByOwner } from './trust-hide.ts';
 import { sanitizeUserText } from './text-safety.ts';
 import { REPORT_HOLD_AT, REPORT_RULE } from './reports.ts';
 
@@ -52,7 +53,10 @@ export async function saveThesisFor(userId: number, tradeId: string, input: stri
       // ponytail: clearing a kept note and writing it again starts moderation afresh (a cleared note keeps no rule, and
       // rebuildTrades carries only notes with text) — keep a per-sell kept mark if the review queue shows it used.
       const kept = prev.thesis_status === 'held' && prev.thesis_hold_rule === KEPT_RULE;
-      const [st, why] = reported ? ['held', REPORT_RULE] : kept ? ['held', KEPT_RULE] : [status, status === 'held' ? rule : null];
+      // F-16 (plan §5.3, v2 E6): a thesis the owner hid stays hidden through an edit, and through a clear and rewrite
+      // (the cleared row keeps no rule, so the latest trust_audit row decides). Only the audited unhide clears it.
+      const hidden = (prev.thesis_status === 'held' && prev.thesis_hold_rule === HIDDEN_RULE) || await thesisHiddenByOwner(tx, userId, prev.sell_id);
+      const [st, why] = hidden ? ['held', HIDDEN_RULE] : reported ? ['held', REPORT_RULE] : kept ? ['held', KEPT_RULE] : [status, status === 'held' ? rule : null];
       await tx`
         update closed_trades set thesis = ${text}, thesis_status = ${st}, thesis_hold_rule = ${why},
           thesis_reviewed_at = null, thesis_checked_version = ${MODERATION_VERSION},

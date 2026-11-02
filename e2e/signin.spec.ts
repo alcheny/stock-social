@@ -226,7 +226,7 @@ test('email link: attestation stored before any redirect, link signs in once wit
   await page.getByText('Change handle').click();
   await page.getByLabel('New handle').fill(chosen);
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page).toHaveURL(new RegExp(`/u/${chosen}$`));
+  await expect(page).toHaveURL(new RegExp(`/u/${chosen}\\?renamed=1$`)); // F-17 fix round 2 (UX1): the rename's status line rides on ?renamed=1
   // The root-layout nav follows without a reload (the action revalidates the layout before redirecting).
   await expect(page.locator('nav.top .me')).toHaveText(`@${chosen}`);
   await expect(page.locator('nav.top .me')).toHaveAttribute('href', `/u/${chosen}`);
