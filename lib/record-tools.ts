@@ -214,7 +214,7 @@ async function card(t: ViewTrader, now: Date): Promise<Card> {
     return { id: t.id, handle: t.handle, name: t.name, notice: HIDDEN_NOTICE.line, state: 'none', badge: null, isNew: false,
       since: null, connected: null, closed: 0, figures: null, excluded: [] };
   }
-  const [u] = await sql`select excluded_positions, excluded_future, excluded_corporate, excluded_held, excluded_transfer from users where id = ${t.id}`;
+  const [u] = await sql`select excluded_positions, excluded_future + excluded_future_options as excluded_future, excluded_corporate, excluded_held, excluded_transfer from users where id = ${t.id}`;
   const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${t.id} and ${visibleId(t.id)}`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${t.id} and source = 'snaptrade'`;
   const { public: { state, paper } } = await publicRecordDetail(t.id);

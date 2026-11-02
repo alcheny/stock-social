@@ -29,6 +29,8 @@ export const COUNTERS = {
   excluded_positions: summed('sells with no recorded entry'),
   excluded_future_sells: summed('sells dated in the future by the broker'),
   excluded_future: left('counts buys too; its sell part is excluded_future_sells (cycle-5 unit rule: sells and option closes only)'),
+  // F-35: option rows dated after now(), opens and closes alike: not classed as closes until matched, so never in the sum.
+  excluded_future_options: left('option rows dated in the future, opens and closes alike; not a close until its date passes and it is matched (F-35)'),
   excluded_corporate: summed('sells a share move, corporate action or unusable broker row touches (F3-1 rows included)'),
   excluded_held: summed('sells counted while a possible re-issue in their pair is checked (F-24)'),
   excluded_transfer: summed('sells a share transfer row excludes (F-32 Part A, its own reason)'),
@@ -83,8 +85,9 @@ const publicSum = (c: ExclusionInput) =>
 // ponytail: E6 an option-pair sell (OCC symbol on the share path) that the share matcher already counted under corporate or
 // held stays counted there and is counted again under options (excluded_options_other via extraOther) — must-fix before
 // real users (owner flag, R4): count each such sell once, in removeOptionPairs, by leaving it out of the share counters.
-// ponytail: future-dated option rows and future-dated unusable corporate rows are not counted anywhere (only summed here)
-// — fix: count them in their rebuild steps, then classify the new counters above.
+// ponytail: future-dated option rows are counted (users.excluded_future_options, F-35) but not summed: a waiting option row
+// is not yet a close — fix: count the waiting option closes apart once the matcher can class them before their date.
+// (Future-dated unusable sells are in excluded_future_sells since F-35.)
 export function exclusionTotal(c: ExclusionInput): number {
   const share = c.excluded_positions + c.excluded_future_sells + c.excluded_corporate + c.excluded_transfer + c.excluded_held + c.excluded_shared;
   return share + publicSum(c) + closesOf(c.options) + c.options.exerciseShares;

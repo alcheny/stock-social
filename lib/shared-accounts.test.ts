@@ -12,7 +12,8 @@ test('schema: marks are an additive table that only the owner\'s script fills', 
   assert.doesNotMatch(schema.replace(/--.*$/gm, ''), /insert into shared_account_marks/, 'the schema apply never marks');
   const sync = readFileSync(new URL('./sync.ts', import.meta.url), 'utf8');
   // Fixes cycle 3 (council cycle 3: "rename-chain read lacks notShared"): the chain read is the third.
-  assert.equal(sync.match(/notShared\(tx, userId\)/g)?.length, 3, 'the rebuild leaves marked accounts out of its read, its rename-chain read and its future count');
+  // F-35 (code review 1): the fourth is the future count of unpriceable trade sells dated ahead (corporate_actions).
+  assert.equal(sync.match(/notShared\(tx, userId\)/g)?.length, 4, 'the rebuild leaves marked accounts out of its read, its rename-chain read, its future count and its unpriceable future count');
 });
 
 const hasDb = !!process.env.DATABASE_URL;

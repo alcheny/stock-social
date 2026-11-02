@@ -1262,6 +1262,20 @@ create table if not exists sitemap_traders (
 select schema_add_index('sitemap_traders_user', 'create index sitemap_traders_user on sitemap_traders (user_id)');
 -- ---- end chores cycle 5 (C5-43 part c) ----
 
+-- F-35 (docs/features/F-35-publish-once-the-date-has-passed.md): a trade is published once its date has passed
+-- (executed_at <= now()), never on the 24-hour grace. `published_through` is the database clock of the record's last
+-- committed rebuild (lib/options-sync.ts#rebuildRecord): every row dated at or before it was in that rebuild's published
+-- set. Null until the first rebuild after this change (the matured pass then rebuilds a record holding a row dated ahead
+-- once). An insert that stores a row dated ahead lowers it to the inserting transaction's clock (never fills a null).
+select schema_add_column('users', 'published_through', 'timestamptz');
+-- Option rows dated after now(), not paper, not shared: counted on the future line beside excluded_future (share rows,
+-- buys and sells; F-21's sells-only sum never reads it).
+select schema_add_column('users', 'excluded_future_options', 'int not null default 0');
+-- The matured pass (lib/sync-shard.ts#maturedQuery): only rows stored while dated ahead, a small set read by range on
+-- executed_at (the query repeats the predicate word for word so the planner can use these).
+select schema_add_index('activities_future_stored', 'create index activities_future_stored on activities (executed_at) where executed_at > created_at');
+select schema_add_index('option_activities_future_stored', 'create index option_activities_future_stored on option_activities (executed_at) where executed_at > created_at');
+select schema_add_index('corporate_actions_future_stored', 'create index corporate_actions_future_stored on corporate_actions (executed_at) where executed_at > created_at');
 -- F-32 Part A (council cycle 5, C5-1): sells a vendor transfer row excludes (lib/trades.ts `excludedTransfer`), counted
 -- under their own reason, never excluded_corporate. A count only: no transfer units, date or account is stored.
 select schema_add_column('users', 'excluded_transfer', 'int not null default 0');

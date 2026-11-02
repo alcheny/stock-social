@@ -97,7 +97,8 @@ export async function POST(req: NextRequest) {
   await privacyStages(PRIVACY_SLOT_MS);
   // Only traders with a connected (consented) connection and no import in progress, each claimed once per round
   // (lib/sync.ts), in this shard, by bounded concurrent workers under the shard's lease (lib/sync-shard.ts).
-  const run = syncs ? await runShard({ shard, deadline, routeEnd: syncRouteEnd(startedAt) }) : null;
+  // F-35: each shard run also publishes rows whose date has passed (the matured pass, lib/sync-shard.ts).
+  const run = syncs ? await runShard({ shard, deadline, routeEnd: syncRouteEnd(startedAt), mature: true }) : null;
   // ---- chores cycle 5 (C5-43 part b): matcher catch-up ----
   // Every shard call (never the housekeeping-only call) rebuilds some of its own records not yet rebuilt for the current
   // MATCHER_VERSION, after its sync and within MATCHER_CATCHUP_MS of the time left, so a matcher change reaches every
