@@ -261,9 +261,12 @@ test('C1 (AC7): with the sign-in line and the Undo bar raised, the first card\'s
     await page.goto('/');
     const row = page.locator(`.feed > .row[data-trade]:not([data-handle="${OWNER}"])`).first();
     const card = row.locator('article.card');
-    const box = (await card.boundingBox())!;
+    // The feed order is seeded per UTC day: the first card not the owner's may be below the first screen, where a touch
+    // lands outside the viewport. Bring it into view before measuring it.
+    await row.evaluate((el) => el.scrollIntoView({ block: 'start' }));
     // A rightward swipe past half the card hides the trade (leftward opens the pane), as in likes.spec.ts.
     await page.waitForTimeout(500); // hydrated
+    const box = (await card.boundingBox())!;
     const y = Math.round(box.y + box.height / 2), x0 = Math.round(box.x + 10), dx = Math.round(box.width * 0.6);
     await touches(page, async (send) => {
       await send('touchStart', x0, y);
