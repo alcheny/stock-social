@@ -52,7 +52,7 @@ dates and bands plus outside market prices.
 | 1e | Federal judges' reports | Not possible | **Not at launch** | **Not at launch** | Medium |
 | 2 | Institutional managers' quarterly holdings reports (Form 13F) | **No-go** as "the firm's return" | **Go-with-limits**: a firm-level "hypothetical holdings return" from the firm's own reported values and other filers' values. Registered firms only, unranked at launch, no market-data vendor; the owner's calls in OD-4 come first | Go | Medium-high |
 | 3a | Company insiders' reports (Forms 3, 4 and 5) | **Go-with-limits**, as built in F-7 (re-confirmed) | **No-go** | Go (F-7) | High |
-| 3b | Beneficial-ownership reports, Schedule 13D | **Narrow go-with-limits**: only chains where both legs carry Item 5(c) prices, entity filers only, as a later step with its own owner decision (OD-14); not in F-37 | **No-go** | Go-with-limits (holdings as filed) | High |
+| 3b | Beneficial-ownership reports, Schedule 13D | **Narrow go-with-limits**: only chains where both legs carry Item 5(c) prices, entity filers only, as a later step with its own owner decision (OD-14); not in F-49 | **No-go** | Go-with-limits (holdings as filed) | High |
 | 3c | Beneficial-ownership reports, Schedule 13G | **No-go** (no transactions, dates or prices) | **No-go** | Holdings as filed only | High |
 | 4 | "Private holdings": exempt-offering notices (Form D, Form C), private fund data (Form PF, Form ADV Schedule D), the broker-registration lookup, property, court and probate records | **No-go** for any holdings or returns profile of a natural person or private fund | **No-go** | Entity-level facts only, in their filed business role; not a profile | High |
 
@@ -667,7 +667,7 @@ Results are published on /how only.
 
 ## 5. Acceptance criteria for a future feature
 
-These are copied into `docs/features/F-37-estimated-public-portfolios.md`, which is the authority once the owner
+These are copied into `docs/features/F-49-estimated-public-portfolios.md`, which is the authority once the owner
 decides. Each line is testable.
 
 **All steps.**
@@ -974,7 +974,7 @@ other members keep step 2 conditional on A1. The sequence makes step 2 wait for 
 
 ### A.4 Final red team on the combined result
 
-A fresh-context red team reviewed the draft of this document and F-37. It spot-checked six load-bearing citations
+A fresh-context red team reviewed the draft of this document and F-49. It spot-checked six load-bearing citations
 against primary text or official records and confirmed them:
 - 5 CFR 2634.703;
 - 9th Cir. No. 24-3894;
@@ -996,7 +996,7 @@ disposition is in Appendix B.
 | H4 | Split, unit and outlier rules had been dropped; the outlier test can't catch splits | Fixed: §4.2 data preparation, split test, 2% mismatch, PRN, 2023 units; AC11 fixtures |
 | M1 | `SE⁺` defined as an intractable exact maximum; half-width unit unstated | Fixed: explicit bound in §4.3; gate on the simple-return scale via `tooWide`; AC29, AC30 |
 | M2 | Contradiction on what the back-test unlocks | Fixed: "What unlocks what" in §4.3; AC33 |
-| M3 | AC5 conflicted with AC33 and had untestable items | Fixed: literal patterns, time-limited confidence words; list copied into F-37 |
+| M3 | AC5 conflicted with AC33 and had untestable items | Fixed: literal patterns, time-limited confidence words; list copied into F-49 |
 | M4 | Back-test (c) and (d) thresholds weaker or vaguer than the council's | Fixed: ≥100 filers on the envelope; ≥400 lines with a Wilson upper bound ≤1% |
 | M5 | Open purchases priced as "still held" | Fixed: valued at the latest annual report listing the holding, with an "Assumes ... still held on ‹date›" line; AC28 |
 | M6 | 497 U.S. 1 misattributed; 418 U.S. 323 overstated | Fixed: §1.3 item 2 |
@@ -1005,7 +1005,7 @@ disposition is in Appendix B.
 | M9 | "Entity filers" can leak natural persons | Fixed: AC10 and §4.2 selection rules |
 | M10 | Security-identifier licensing not addressed | Fixed: A5; §4.2 "Identifiers"; AC14 |
 | M11 | OD list incomplete, placeholder appendix, "one legal question", misattributed T2 text, A1 timing, row 1a | Fixed: §1.4, §1.2, this appendix, OD-4(a), §6 A1, §1.1 |
-| M12 | Missing sources; 13D in limbo | Fixed: "Not reviewed" lists in §1.1 and §2.4; OD-14; 13D out of F-37 |
+| M12 | Missing sources; 13D in limbo | Fixed: "Not reviewed" lists in §1.1 and §2.4; OD-14; 13D out of F-49 |
 | L1 | House vote citation; Senate cloture unconfirmed | Fixed in §2.1 |
 | L2 | Private right of action confidence | Fixed: medium |
 | L3 | One-year destruction rule | Fixed: §2.1, AC21 |
@@ -1014,7 +1014,7 @@ disposition is in Appendix B.
 | L6 | Same-date clustering definition | Fixed in §4.3 |
 | L7 | Dropped context lines | Fixed: §4.3; AC39, AC40 |
 | L8 | Naming the self-regulatory organization | Fixed: wording note at top |
-| L9 | F-37 "Decisions" held proposals; title fits step 3 only | Decisions fixed. The filename and title are kept as the owner's brief specified |
+| L9 | F-49 "Decisions" held proposals; title fits step 3 only | Decisions fixed. The filename and title are kept as the owner's brief specified |
 | L10 | Form SHO remand | Fixed in §2.2 |
 | L11 | AC9 scope (entities aren't data subjects) | Fixed: natural-person filers, by stated country |
 | L12 | Form 4 checkbox date | Fixed in §2.3 |

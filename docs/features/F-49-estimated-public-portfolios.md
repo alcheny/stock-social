@@ -1,4 +1,4 @@
-# F-37 · Estimated public portfolios: profiles for officials and institutions from public disclosures
+# F-49 · Estimated public portfolios: profiles for officials and institutions from public disclosures
 
 Status: draft
 Blocked: the owner's decisions after the legal review of 2026-11-02 (`docs/direction/public-portfolios-legal-review-2026-11-02.md` §7, OD-1 to OD-15; step 1 needs OD-4 first). Step 2 (officials, facts only) additionally waits for the staged attorney review's answer on 5 U.S.C. § 13107(c) (review §6, A1 and A2; owner item 2.54) or the owner's written risk acceptance. Step 3 (estimated ranges) additionally waits for the owner's rule amendments and an approved market-data source with a contract review (OD-7, A5) and a passed back-test.
