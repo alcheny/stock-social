@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db.ts';
-import { paneChart } from '@/lib/chart-series.ts';
+import { paneChart, PAYLOAD_V } from '@/lib/chart-series.ts';
 import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 import { visibleId, visibleUser } from '@/lib/visible-users.ts';
 
@@ -9,11 +9,14 @@ import { visibleId, visibleUser } from '@/lib/visible-users.ts';
 // mirrors (signed out works): the same closed trades the profile and the feed read, theses only when published,
 // percentages only (closed_trades stores no quantities or prices). The trust rule (Verified, Demo, incomplete) is not
 // in this data: the pane renders it on the server with the page.
-export async function GET(_req: Request, { params }: { params: Promise<{ handle: string }> }) {
+// F-23: the chart at the printed precision with UTC days (lib/chart-series.ts#packChart). Only `?v=<PAYLOAD_V>` (the
+// URL paneChartSrc builds) is served: the bare URL a pre-F-23 client asks for is a 404, so no cache key holds both.
+export async function GET(req: Request, { params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
   // Reviewer (tester Low): a handle outside the signup pattern (a NUL byte made Postgres throw, a 500) is a 404 before any query.
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
-  const [user] = await sql`select id from users u where handle = ${handle} and ${visibleUser('u')} and ${filerVisibleSql('u')}` // F-16: hidden is 404;
+  if (new URL(req.url).searchParams.get('v') !== String(PAYLOAD_V)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
+  const [user] = await sql`select id from users u where handle = ${handle} and ${visibleUser('u')} and ${filerVisibleSql('u')}`; // F-16: hidden is 404
   if (!user) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const rows = await sql`
     select id, symbol, return_pct, holding_days, closed_at, case when thesis_status = 'published' then thesis end as thesis, -- F-26: published only, in SQL

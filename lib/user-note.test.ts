@@ -164,7 +164,7 @@ test('the Report control sits 4px below the caption; the /t row link holds no no
 test('chart sheet header: " · " between the close date and the figure', () => {
   const c = read('../app/u/[handle]/chart.tsx');
   // A11Y-FIXES #23 (main): the figure's tone comes from toneClass (flat is neither colour).
-  assert.match(c, /\{chosen\.closedAt\.toLocaleDateString\('en-US'\)\}\{' · '\}<\/span><\/span>\s*<b className=\{toneClass\(chosen\.returnPct\)\}>/);
+  assert.match(c, /\{numericDay\(chosen\.closedAt\) \/\* F-23 \*\/\}\{' · '\}<\/span><\/span>\s*<b className=\{toneClass\(chosen\.returnPct\)\}>/);
 });
 
 // Fix round 4 (F-10 AC8 at 780×360): on a short screen the feed card's note is one compact line: the date takes no

@@ -75,6 +75,9 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 //   recorded entry"); a rename carries the mark. A row decided genuine is priced normally on the next rebuild. Only
 //   undecided rows are held (pending, confirm, or a give-up); a row the count rule decided suspected is the excess
 //   beyond what one vendor response showed, a duplicate, and never reaches the matcher (final review R1).
+//   ponytail: a thesis on a later sell that a hold counts goes to kept_theses (lib/sync.ts#rebuildTrades) and comes back
+//   when the sell is shown again, but the kept copy stays behind (a kept row is only removed when the trader edits or
+//   clears that thesis) — fix: remove the kept row when its trade is shown again, in the same rebuild.
 // - Same instant (F3-5): symbol changes, then other corporate actions, then buys, then sells, then the vendor id. In a
 //   long-only ledger a sell is filled from shares held, so a same-instant buy before it is the only order that can be
 //   true when the sell needs it; when older lots cover the sell, FIFO draws them first and the order changes nothing. A

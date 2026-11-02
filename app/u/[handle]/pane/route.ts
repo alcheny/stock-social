@@ -7,15 +7,22 @@ import { paneSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { optionHeadline, paneView } from '@/lib/options-load.ts'; // OPTIONS (AC 24): the pane's label and line, gated per trader
 import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 import { visibleId, visibleUser } from '@/lib/visible-users.ts';
+import { paneModel } from '@/lib/pane-model.ts'; // F-23
+import { feedPaneChart, PAYLOAD_V } from '@/lib/chart-series.ts'; // F-23
 
 // F-2 PR-3b fix round 1 (business lead D2): a Similar trades row's pane, fetched when its sheet first opens
 // (app/lazy-pane.tsx), so the profile no longer renders three other traders' records. Public like the profile (signed
 // out works): the same closed trades the feed's pane reads, theses only when published, percentages only. An importing
 // record is not whole, so it is not served.
-export async function GET(_req: Request, { params }: { params: Promise<{ handle: string }> }) {
+// F-23: the body is the pane's model (every printed figure, computed here from stored values and rounded to what the
+// pane prints) and its chart, never the raw closes; dates are UTC days. Only `?v=<PAYLOAD_V>` is served: a client built
+// before F-23 asks for the bare URL and gets a 404 (its "could not be loaded" line), never a body it would misread, and
+// no cache holds a pre-F-23 body under the new key.
+export async function GET(req: Request, { params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
   // Reviewer (tester Low): a handle outside the signup pattern (a NUL byte made Postgres throw, a 500) is a 404 before any query.
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
+  if (new URL(req.url).searchParams.get('v') !== String(PAYLOAD_V)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const no = () => NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const [user] = await sql`select id from users u where handle = ${handle} and ${visibleUser('u')} and ${filerVisibleSql('u')}` // F-16: hidden is 404;
   if (!user) return no();
@@ -24,12 +31,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
     sql`select unrealized_pct, fetched_at from open_positions where user_id = ${user.id as number} and ${visibleId(user.id as number)}`, optionHeadline([user.id as number])]);
   const state = states.get(user.id as number)?.state ?? 'connected';
   if (state === 'importing') return no();
-  const trades = rows.map((r) => ({ id: r.id, symbol: r.symbol, returnPct: r.returnPct, holdingDays: r.holdingDays, closedAt: r.closedAt.getTime(), thesis: r.thesis, verified: r.verified, openedAt: r.openedAt.getTime() /* FIXES-LABELS (code review) */,
-    ...(r.writtenDay != null || r.editedDay != null ? { writtenDay: r.writtenDay ?? null, editedDay: r.editedDay ?? null } : {}) /* FIXES-CYCLE4-PART2 (F4-16): a published note's UTC day numbers, never a time of day (orchestrator review) */ }));
   const shown = state === 'connected' || state === 'failed' ? positions : [];
   const open = shown.map((p) => p.unrealized_pct as number);
-  const openAsOf = shown.length ? Math.min(...shown.map((p) => (p.fetched_at as Date).getTime())) : null;
+  const openAsOf = shown.length ? new Date(Math.min(...shown.map((p) => (p.fetched_at as Date).getTime()))) : null;
+  const now = new Date();
+  // FIXES-LABELS (code review): the entry times (openedAt) feed the model's range line and New record on the server.
+  const model = paneModel(rows, state, now, open, openAsOf);
+  const chart = feedPaneChart(rows, now);
   // FIXES-LABELS: status (F-11): the pane's status as static segments (absolute dates; this JSON is cached 60 s).
-  const status = paneSegments((await statusFor(user.id as number, state)) ?? undefined, new Date()) ?? null;
-  return NextResponse.json({ state, trades, open, openAsOf, status, options: paneView(options.get(user.id as number)!) /* the flag and the line only (QA 2) */ }, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
+  const status = paneSegments((await statusFor(user.id as number, state)) ?? undefined, now) ?? null;
+  return NextResponse.json({ v: PAYLOAD_V, state, model, chart, status, options: paneView(options.get(user.id as number)!) /* the flag and the line only (QA 2) */ }, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
 }

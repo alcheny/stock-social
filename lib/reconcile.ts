@@ -334,8 +334,8 @@ export async function markTwins(tx: TransactionSql, userId: number): Promise<num
   return rows.length;
 }
 
-/** A pending row found by this transaction's (week) read brings its account's next pass forward, unless a pass is
- *  running or ran this sync (`except`): an ended or given-up pass waits its period. */
+/** A pending row found by this transaction's read (a week read, or an import step) brings its account's next pass
+ *  forward, unless a pass is running or ran this sync (`except`): an ended or given-up pass waits its period. */
 export async function bringForward(tx: TransactionSql, userId: number, t: Frag, except: string[] = []) {
   await tx`update broker_accounts b set reconcile_due_at = ${t} where b.user_id = ${userId} and b.reconcile_offset is null
     and (b.reconcile_due_at is null or b.reconcile_due_at > ${t}) ${except.length ? tx`and b.account_id not in ${tx(except)}` : tx``}

@@ -39,7 +39,9 @@ import { latestRecapYm } from '@/lib/recap.ts';
 import { shouldShowSharePrompt } from '@/lib/share-prompt.ts';
 import { count } from '@/lib/format.ts';
 import { routeHandle } from '@/lib/params.ts';
-import { closesWindow, packPoints } from '@/lib/paging.ts';
+import { closesWindow } from '@/lib/paging.ts';
+import { profileChart } from '@/lib/chart-series.ts'; // F-23
+import { wireToday } from '@/lib/public-wire.ts'; // F-23
 import { RowFocus } from './row-focus.tsx';
 import { FollowButton } from '../../follow-button.tsx';
 import { followingAmong, isHidden } from '@/lib/follows.ts';
@@ -391,7 +393,9 @@ export default async function Profile({ params, searchParams }: Params) {
         <div className="stat"><b>{s.medianHoldingDays.toFixed(1)}d</b><small>median hold</small></div>
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
-      <PerformanceChart shareOnly={shareLabel(opt.counts)} points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null, ...(t.thesis_status === 'published' ? { writtenAt: t.thesis_written_at, editedAt: t.thesis_edited_at } : {}) /* FIXES-CYCLE4-PART2 (F4-16) */ })))} now={new Date()} current={win.end} noteBy={user.handle} />
+      {/* F-23: a server-packed chart at full resolution (every figure from stored values, the printed precision on the
+          wire) and `now` as its UTC day: the browser compounds nothing. */}
+      <PerformanceChart shareOnly={shareLabel(opt.counts)} chart={profileChart(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null, ...(t.thesis_status === 'published' ? { writtenAt: t.thesis_written_at, editedAt: t.thesis_edited_at } : {}) /* FIXES-CYCLE4-PART2 (F4-16) */ })), new Date())} now={wireToday()} current={win.end} noteBy={user.handle} />
       {open && <ChartNote o={open} />}
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
