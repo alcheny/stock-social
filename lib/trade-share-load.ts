@@ -17,7 +17,7 @@ export async function loadTradeShare(handle: string, sellId: string) {
       case when ct.thesis_status = 'published' then ct.thesis end as thesis,
       case when ct.thesis_status = 'published' then ct.thesis_written_at end as thesis_written_at,
       case when ct.thesis_status = 'published' then ct.thesis_edited_at end as thesis_edited_at,
-      u.display_name, u.public_filer_id, ct.filing_url, ct.opened_at
+      u.display_name, u.public_filer_id, ct.filing_url, ct.opened_at, ct.trade_key
     from closed_trades ct join users u on u.id = ct.user_id and u.deleted_at is null and ${filerVisibleSql('u')}
     where u.handle = ${handle} and ct.sell_id = ${sellId}`;
   if (!t) return null;
@@ -36,7 +36,8 @@ export async function loadTradeShare(handle: string, sellId: string) {
   const bought = t.public_filer_id ? openingFilings(await sql<PubRow[]>`select * from public_transactions where filer_id = ${t.public_filer_id}`, t.symbol, t.opened_at) : [];
   const filings = t.filing_url ? { sold: t.filing_url as string, bought } : null;
   // F-9: the note's dates and the trade's id (the Report control) ride beside the payload, never inside the share data.
-  const note = { tradeId: String(t.id), writtenAt: (t.thesis_written_at ?? null) as Date | null, editedAt: (t.thesis_edited_at ?? null) as Date | null };
+  // FIXES-CYCLE5 (F5-2): plus the close's trade_key, which the Report control names (it survives a rebuild).
+  const note = { tradeId: String(t.id), tradeKey: t.trade_key as string, writtenAt: (t.thesis_written_at ?? null) as Date | null, editedAt: (t.thesis_edited_at ?? null) as Date | null };
   // FIXES-LABELS: status (F-11): the status-line facts beside the state (the page renders live, the image static).
   return { ...payload, sellId, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, note, open: await openPercents(Number(t.user_id), state), excludingOptions, status: await statusFor(Number(t.user_id), state) } satisfies TradeView;
 }

@@ -29,6 +29,6 @@ test('the profile renders the held line muted (never the loss colour) for the au
   // F-26: through the one held-line markup, HeldNote (lib/user-note.ts: <p class="muted thesis-held">{heldLine(rule)}</p>).
   assert.match(src, /\{isMe && t\.thesis_status === 'held' && !!t\.thesis && <HeldNote rule=\{t\.thesis_hold_rule\} id=\{`held-\$\{t\.id\}`\} \/>\}/); // F4-17: the id the edit field names
   const note = readFileSync(new URL('./user-note.ts', import.meta.url), 'utf8');
-  assert.match(note, /h\('p', \{ className: 'muted thesis-held', 'data-own-held': '' \}, heldLine\(rule\)\)/);
+  assert.match(note, /h\('p', \{ id, className: 'muted thesis-held', 'data-own-held': '' \}, heldLine\(rule\)\)/);
   assert.doesNotMatch(src, /Matched rule/);
 });

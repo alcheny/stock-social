@@ -166,7 +166,7 @@ test('F5-2: every note form under app/ posts a trade key (the row id stays only 
     }
     for (const m of s.matchAll(/reportId=\{([^\n]*?)\}\s+symbol=/g)) {
       reports++;
-      assert.match(m[1], /t\.trade_key|tradeKey\(/, `${f}: reportId names a trade key: ${m[1]}`);
+      assert.match(m[1], /t\.trade_key|t\.note\?\.tradeKey|tradeKey\(/, `${f}: reportId names a trade key: ${m[1]}`);
       assert.doesNotMatch(m[1], /String\(t\.id\)|note\??\.tradeId/, f);
     }
     for (const m of s.matchAll(/<ReportNote tradeId=\{([^}]*)\}/g)) {
