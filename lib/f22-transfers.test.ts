@@ -258,3 +258,17 @@ test('tester: a transfer in and a transfer out at the same instant give the same
   assert.deepEqual(run('x1', 'x2'), run('x2', 'x1'));
   assert.equal(run('x1', 'x2').trades.length, 1);
 });
+
+test('F-21 integration: transfers out and partly-transferred sells are named in the #excluded section as context lines (n = 0), never in the sells-only sum', async () => {
+  const { exclusionReasons, exclusionTotal, COUNTERS } = await import('./exclusions.ts');
+  const { PROFILE } = await import('./copy.ts');
+  const base = { excluded_positions: 0, excluded_future_sells: 0, excluded_corporate: 0, excluded_held: 0, excluded_shared: 0, excluded_transfer: 1, public: null,
+    options: { shown: 0, short: 0, other: 0, openShort: 0, openOther: 0, openLong: 0, exerciseShares: 0 } as never, gate: 'closed' as const };
+  const c = { ...base, excluded_transferred_out: 3, sells_partly_transferred: 2 };
+  assert.equal(exclusionTotal(c), exclusionTotal(base));
+  const r = exclusionReasons(c);
+  assert.deepEqual(r.map((x) => [x.key, x.n]), [['transfer', 1], ['transfersOut', 0], ['partly', 0]]);
+  assert.equal(r[1].text, PROFILE.excludedTransferredOut(3));
+  assert.equal(r[2].text, PROFILE.sellsPartlyTransferred(2));
+  assert.equal(COUNTERS.excluded_transferred_out.summed, false);
+});

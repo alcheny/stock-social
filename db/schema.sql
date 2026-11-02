@@ -1234,6 +1234,14 @@ select schema_add_column('activity_reissues', 'undecided', 'boolean not null def
 -- F-32 Part A (council cycle 5, C5-1): sells a vendor transfer row excludes (lib/trades.ts `excludedTransfer`), counted
 -- under their own reason, never excluded_corporate. A count only: no transfer units, date or account is stored.
 select schema_add_column('users', 'excluded_transfer', 'int not null default 0');
+-- F-21 (docs/features/F-21-exclusion-counts-beside-the-headline.md, committee 2026-11-02 decisions 4-5): two stored
+-- counters for the one exclusion sum (lib/exclusions.ts), written in the rebuild's own transaction. Sells only, so the
+-- sum never mixes buys and sells under "trades". A record fills them on its next rebuild (owner step after deploy:
+-- scripts/rebuild-records.ts once, for frozen records).
+-- excluded_future_sells: the sell part of excluded_future (lib/sync.ts#rebuildTrades, the same future-count query).
+select schema_add_column('users', 'excluded_future_sells', 'int not null default 0');
+-- excluded_shared: sells and option closes in accounts marked as another profile's (lib/options-sync.ts#rebuildRecord).
+select schema_add_column('users', 'excluded_shared', 'int not null default 0');
 -- F-22 (owner OD 2.28): transfer rows with units out of an account (lib/trades.ts `transfersOut`), each counted once. A
 -- count of transfers, not sells; no transfer units, date or account is stored.
 select schema_add_column('users', 'excluded_transferred_out', 'int not null default 0');

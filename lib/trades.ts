@@ -57,7 +57,7 @@ const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale
 // `sellsPartlyTransferred` (F-22, business lead and engineer, Q5): shown sells that also drew moved-in units; their
 // return is for the recorded units only, and the moved-in units are named by this count. They are shown, so the count is
 // in no sum (a sell is counted once).
-export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number; excludedTransfer?: number; transfersOut?: number; sellsPartlyTransferred?: number };
+export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number; transfersOut?: number; sellsPartlyTransferred?: number; excludedTransfer?: number };
 // F-22: a transfer out with units (lib/sync.ts counts one in a pair with no activity, which is never replayed).
 // A unit-less row counts when its type says out (loader `out`); a unit-less TRANSFER has no direction, so it does not.
 export const isTransferOut = (ca: CorporateAction) => ca.kind === 'unpriceable' && ca.reason !== 'trade' && ca.transfer === true && ((ca.units ?? 0) < 0 || (!ca.units && ca.out === true));

@@ -15,7 +15,7 @@ export type PerRequest = <F extends (...args: never[]) => unknown>(fn: F) => F;
 
 export function profileReads(perRequest: PerRequest) {
   return {
-    user: perRequest(async (handle: string) => (await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, excluded_held, excluded_transfer, excluded_transferred_out, sells_partly_transferred, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and ${visibleUser('users')}`)[0]), // F-16: a hidden profile is not found
+    user: perRequest(async (handle: string) => (await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, excluded_held, excluded_transfer, excluded_future_sells, excluded_shared /* F-21 */, excluded_transferred_out, sells_partly_transferred /* F-22 */, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and ${visibleUser('users')}`)[0]), // F-16: a hidden profile is not found
     trades: perRequest((userId: number) => sql`
       select id, sell_id, trade_key, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
         thesis_written_at, thesis_edited_at, thesis_hold_rule

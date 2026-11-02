@@ -37,6 +37,7 @@ export type TradeView = ReturnType<typeof tradeSharePayload> & {
   // F-9 (fix-user-text): the note's dates and the trade id for the Report control; never part of the share image data.
   note?: { tradeId: string; writtenAt: Date | null; editedAt: Date | null };
   excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
+  excluded?: number; // F-21: the record's exclusion sum (lib/exclusions.ts); the page's strip line only, never an image
   filings?: { sold: string; bought: string[] } | null; // F-7: a public record's filing links
   tradeKey?: string; // F-25: the row's trade_key, the page's one address (lib/trade-href.ts#tradePageHref); never the sell id
 };

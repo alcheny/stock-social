@@ -39,12 +39,12 @@ export const REBUILD_PAGE = 1000;
 // profile with its reason). It is re-checked on every rebuild against the clock, so the row is published once its stored
 // date is no longer in the future (a corrected date under the same vendor id is never stored: see BACKFILL_MS).
 export const FUTURE_GRACE_HOURS = 24;
-const notFuture = (db: Db) => db`executed_at <= now() + ${FUTURE_GRACE_HOURS}::float8 * interval '1 hour'`;
+export const notFuture = (db: Db) => db`executed_at <= now() + ${FUTURE_GRACE_HOURS}::float8 * interval '1 hour'`;
 // Fixes cycle 3, F3-1: one vendor id stored both as an activity and as an unusable trade row (corporate_actions, reason
 // 'trade'), e.g. first read with no price and re-read with one, counts once: the version stored first wins, so a sell is
 // never priced and counted, and a published trade never disappears because a later read lost its price. The mirror rule
 // is in lib/corporate-actions.ts#loadCorporateActions (ties go to the activity).
-const storedFirst = (db: Db) => db`not exists (select 1 from corporate_actions c where c.source = a.source and c.external_id = a.external_id
+export const storedFirst = (db: Db) => db`not exists (select 1 from corporate_actions c where c.source = a.source and c.external_id = a.external_id
   and c.kind = 'unpriceable' and c.detail->>'reason' = 'trade' and c.created_at < a.created_at)`;
 
 export async function insertActivities(userId: number, source: 'snaptrade' | 'demo', acts: (Activity & { raw: unknown })[], db: Db = sql) {
@@ -191,7 +191,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           thesis_hold_rule = excluded.thesis_hold_rule, thesis_reviewed_at = excluded.thesis_reviewed_at,
           thesis_reports_from = excluded.thesis_reports_from, thesis_checked_version = excluded.thesis_checked_version`;
     }
-    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)} and ${notDuplicate(tx)}
+    // F-21 (committee decision 5): the sell part of the same count, in the same query (the exclusion sum counts sells only).
+    const [{ future, future_sells }] = await tx`select count(*)::int as future, (count(*) filter (where a.side = 'SELL'))::int as future_sells from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)} and ${notDuplicate(tx)}
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
       and ${notShared(tx, userId)}`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
@@ -199,6 +200,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     await tx`update users set excluded_held = ${excludedHeld} where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
     await tx`update users set excluded_transfer = ${excludedTransfer} where id = ${userId}`; // F-32 Part A: a count only
+    await tx`update users set excluded_future_sells = ${future_sells} where id = ${userId}`; // F-21
     await tx`update users set excluded_transferred_out = ${transfersOut}, sells_partly_transferred = ${sellsPartlyTransferred} where id = ${userId}`; // F-22: counts only
     return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate, excludedTransfer, transfersOut };
   };
