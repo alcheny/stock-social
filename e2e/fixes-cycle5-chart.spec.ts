@@ -36,13 +36,13 @@ test.afterAll(async () => {
   await release();
 });
 
-test('F5-14: an 80,000-close profile renders under 300 KB gzipped, and its chart summary is the whole record', async ({ page, request }) => {
+test('F5-14: an 80,000-close profile renders under 300 KB gzipped, and its chart summary is the whole record', async ({ request }) => {
   const res = await request.get(`/u/${HANDLE}`);
   expect(res.status()).toBe(200);
   const html = await res.body();
   const gz = gzipSync(html).length;
   test.info().annotations.push({ type: 'bytes', description: `raw ${html.length}, gzipped ${gz}` });
   expect(gz).toBeLessThan(300_000);
-  await page.goto(`/u/${HANDLE}`);
-  await expect(page.locator('figure.chart svg[role="img"]').first()).toHaveAttribute('aria-label', /^80,000 trades, [+\-−]?\d[\d,]*% total, max drawdown /);
+  // The server-rendered chart's role="img" summary counts every close (request only: no browser needed).
+  expect(html.toString('utf8')).toMatch(/<svg[^>]*role="img"[^>]*aria-label="80,000 trades, [+\-−]?\d[\d,.]*% total, max drawdown [+\-−]?\d[\d,.]*%"/);
 });
