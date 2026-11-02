@@ -457,9 +457,12 @@ export default async function Profile({ params, searchParams }: Params) {
                 <input type="hidden" name="tradeKey" value={t.trade_key} />
                 <input type="hidden" name="tradeId" value={t.id} />
                 <input type="hidden" name="closes" value={win.end} />
+                {noteChanged && <input type="hidden" name="leaveChanged" value="1" />}{/* FIXES-CYCLE5 (F5-2, review 5) */}
                 {/* FIXES-CYCLE5 (F5-24): a visible label, three rows, the count of 280 (note-field.tsx keeps it current). */}
                 <label htmlFor={`note-${t.trade_key}`} className="note-label" style={NOTE_WIDE}>{FC5.noteLabel}</label>
-                <textarea id={`note-${t.trade_key}`} name="thesis" rows={3} style={NOTE_FIELD} maxLength={280} defaultValue={t.thesis ?? ''} placeholder="Why did you take this trade?" aria-label={FC5.noteName(t.symbol)} aria-describedby={`count-${t.trade_key}`} {...(t.thesis_status === 'held' && !!t.thesis ? { 'aria-describedby': `held-${t.id}`, 'aria-invalid': true } : {})} />{/* F4-17: the held reason describes its field */}
+                <textarea id={`note-${t.trade_key}`} name="thesis" rows={3} style={NOTE_FIELD} maxLength={280} defaultValue={t.thesis ?? ''} placeholder="Why did you take this trade?" aria-label={FC5.noteName(t.symbol)} {...(t.thesis_status === 'held' && !!t.thesis ? { 'aria-describedby': `held-${t.id}`, 'aria-invalid': true } : {})}
+                  // FIXES-CYCLE5 (F5-24, code review 2): after F4-17's spread, so a held note's field keeps its count too.
+                  aria-describedby={t.thesis_status === 'held' && !!t.thesis ? `count-${t.trade_key} held-${t.id}` : `count-${t.trade_key}`} />{/* F4-17: the held reason describes its field */}
                 <NoteField id={`note-${t.trade_key}`} countId={`count-${t.trade_key}`} initial={(t.thesis ?? '').length} style={NOTE_COUNT} />
                 <button>Save</button>
               </form>

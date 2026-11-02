@@ -114,6 +114,10 @@ export async function notesLineApplies(userId: number): Promise<boolean> {
 // ponytail: the backoff is per user, so one vendor outage backs every pending deletion off together — fix: a shared
 // vendor health gate before the loop if outages ever make deletions wait long.
 export const DELETIONS_PER_CALL = 5;
+// FIXES-CYCLE5 (F5-18, code review 1): pending deletions get their own budget, two vendor timeouts from the start of the
+// stage, never the whole call's deadline, so a vendor outage cannot spend the time the sync stage after them needs.
+export const DELETION_BUDGET_MS = 2 * VENDOR_TIMEOUT_MS;
+export const deletionDeadline = (now: number, deadline: number) => Math.min(deadline, now + DELETION_BUDGET_MS);
 export const DELETION_BACKOFF_MAX_MIN = 24 * 60;
 export type DeletionClock = { now: () => number; timer: (ms: number) => { done: Promise<void>; clear: () => void } };
 const realClock: DeletionClock = {
@@ -145,6 +149,8 @@ export function deletionSteps(deadline: number, o: { clock?: DeletionClock; del?
     report.started++;
     const p = del(u);
     p.catch(() => {}); // a cut try may still fail later; its row stays marked for a later call
+    // ponytail: a try cut at the deadline keeps running after the response; on a serverless host that freezes the
+    // instance it may hold its transaction until thawed or timed out — fix: an abort signal threaded into deleteProfile.
     const t = clock.timer(deadline - clock.now());
     let cut = false;
     try {

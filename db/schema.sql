@@ -532,6 +532,8 @@ begin
   if not exists (select 1 from pg_trigger where tgname = 'ticker_sums_update' and not tgisinternal) then
     create trigger ticker_sums_update after update on closed_trades referencing old table as tts_old new table as tts_new for each statement execute function ticker_sums_on_update();
   end if;
+  -- ponytail: a database whose closed_trades holds no share row a summary can count (empty, or filings only) re-runs this
+  -- locked scan on every schema apply — fix: a one-row marker table set when the backfill first completes.
   if not exists (select 1 from ticker_trader_sums) then
     lock table closed_trades in share row exclusive mode;
     insert into ticker_trader_sums select * from ticker_trader_sums_src on conflict do nothing;

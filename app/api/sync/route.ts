@@ -5,7 +5,7 @@ import { coverage, runShard, type Coverage } from '@/lib/sync-shard.ts';
 import { parseCall } from '@/lib/sync-limits.ts';
 import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 import { tick } from '@/lib/connections.ts';
-import { deletionSteps, pendingDeletions } from '@/lib/delete.ts';
+import { deletionDeadline, deletionSteps, pendingDeletions } from '@/lib/delete.ts';
 import { purgeDiscovery, type PurgeReport } from '@/lib/discovery/purge.ts';
 import { reconcileIfDue } from '@/lib/billing.ts';
 import { logSafe } from '@/lib/privacy-log.ts';
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     // FIXES-CYCLE5 (F5-18): at most 5, oldest-untried first, each started only with a vendor timeout left before the
     // deadline and never waited on past it; a failure backs off (lib/delete.ts#deletionSteps). The stages below always run.
     const pendingDeletes = await pendingDeletions();
-    const steps = deletionSteps(deadline);
+    const steps = deletionSteps(deletionDeadline(Date.now(), deadline)); // FIXES-CYCLE5 (F5-18): own budget
     const done = await syncAll(pendingDeletes, steps.run);
     const deletions = { ...done, ok: done.ok - steps.report.deferred, ...steps.report };
     // F-2 PR-2 (plan demand D): ended exclusions, ≤ 30 s under its own lock. Never a branch: whatever it returns or

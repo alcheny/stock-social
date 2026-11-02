@@ -101,6 +101,12 @@ export async function saveThesis(form: FormData) {
     redirect(`/u/${user.handle}?note=changed${tradeKey ? `&n=${tradeKey}` : ''}${w}#note-changed`);
   }
   revalidatePath(`/u/${user.handle}`);
+  // FIXES-CYCLE5 (F5-2, code review 5): a save made from a page still showing "not saved" leaves that URL, so the alert
+  // never stands over a note that was saved. The closes window is kept.
+  if (form.get('leaveChanged') === '1') {
+    const closes = form.get('closes');
+    redirect(`/u/${user.handle}${typeof closes === 'string' && /^[1-9][0-9]{0,6}$/.test(closes) ? `?closes=${closes}` : ''}`);
+  }
 }
 
 // Share moment (issue #66). Best-effort measurement: session user only, never an id from the client.

@@ -40,7 +40,10 @@ test('F5-24: the note field is a 3-row textarea with a visible label "Your note"
   assert.match(field, / maxLength=\{280\} defaultValue=\{t\.thesis \?\? ''\} /);
   assert.match(field, / aria-label=\{FC5\.noteName\(t\.symbol\)\} /);
   // The count describes the field; a held note's reason replaces it (#100's spread, after ours, byte-for-byte).
-  assert.match(field, / aria-describedby=\{`count-\$\{t\.trade_key\}`\} \{\.\.\.\(t\.thesis_status === 'held' && !!t\.thesis \? \{ 'aria-describedby': `held-\$\{t\.id\}`, 'aria-invalid': true \} : \{\}\)\} \/>/);
+  // F4-17's held spread, byte for byte, then (code review 2) the description that keeps the count for a held note too.
+  assert.match(field, / \{\.\.\.\(t\.thesis_status === 'held' && !!t\.thesis \? \{ 'aria-describedby': `held-\$\{t\.id\}`, 'aria-invalid': true \} : \{\}\)\}/);
+  assert.match(page, /aria-describedby=\{t\.thesis_status === 'held' && !!t\.thesis \? `count-\$\{t\.trade_key\} held-\$\{t\.id\}` : `count-\$\{t\.trade_key\}`\} \/>/);
+  assert.ok(page.indexOf("'aria-describedby': `held-") < page.indexOf('`count-${t.trade_key} held-${t.id}`'), 'the combined description comes after the spread, so it wins');
   assert.match(page, /<label htmlFor=\{`note-\$\{t\.trade_key\}`\} className="note-label"[^>]*>\{FC5\.noteLabel\}<\/label>/);
   assert.match(page, /<HeldNote rule=\{t\.thesis_hold_rule\} id=\{`held-\$\{t\.id\}`\} \/>/);
   assert.match(page, /<NoteField id=\{`note-\$\{t\.trade_key\}`\} countId=\{`count-\$\{t\.trade_key\}`\} initial=\{\(t\.thesis \?\? ''\)\.length\}/);
@@ -100,4 +103,15 @@ test('F5-2: the "changed" alert is the author\'s only, focused, above the list; 
   assert.doesNotMatch(rec.replace(/\/\/[^\n]*/g, ''), /console\.|localStorage|location|fetch\(/, 'never logged, never sent, never in a URL');
   assert.match(rec, /got\.key === shownKey/);
   assert.equal(FC5.noteChanged, 'Your note was not saved because this trade changed.');
+});
+
+// FIXES-CYCLE5 (F5-2, code review 5): a save made from a page showing "not saved" leaves that URL; the closes window stays.
+test('F5-2 review: a later save from the changed page redirects to the plain profile URL', () => {
+  const page = readFileSync('app/u/[handle]/page.tsx', 'utf8');
+  const act = readFileSync('app/actions.ts', 'utf8');
+  assert.match(page, /\{noteChanged && <input type="hidden" name="leaveChanged" value="1" \/>\}/);
+  const save = act.slice(act.indexOf('export async function saveThesis'), act.indexOf('export async function markSharePromptSeen'));
+  assert.match(save, /if \(form\.get\('leaveChanged'\) === '1'\)/);
+  assert.ok(save.indexOf("form.get('leaveChanged')") > save.indexOf("saved === 'changed'"), 'only after a save that was not "changed"');
+  assert.match(save, /redirect\(`\/u\/\$\{user\.handle\}\$\{typeof closes === 'string' && \/\^\[1-9\]\[0-9\]\{0,6\}\$\/\.test\(closes\) \? `\?closes=\$\{closes\}` : ''\}`\)/);
 });

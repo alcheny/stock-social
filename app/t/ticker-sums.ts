@@ -62,6 +62,8 @@ async function readTotals(sql: Db): Promise<SymbolTotal[]> {
 // Totals are cached per 60 s bucket, single flight (lib/bucket-cache.ts), only on the default pool and only in the
 // deployed app (the gate F5-5 uses: VERCEL_ENV=production), so local runs and e2e read fresh rows. A caller's own
 // transaction or connection always reads the table in its own snapshot.
+// Privacy (code review 7): a profile hidden or deleted inside a bucket stays in these AGGREGATE counts (trades, traders,
+// sums; no handle or identity) for at most one bucket, 60 s; every per-trader read keeps the visible-user filter.
 // ponytail: per process — each server builds its own copy once a minute; a rollup row written by the hourly cron would
 // let servers share one build.
 export const TOTALS_BUCKET_MS = 60_000;
