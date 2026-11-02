@@ -113,7 +113,7 @@ type Allow = { file: string; count: number; reason: string; proof?: RegExp };
 // Exact counts of statements that read without the predicate, on purpose. The count must match (more fails, fewer
 // fails too, so the list shrinks when code improves).
 export const ALLOW: Allow[] = [
-  { file: 'app/actions.ts', count: 1, reason: "the signed-in trader's own trade (thesis ownership check)" },
+  { file: 'lib/reflection-target.ts', count: 1, reason: "the signed-in trader's own close, by its trade_key (F-25's reflection form; moved out of app/actions.ts)" },
   { file: 'app/layout.tsx', count: 1, reason: "the viewer's own publisher flag (has the signed-in account any closed trade)" },
   { file: 'app/me/record/page.tsx', count: 1, reason: "the trader's own record (private; a hidden trader still sees it, E11)" },
   { file: 'lib/auth/landing.ts', count: 1, reason: "the signed-in trader's own trade count after sign-in (E11)" },

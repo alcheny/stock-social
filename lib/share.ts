@@ -19,8 +19,7 @@ export const imageNotFound = () => new Response(null, { status: 404, headers: { 
 
 export const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
 
-// F-15 second half: a trade page's one spelling, from the stored sell id (its share link and its canonical link).
-export const tradePath = (handle: string, sellId: string) => `/u/${handle}/trade/${encodeURIComponent(sellId)}`;
+// F-15 second half: a trade page's one spelling. F-25: built by lib/trade-href.ts#tradePageHref from the trade_key.
 
 // ---- F-15: the source class a shared link carries (lib/referral.ts#SHARE_VIAS) ----
 // Which share control a link left from, read from what it shares: a trade page → trade, a month recap → month, a

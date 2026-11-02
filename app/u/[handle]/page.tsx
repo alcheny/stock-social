@@ -70,6 +70,8 @@ import { OPTIONS } from '@/lib/copy.ts';
 import { ProfileReportMenu, TrustFoot, TrustShown } from '../../trust-foot.tsx';
 import { impersonationLineShown } from '@/lib/takedown.ts';
 import { generateMetadata as notFoundMetadata } from './not-found.tsx';
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25: the one trade URL builder
+import { TRADE_LINK } from '@/lib/copy.ts'; // F-25
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
@@ -213,7 +215,7 @@ export default async function Profile({ params, searchParams }: Params) {
     : { connected: 0, handles: [] as string[], byVia: {} as Record<string, number> };
   const sharePromptShowing = isMe && state !== 'importing' && state !== 'failed' && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]);
   const nt = isMe
-    ? newTradesSince(trades.map((t) => ({ sellId: t.sell_id, symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at })), user.trades_prompt_seen_at)
+    ? newTradesSince(trades.map((t) => ({ sellId: t.sell_id, tradeKey: t.trade_key as string, symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at })), user.trades_prompt_seen_at)
     : { shown: [], more: 0 };
   const claimed = isMe && (await searchParams)?.connect === 'account-claimed';
   const recapYm = latestRecapYm(trades.map((t) => ({ closedAt: t.closed_at as Date })));
@@ -272,7 +274,7 @@ export default async function Profile({ params, searchParams }: Params) {
           previewAlt={`Preview of your share card. ${promptCard ? cardAlt(promptCard) : ''}`} />
       )}
       {isMe && !claimed && shareable && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
-        <NewTradesPrompt handle={user.handle} trades={nt.shown.map((x) => ({ sellId: x.sellId, symbol: x.symbol, returnPct: x.returnPct, closedAt: x.closedAt.toISOString() }))} more={nt.more} />
+        <NewTradesPrompt handle={user.handle} trades={nt.shown.map((x) => ({ tradeKey: x.tradeKey, symbol: x.symbol, returnPct: x.returnPct, closedAt: x.closedAt.toISOString() }))} more={nt.more} />
       )}
   </>);
   const ownerShareCard = (<>
@@ -443,7 +445,8 @@ export default async function Profile({ params, searchParams }: Params) {
           <li key={t.id} id={`trade-${t.id}`} tabIndex={-1}>
             <div className="line">
               <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{dateText(t.closed_at, now)}</span></span>
-              <Link className="trade-link" href={`/u/${user.handle}/trade/${encodeURIComponent(t.sell_id)}`} aria-label={`${t.symbol} ${pct(t.return_pct)}, open trade page`}>
+              {/* F-25 Shape C: the figure is the row's one trade link (44 × 44 px hit box), named with its sign word. */}
+              <Link className="trade-link f25-fig" href={tradePageHref({ handle: user.handle, tradeKey: t.trade_key as string })} aria-label={TRADE_LINK.name(t.symbol, t.return_pct)}>
                 <b className={toneClass(t.return_pct)}>{pct(t.return_pct)}</b>
               </Link>
             </div>
