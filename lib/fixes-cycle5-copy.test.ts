@@ -44,7 +44,7 @@ test('F5-7 (A2, A4): only the fixed cookie value together with error=email ticks
   assert.equal(ATTEST_KEEP_VALUE, '1');
   assert.equal(keepsTick('1', 'email'), true);
   for (const e of [undefined, '', 'attest', 'rate', 'provider', 'closed', 'expired', 'used', 'EMAIL']) assert.equal(keepsTick('1', e), false, String(e));
-  for (const v of [undefined, '', '0', 'true', 'on', '1 ', 'a@b.co']) assert.equal(keepsTick(v, 'email'), false, String(v));
+  for (const v of [undefined, '', '0', 'true', 'on', '1 ', 'name@example.com']) assert.equal(keepsTick(v, 'email'), false, String(v));
   // No query parameter reaches the box: the page passes only sp.error and the cookie to keepsTick.
   const page = code('app/login/page.tsx');
   assert.equal([...page.matchAll(/defaultChecked/g)].length, 1);
