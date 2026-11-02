@@ -23,8 +23,8 @@ const sign = toneClass;
 export default async function MyRecord() {
   const me = await currentUser();
   if (!me) redirect('/login');
-  // F-35: rows dated after now(), waiting on the future line (shares + options).
-  const waiting = Number((me as unknown as { excluded_future?: number }).excluded_future ?? 0) + Number((me as unknown as { excluded_future_options?: number }).excluded_future_options ?? 0);
+  // F-35: sells dated after now(), waiting on the future line (F-21's sells-only count).
+  const waiting = Number((me as unknown as { excluded_future_sells?: number }).excluded_future_sells ?? 0);
 
   const rows = await sql`select sell_id, trade_key, symbol, return_pct, holding_days, closed_at, verified from closed_trades where user_id = ${me.id}`;
   const [v] = await sql`select record_first_viewed_at as first, record_last_viewed_at as last, record_prev_viewed_at as prev from users where id = ${me.id}`;

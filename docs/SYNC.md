@@ -248,12 +248,12 @@ transaction's clock), for shares, options and corporate actions (`lib/sync.ts#pu
 amends #62's 24-hour grace, which published a sell dated up to a day ahead (council cycle 5, C5-30).
 
 - **Waiting rows.** A row dated after now() is stored (raw rows are immutable), never matched, and counted:
-  `users.excluded_future` (share rows, buys and sells, same filters as before) and `users.excluded_future_options`
-  (option rows, not paper, not shared). The profile prints their sum on one muted line,
-  `PROFILE.futureWaiting(n)`: "N imported trade(s) excluded: dated in the future by the broker. It waits on this line
-  until that date passes." (the second sentence describes the line only: a matured sell with no entry is counted, not
-  shown). F-21's sells-only sum must never read `excluded_future` (it holds buys). The compare tool's card keeps the
-  first sentence (`PROFILE.excludedFuture`) with the summed count.
+  `users.excluded_future` (share rows, buys and sells), F-21's `users.excluded_future_sells` (the sells, plus unusable
+  sells dated ahead) and `users.excluded_future_options` (option rows, not paper, not shared; left out of F-21's sum: a
+  waiting option row is not yet a close). The profile's F-21 section prints the sells on the future line with F-35's
+  second sentence: "N imported trade(s) excluded: dated in the future by the broker. It waits on this line until that
+  date passes." The month page (while the month runs) and /me/record print the same line. The compare tool's card keeps
+  the first sentence with `excluded_future + excluded_future_options`.
 - **The 24-hour grace** (`FUTURE_GRACE_HOURS`) now bounds only the re-read window: a row dated further ahead never sets
   it (the newest stored row minus a week). How far ahead a row is quarantined is unchanged.
 - **Watermark.** `users.published_through` is the clock of the record's last committed rebuild

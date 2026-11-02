@@ -13,6 +13,11 @@ type Db = TransactionSql | typeof sql;
 export const notShared = (db: Db, userId: number) =>
   db`not exists (select 1 from shared_account_marks m where m.user_id = ${userId} and m.account_id = a.account_id)`;
 
+// F-21 (committee decision 4): the inverse, for the rebuild's count of what the marks leave out (users.excluded_shared),
+// for rows aliased `alias` (`a` activities, `o` option rows). Kept apart from notShared, whose uses lib/sync.ts counts.
+export const onlyShared = (db: Db, userId: number, alias: 'a' | 'o' = 'a') =>
+  db`exists (select 1 from shared_account_marks m where m.user_id = ${userId} and m.account_id = ${db(alias)}.account_id)`;
+
 // Every shared case: (account, profile) pairs where the profile holds verified activities of an account claimed by
 // another profile. `scope` (tests only) limits it to those profiles; the script passes none.
 // What it can find (reliability review, 2026-11-01): two profiles under one vendor account id. Vendor ids are per

@@ -53,6 +53,7 @@ test('the pane renders the range under its average and New record in its header,
   assert.match(src, /ev\.rangeLine && <small className="range">\{ev\.rangeLine\}<\/small>/);
   assert.match(src, /ev\.newRecord && <span className="badge new">New record<\/span>/);
   const route = readFileSync(new URL('../app/u/[handle]/pane/route.ts', import.meta.url), 'utf8');
-  assert.match(route, /paneModel\(rows, state, now, open, openAsOf\)/);
+  // F-21: the exclusion sum is the call's sixth argument (paneModel zeroes it while importing).
+  assert.match(route, /paneModel\(rows, state, now, open, openAsOf, exclusionTotal\(/);
   assert.doesNotMatch(route, /getTime\(\) \/\*|closedAt: r\.closedAt/);
 });

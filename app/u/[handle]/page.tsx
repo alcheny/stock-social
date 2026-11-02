@@ -66,6 +66,11 @@ import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' da
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
+// F-21: the #excluded section (lib/exclusions.ts sums; summed filing reasons move into it, the rest stay below it).
+import { ExcludedSection } from './excluded-section.tsx';
+import { fromRow } from '@/lib/exclusions-load.ts';
+import { PUBLIC_KINDS } from '@/lib/exclusions.ts';
+import type { PublicReason } from '@/lib/public-trades.ts';
 // F-16 (plan docs/features/logs/F-16-F-17/plan.md §2.1, §5.4; v2 B6, B7): the quiet report menu and the line.
 import { ProfileReportMenu, TrustFoot, TrustShown } from '../../trust-foot.tsx';
 import { impersonationLineShown } from '@/lib/takedown.ts';
@@ -403,28 +408,11 @@ export default async function Profile({ params, searchParams }: Params) {
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
       {complete && trades.length === 0 && open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={longValues(pct(open.avg), String(open.n))} />}
-      {user.excluded_positions > 0 && (
-        <p className="muted">{PROFILE.excludedPositions(user.excluded_positions)}</p>
-      )}
-      {/* F-35: share and option rows dated after today, on one line until their dates pass. */}
-      {user.excluded_future + user.excluded_future_options > 0 && (
-        <p className="muted" data-excluded-future>{PROFILE.futureWaiting(user.excluded_future + user.excluded_future_options)}</p>
-      )}
-      {user.excluded_corporate > 0 && (
-        <p className="muted">{PROFILE.excludedCorporate(user.excluded_corporate)}</p>
-      )}
-      {/* F-32 Part A: sells a transfer row excludes, under their own reason; a real link to the /how sentence. */}
-      {user.excluded_transfer > 0 && (
-        <p className="muted" data-excluded-transfer>
-          <a className="tap44 excluded-link" href="/how#transfers">{PROFILE.excludedTransfer(user.excluded_transfer)}<span className="sr-only"> {PROFILE.excludedTransferLink}</span></a>
-        </p>
-      )}
-      {/* F-24 RT-2: sells counted while a possible re-issue in their pair is checked (shown only when there are any). */}
-      {user.excluded_held > 0 && (
-        <p className="muted" data-excluded-held>{PROFILE.excludedHeld(user.excluded_held)}</p>
-      )}
+      {/* F-21: the one sum and its reason lines (positions, future sells, corporate, F-32 transfer, F-24 held, shared accounts, the summed
+          filing reasons, then the option count lines per gate); the pane and strip lines link here. */}
+      <ExcludedSection c={{ ...fromRow(user, filer?.excluded ?? null), options: opt.counts, gate: opt.gate }} />
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
-      {filer && publicExclusions(filer.excluded).map((l) => <p key={l} className="muted" data-public-excluded>{l}</p>)}
+      {filer && publicExclusions(Object.fromEntries(Object.entries(filer.excluded).filter(([k]) => !PUBLIC_KINDS[k as PublicReason]?.summed))).map((l) => <p key={l} className="muted" data-public-excluded>{l}</p>)}
       {filer && filer.openSymbols.length > 0 && <section aria-labelledby="public-open" data-public-open>
         <h2 id="public-open">{PUBLIC.openTitle}</h2>
         <p>{[...filer.openSymbols].sort().join(', ')}</p>

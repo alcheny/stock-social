@@ -1,13 +1,13 @@
 // OPTIONS (docs/features/logs/options/plan.md D5, D6): the option parts of the profile, the SW-1 pane and their
-// shared label, as pure components of the model lib/options-load.ts returns (no reads here). Closed gate: the one count
-// line. Open gate: the options line, the short and technical lines, the "Option trades" list and the open rows.
+// shared label, as pure components of the model lib/options-load.ts returns (no reads here). Open gate: the options grid,
+// the "Option trades" list and the open rows (F-21: every count line is in the profile's #excluded section).
 // Percent only: no strike, premium, contract count or contract symbol is ever passed in. Plain links (no router
 // import), so the surface tests can render them as static markup outside the app.
 import type { ReactNode } from 'react';
 import { expiryText, OPTIONS } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { tone } from '@/lib/format.ts';
-import { closesOf, hasOptions, openOf, shareLabel, type OpenOptionView, type OptionCounts, type OptionHeadline, type OptionTradeView, type PaneOptionsView, isOptionsLine } from '@/lib/options-view.ts';
+import { hasOptions, shareLabel, type OpenOptionView, type OptionCounts, type OptionHeadline, type OptionTradeView, type PaneOptionsView, isOptionsLine } from '@/lib/options-view.ts';
 
 // Fix round 4 (N5): the colour follows the printed sign (lib/format.ts#tone): "0.0%" is never coloured.
 const sign = (x: number) => { const t = tone(x); return t === 'flat' ? '' : t; };
@@ -30,11 +30,6 @@ export function NowrapLine({ text }: { text: string }) {
   })}</>;
 }
 
-/** Fix round 3 (item 6): the gated sentence, then its own short link to /how. */
-function GatedLine({ c, small = false }: { c: OptionCounts; small?: boolean }) {
-  return <p className={`muted options-gated${small ? ' small' : ''}`} data-options="gated">{OPTIONS.gated(closesOf(c), openOf(c))} <a className="options-how" href="/how#options">{OPTIONS.howLink}</a></p>;
-}
-
 /** Fix round 3 (item 2): the options summary as a second stats row at the headline's size, with its own row label. */
 export function OptionsGrid({ m, long }: { m: OptionHeadline & { gate: 'open' }; long?: string | boolean }) {
   const s = m.summary;
@@ -48,23 +43,13 @@ export function OptionsGrid({ m, long }: { m: OptionHeadline & { gate: 'open' };
   </section>;
 }
 
-/** D5/D6, fix round 3 (item 3): after the evidence line. Closed: the gated sentence and its link. Open: the options grid,
- *  then the short and technical lines, each on its own line. */
+/** D5/D6, fix round 3 (item 3): after the evidence line, with the gate open: the options grid. F-21 (committee decision 1,
+ *  legal R1): the gated sentence and the short, technical, exercise-share and open-other count lines moved, word for
+ *  word, to the profile's #excluded section (app/u/[handle]/excluded-section.tsx). */
 export function OptionsLines({ m, long }: { m: OptionHeadline; long?: string | boolean }) {
-  const c = m.counts;
-  // Fix round 1 (QA 8): share trades held over an exercise or assignment day are share trades (public words), so their
-  // line shows in both gate states; while open it joins the technical line.
-  const shares = c.exerciseShares > 0 && (m.gate === 'closed' || c.other === 0) ? <p className="muted options-exercise-shares">{OPTIONS.exerciseShares(c.exerciseShares)}</p> : null;
-  if (!hasOptions(c)) return shares;
-  if (m.gate === 'closed') {
-    return <><GatedLine c={c} />{shares}</>;
-  }
+  if (!hasOptions(m.counts) || m.gate === 'closed') return null;
   return <div className="options-lines" data-options="open">
     <OptionsGrid m={m} long={long} />
-    {c.short + c.openShort > 0 && <p className="muted options-short">{OPTIONS.short(c.short, c.openShort)}</p>}
-    {c.other > 0 && <p className="muted options-technical">{OPTIONS.technical(c.other, c.exerciseShares)}</p>}
-    {shares}
-    {c.openOther > 0 && <p className="muted options-open-other">{OPTIONS.openOther(c.openOther)}</p>}
   </div>;
 }
 
