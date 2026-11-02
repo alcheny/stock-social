@@ -67,6 +67,10 @@ export const VENDOR_SECURITY_URL = process.env.NEXT_PUBLIC_VENDOR_SECURITY_URL |
 // ponytail: the committee's wording; the owner's final wording is an owner item (with OD 2.28's POLICY F3 edit).
 export const TRANSFER_REASON = 'a share transfer in the same stock';
 
+// F-32 Part A: the /how sentence for the transfer reason (business lead: transfers' one home on /how). The exact window is
+// not printed (UX lead, committee): whether to state it is an owner item.
+const TRANSFER_HOW = `Transfers in and out of an account. A sell is counted as \u201cexcluded: ${TRANSFER_REASON}\u201d, wins and losses alike, when a transfer of that stock into or out of its account falls close to the sell\u2019s date or while the sold shares were held: a limit of how trades are matched, not a judgment of the trader.`;
+
 // Own profile, first screen after sign-in (the committee's item 9): one status line, no celebration.
 export const PROFILE = {
   youreIn: "You're in. Next: connect your brokerage.",
@@ -418,6 +422,7 @@ export const HOW = {
     'Options on futures or other non-stock underlyings, contracts adjusted after a corporate action, and contracts past expiry with no closing record.',
     // F-32 Part A (business lead, round 1): transfers have one home, HOW.transfer (it names transfers in, POLICY F3).
     'Sells with no recorded entry in the imported history (shown as excluded sells, never guessed).',
+    TRANSFER_HOW,
     // Fixes cycle 4 (C4-2; UX lead, committee).
     'After a sell of more shares than the imported history holds (an earlier holding, a transfer in or a short sale), or a stock split, stock dividend or other corporate action on a stock the history shows none of, the later sells of that holding in that account (under its new symbol after a rename) are excluded and counted too, wins and losses alike: the history can\u2019t show which buys are left.',
     // Fixes cycle 4 (UX lead, round 4): the disclosure of F-30's accepted residual (lib/trades.ts ponytail in `replay`).
@@ -430,9 +435,9 @@ export const HOW = {
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
   ],
-  // F-32 Part A: the profile's transfer line links here (app/how/page.tsx renders it with id="transfers"). The exact
-  // window is not printed (UX lead, committee): the owner decides whether to state it (owner item).
-  transfer: `Sells excluded: ${TRANSFER_REASON}. A sell is counted here, wins and losses alike, when a transfer of that stock into or out of its account falls close to the sell\u2019s date or while the sold shares were held: a limit of how trades are matched, not a judgment of the trader.`,
+  // F-32 Part A: the profile's transfer line links here (app/how/page.tsx renders it with id="transfers"); it is also an
+  // item of `excluded` (POLICY F3 names transfers in there).
+  transfer: TRANSFER_HOW,
   freezeTitle: 'Disconnecting and deleting',
   freeze: 'A record freezes when a brokerage is disconnected and stays public. Deleting the profile removes it; the handle is held for a year.',
 } as const;
