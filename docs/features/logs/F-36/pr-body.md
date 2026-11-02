@@ -53,11 +53,11 @@ Taken by the committee (UX lead, business lead, engineer; signed in round 2):
 
 ## Testing
 - `npx tsc --noEmit`: clean.
-- `npm test` with the database: TESTS_LINE (baseline on main before this PR: 2371 tests, 0 failures).
+- `npm test` with the database: 2547 tests, 2519 pass, 0 fail, 26 skipped (on the final merged tree) (baseline on main before this PR: 2371 tests, 0 failures).
 - `BASE_REF=main node scripts/compliance.ts auto`: ok.
 - `node scripts/autopilot.ts guard origin/main`: ok.
 - `npm run build`: ok.
-- `npx playwright test e2e/f36-how.spec.ts` (360 and 320 px): passed. Full `npx playwright test`: E2E_LINE.
+- `npx playwright test e2e/f36-how.spec.ts` (360 and 320 px): passed. Full `npx playwright test`: 394 passed, 6 skipped, 1 failed: `e2e/f25-no-sell-id.spec.ts:88` (feed paging, untouched by this PR); it passed in the previous full run and 15/15 in a `--repeat-each=3` rerun of its file, so it is flaky, not a regression. Before that, `e2e/fixes-labels.spec.ts` C1 failed on /how and is fixed here (13/13 pass).
 - New tests:
   - `lib/f36-fees.test.ts`: AC1 probe; AC2 below −100% with its boundary table; AC3; AC5 no-basis, mixed and gapped draws;
     AC8 source scan.
