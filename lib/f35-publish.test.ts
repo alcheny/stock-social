@@ -166,34 +166,40 @@ dbTest('a record whose lock another sync holds is left for the next tick (busy),
 dbTest('scope: a frozen record publishes (a loss counted in win rate and average, its status and "Updated" unchanged); deleted, importing and other-shard records are skipped', async () => {
   const h = await harness();
   try {
-    const frozen = await h.mk('z', { frozen: true }), gone = await h.mk('d'), importing = await h.mk('i', { state: 'importing' }), other = await h.mk('o');
-    for (const u of [frozen, gone, importing, other]) {
-      await h.S.insertActivities(u.id, 'snaptrade', [h.share(u, `${u.id}b`, 'BUY', 100, -2 * DAY), h.share(u, `${u.id}s`, 'SELL', 70, HOUR)]);
-      await h.O.rebuildRecord(u.id);
-      await h.age(u, 2 * HOUR);
-    }
-    await h.sql`update users set deleted_at = now() where id = ${gone.id}`;
-    const { publicRecordDetail } = await import('./connections.ts');
-    const state = (await publicRecordDetail(frozen.id)).public.state;
-    const synced = (await h.mark(frozen)).s;
-    const read = (await h.sql`select activities_read_at::text as r from broker_accounts where user_id = ${frozen.id}`).map((x) => x.r);
-    const r = await h.tick([frozen, gone, importing]);
-    assert.equal(r.matured, 1, 'only the frozen record');
-    assert.deepEqual(await h.closes(frozen), [`${frozen.id}s`]);
-    const [t] = await h.sql`select return_pct from closed_trades where user_id = ${frozen.id}`;
-    assert.ok(Number(t.return_pct) < 0, 'the matured loss is published');
-    const { stats } = await import('./trades.ts');
-    const s = stats([{ returnPct: Number(t.return_pct), holdingDays: 2, closedAt: new Date() }]);
-    assert.deepEqual([s.winRate, s.avgReturn < 0], [0, true], 'and counts in win rate and average return');
-    assert.equal((await publicRecordDetail(frozen.id)).public.state, state, 'the frozen status is unchanged');
-    assert.equal((await h.mark(frozen)).s, synced);
-    assert.deepEqual((await h.sql`select activities_read_at::text as r from broker_accounts where user_id = ${frozen.id}`).map((x) => x.r), read);
-    for (const u of [gone, importing]) assert.deepEqual(await h.closes(u), [], 'deleted and importing records are skipped');
-    // A record outside the run's shard is never rebuilt by it.
-    const of = h.freshOf();
-    const r2 = await h.H.runShard({ shard: { shard: (other.id + 1) % of, of }, ids: [other.id], jitterMs: 0, config: { concurrency: 1, rps: 1000, burst: 1000, page: 500 }, log: () => {}, sync: async () => 0, mature: true });
-    assert.equal(r2.matured, 0);
-    assert.deepEqual(await h.closes(other), []);
+    // This test holds an importing connection: no global connection tick (another test file's) may drive it meanwhile
+    // (lib/test-sweep-lock.ts).
+    const { unswept } = await import('./test-sweep-lock.ts');
+    await unswept(async () => {
+      const frozen = await h.mk('z', { frozen: true }), gone = await h.mk('d'), importing = await h.mk('i', { state: 'importing' }), other = await h.mk('o');
+      for (const u of [frozen, gone, importing, other]) {
+        await h.S.insertActivities(u.id, 'snaptrade', [h.share(u, `${u.id}b`, 'BUY', 100, -2 * DAY), h.share(u, `${u.id}s`, 'SELL', 70, HOUR)]);
+        await h.O.rebuildRecord(u.id);
+        await h.age(u, 2 * HOUR);
+      }
+      await h.sql`update users set deleted_at = now() where id = ${gone.id}`;
+      const { publicRecordDetail } = await import('./connections.ts');
+      const state = (await publicRecordDetail(frozen.id)).public.state;
+      const synced = (await h.mark(frozen)).s;
+      const read = (await h.sql`select activities_read_at::text as r from broker_accounts where user_id = ${frozen.id}`).map((x) => x.r);
+      const r = await h.tick([frozen, gone, importing]);
+      assert.equal(r.matured, 1, 'only the frozen record');
+      assert.deepEqual(await h.closes(frozen), [`${frozen.id}s`]);
+      const [t] = await h.sql`select return_pct from closed_trades where user_id = ${frozen.id}`;
+      assert.ok(Number(t.return_pct) < 0, 'the matured loss is published');
+      const { stats } = await import('./trades.ts');
+      const s = stats([{ returnPct: Number(t.return_pct), holdingDays: 2, closedAt: new Date() }]);
+      assert.deepEqual([s.winRate, s.avgReturn < 0], [0, true], 'and counts in win rate and average return');
+      assert.equal((await publicRecordDetail(frozen.id)).public.state, state, 'the frozen status is unchanged');
+      assert.equal((await h.mark(frozen)).s, synced);
+      // No vendor read is made: no read mark set or moved (a broker_accounts row with no read mark is not a read).
+      assert.deepEqual((await h.sql`select activities_read_at::text as r from broker_accounts where user_id = ${frozen.id}`).map((x) => x.r).filter((x) => x !== null), read.filter((x) => x !== null));
+      for (const u of [gone, importing]) assert.deepEqual(await h.closes(u), [], 'deleted and importing records are skipped');
+      // A record outside the run's shard is never rebuilt by it.
+      const of = h.freshOf();
+      const r2 = await h.H.runShard({ shard: { shard: (other.id + 1) % of, of }, ids: [other.id], jitterMs: 0, config: { concurrency: 1, rps: 1000, burst: 1000, page: 500 }, log: () => {}, sync: async () => 0, mature: true });
+      assert.equal(r2.matured, 0);
+      assert.deepEqual(await h.closes(other), []);
+    });
   } finally { await h.cleanup(); }
 });
 
