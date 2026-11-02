@@ -33,7 +33,7 @@ registerHooks({
 
 const { renderToStaticMarkup } = await import('react-dom/server' as string) as { renderToStaticMarkup: (e: unknown) => string }; // no @types/react-dom here
 const { createElement } = await import('react');
-const page = await import(pathToFileURL(new URL('app/how/page.tsx', ROOT).pathname).href) as { default: () => unknown };
+const page = await import(pathToFileURL(new URL('app/how/page.tsx', ROOT).pathname).href) as typeof import('../app/how/page.tsx');
 const { TradeCard } = await import(pathToFileURL(new URL('app/ui.tsx', ROOT).pathname).href) as typeof import('../app/ui.tsx');
 const { HOW, F36_RECALC_DATE, howDate } = await import('./copy.ts');
 const { matchTrades } = await import('./trades.ts');
@@ -63,7 +63,7 @@ test('F-36 AC7: the dated note: "Changes to the math" at the end of the page, a 
   assert.equal(text(html.slice(at, html.indexOf('</h2>', at))), 'Changes to the math');
   const tail = html.slice(at);
   assert.match(tail, /<time dateTime="2026-11-02">November 2, 2026<\/time>/);
-  assert.ok(text(tail).includes(`November 2, 2026: ${HOW.recalcNote}`));
+  assert.ok(tail.includes(`November 2, 2026</time>: ${HOW.recalcNote}</li>`));
   assert.equal(HOW.recalcNote, 'returns of trades with a purchase fee were recalculated to divide by the purchase cost plus that fee. Before, they divided by the purchase cost alone, so both gains and losses looked bigger.');
 });
 
@@ -94,7 +94,7 @@ test('F-36 AC8: a fee-bearing trade renders its percent and no fee (render test)
   ]);
   const t = m.trades[0];
   const row = { id: '1', symbol: t.symbol, return_pct: t.returnPct, holding_days: t.holdingDays, closed_at: t.closedAt, verified: true,
-    thesis: null, thesis_status: null, handle: 'fee_card', display_name: 'Fee Card', user_id: 1 };
+    thesis: null, thesis_status: null, handle: 'card_one', display_name: 'Card One', user_id: 1 };
   const card = renderToStaticMarkup(createElement(TradeCard, { t: row, state: 'connected' }));
   assert.equal(t.returnPct, 0.15); // (30 − 10 − 10 − 7) ÷ (10 + 10)
   assert.match(text(card), /\+15\.0%/);

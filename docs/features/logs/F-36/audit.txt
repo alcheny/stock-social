@@ -1,0 +1,47 @@
+# F-36 fixture audit (node scripts/f36-audit.ts)
+
+## Expectations that change (tests that fail with the legacy figure, purchase cost alone)
+- lib/corporate-actions.test.ts: 1:10 reverse split mid-position: buy 100 at 10 (fee 10), split, sell 10 at 110 (fee 0): +10% less the entry fee, fee per unit scaled
+- lib/f36-fees.db.test.ts: F-36 AC6: the deploy rebuild recalculates fee-bearing returns, no return changes sign, and the report is counts only
+- lib/f36-fees.test.ts: F-36 AC1: the probe (fictional: buy 2 @5, fee 10, sell @15) prints +50%
+- lib/f36-fees.test.ts: F-36 AC2: a long share trade is worse than -100% only when its exit fee exceeds its sale proceeds
+- lib/f36-fees.test.ts: F-36 AC5: a lot with no basis (price 0) is never priced from its fees: the sell stays counted
+- lib/f36-fees.test.ts: F-36: entry fees are prorated by the units taken from each lot, as before; the numerator is unchanged
+- lib/f36-fees.test.ts: F-36: the /how example (paid 100 plus a fee of 10, sold for 165, no fee on the sale) is exactly +50%
+- lib/f36-how.test.ts: F-36 AC8: a fee-bearing trade renders its percent and no fee (render test)
+- lib/fixes-cycle4.property.test.ts: C4 reference model with splits (2:1, 1:2) and 1:1 renames: shown figures hold in every reading; the gap splits and moves
+- lib/fixes-cycle4.property.test.ts: C4 reference model: a shown figure is the same in every reading of ties and shortfalls; every sell shown or counted once; order-free
+- lib/fixes-cycle4.property.test.ts: C4 reference model: all-distinct intraday stamps and no oversell are plain FIFO (every sell shown, nothing over-counted)
+- lib/fixes-cycle4.property.test.ts: F-36: the model divides by purchase cost plus purchase fees; shown fee-bearing trades keep their sign and never grow
+- lib/trades.test.ts: FIFO across two lots, fees on both legs
+
+## Changed figures per test file (every one with an entry fee above 0)
+- lib/corporate-actions.test.ts: 1946 trades
+- lib/downsample.test.ts: 4703 trades
+- lib/f36-fees.db.test.ts: 3 trades
+- lib/f36-fees.test.ts: 9 trades
+- lib/f36-how.test.ts: 1 trades
+- lib/fixes-cycle4.property.test.ts: 8054 trades
+- lib/sync.test.ts: 2 trades
+- lib/trades.test.ts: 1 trades
+
+Total changed figures: 14719; with no entry fee: 0.
+
+## Changed figures (test file, symbol, sell id, legacy and new percent, entry fee yes/no)
+- lib/f36-fees.db.test.ts FAKE f363soygw0l-s1 legacy=100.0000% now=50.0000% entryFee=yes
+- lib/f36-fees.db.test.ts FAKE f363soygw0l-s2 legacy=-13.0000% now=-12.7451% entryFee=yes
+- lib/f36-fees.db.test.ts FAKE f36mmwzek50-s legacy=10.0000% now=9.0909% entryFee=yes
+- lib/f36-fees.test.ts FAKE f36-1 legacy=100.0000% now=50.0000% entryFee=yes
+- lib/f36-fees.test.ts FAKE f36-11 legacy=-266.6667% now=-100.0000% entryFee=yes
+- lib/f36-fees.test.ts FAKE f36-13 legacy=5.7143% now=4.7059% entryFee=yes
+- lib/f36-fees.test.ts FAKE f36-15 legacy=-179.9980% now=-99.9989% entryFee=yes
+- lib/f36-fees.test.ts FAKE f36-22 legacy=21.6875% now=21.6672% entryFee=yes
+- lib/f36-fees.test.ts FAKE f36-3 legacy=55.0000% now=50.0000% entryFee=yes
+- lib/f36-fees.test.ts FAKE f36-35 legacy=10.0000% now=9.0909% entryFee=yes
+- lib/f36-fees.test.ts FAKE f36-43 legacy=30.0000% now=15.0000% entryFee=yes
+- lib/f36-fees.test.ts FAKE f36-9 legacy=-10090.0000% now=-99.9010% entryFee=yes
+- lib/f36-how.test.ts FAKE f36-s legacy=30.0000% now=15.0000% entryFee=yes
+- lib/sync.test.ts BBB s3tpo81ks-1s legacy=-21.0000% now=-20.7921% entryFee=yes
+- lib/sync.test.ts BBB sdzuecqhb-1s legacy=-21.0000% now=-20.7921% entryFee=yes
+- lib/trades.test.ts AAPL a0 legacy=21.6875% now=21.6672% entryFee=yes
+(files with more than 20 changed figures are generated histories: counted above, not listed)

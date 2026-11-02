@@ -92,7 +92,8 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 // before trades (trade dates are often day-only and an action is dated on its effective day).
 // Bumped when a change to the matcher can change a published figure: a deploy then rebuilds every record once
 // (lib/matcher-rebuild.ts). 2: fixes cycle 4 (C4-1 ties, C4-2 the gap).
-export const MATCHER_VERSION = 2;
+// 3: F-36, a return divides by entry cost plus entry fees (DESIGN §2.5 as amended).
+export const MATCHER_VERSION = 3;
 
 // `orderKnown` (independent review, finding 1): the input order is the true order at a tie (public filings pass rows in
 // filing order, lib/public-trades.ts), so ties fall back to it instead of the vendor id.
@@ -318,6 +319,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     let openedAt: Date | null = null;
     let verified = a.verified;
     let tainted = false;
+    let noBasis = false; // F-36: a lot with no price (≤ 0) is never priced by its fees alone
     while (!tiny(remaining, a.units) && open.length) {
       const lot = open[0];
       const take = Math.min(lot.units, remaining);
@@ -326,6 +328,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       openedAt ??= lot.at;
       verified &&= lot.verified;
       tainted ||= !!lot.tainted;
+      noBasis ||= !(lot.price > 0);
       lot.units -= take;
       remaining -= take;
       if (tiny(lot.units, a.units)) open.shift();
@@ -338,7 +341,10 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       addGap(b, remaining); // C4-2: a short or earlier history
       continue;
     }
-    if (tainted || latePosted(a) || sameDayAction(a)) excludedCorporate++;
+    // F-36: a sell drawing a lot with no basis, or with no positive denominator, is a broker row the importer can't price
+    // (excludedCorporate), whatever else holds; it never shows a return priced from fees alone.
+    if (openedAt && !(cost + entryFees > 0)) noBasis = true;
+    if (tainted || noBasis || latePosted(a) || sameDayAction(a)) excludedCorporate++;
     else if (gapped) excluded++; // C4-2: a short or earlier history: no buy can be matched for certain
     else if (openedAt) {
       const exitFee = a.fee;
@@ -348,7 +354,8 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         symbol: a.symbol,
         openedAt,
         closedAt: a.executedAt,
-        returnPct: (a.units * a.price - cost - entryFees - exitFee) / cost,
+        // F-36: the entry fees join the denominator (as options, lib/options.ts); the numerator is unchanged, so the sign is.
+        returnPct: (a.units * a.price - cost - entryFees - exitFee) / (cost + entryFees),
         holdingDays: (a.executedAt.getTime() - openedAt.getTime()) / DAY,
         verified,
       };

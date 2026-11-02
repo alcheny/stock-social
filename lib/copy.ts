@@ -384,6 +384,11 @@ export function profileDescription(x: { state: RecordState; demo: boolean; verif
   return `${failed}${recordCountText(x)} · ${x.stats}`;
 }
 
+// F-36: the day the version-3 rebuild (a return divides by entry cost plus entry fees) runs in production. If the deploy
+// slips, this constant moves to the deploy day (owner item in the PR). /how prints it with howDate (UTC, never typed twice).
+export const F36_RECALC_DATE = '2026-11-02';
+export const howDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
 // /how (POLICY F3): what Verified means and what is excluded, in the words of lib/trades.ts. Percent only.
 export const HOW = {
   title: 'How records are calculated',
@@ -392,7 +397,10 @@ export const HOW = {
   mathTitle: 'The math',
   math: [
     'Each closed trade is one sell, matched to earlier buys of the same symbol in the same account, first in, first out.',
-    'Return is the percent change between the matched buys and the sell, after the fees the broker reported. Nothing is weighted by size.',
+    // F-36 (plan Round 2 changes, R2-9): the formula once, in plain text (real minus and division signs, spaces around
+    // every operator so it wraps at 320 px), and one fictional worked example with no currency sign.
+    'Return = (sale proceeds \u2212 purchase cost \u2212 purchase fees \u2212 sale fees) \u00f7 (purchase cost + purchase fees), using the fees the broker reported. Nothing is weighted by size.',
+    'A fictional example: paid 100 plus a fee of 10, sold for 165 with no fee on the sale. (165 \u2212 100 \u2212 10) \u00f7 (100 + 10) = 55 \u00f7 110 = +50%.',
     'Headline stats are the win rate and the average return per trade. Max drawdown is per-trade and equal-weight, not an account return.',
     'Only percentages are stored and shown: no amounts, quantities or prices.',
     // Corporate actions (F3c, PR #40).
@@ -417,6 +425,9 @@ export const HOW = {
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
   ],
+  // F-36 (COMPLIANCE §12): the dated history of changes to the math, at the end of /how; later entries append to it.
+  changesTitle: 'Changes to the math',
+  recalcNote: 'returns of trades with a purchase fee were recalculated to divide by the purchase cost plus that fee. Before, they divided by the purchase cost alone, so both gains and losses looked bigger.',
   freezeTitle: 'Disconnecting and deleting',
   freeze: 'A record freezes when a brokerage is disconnected and stays public. Deleting the profile removes it; the handle is held for a year.',
 } as const;

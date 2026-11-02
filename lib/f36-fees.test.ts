@@ -130,7 +130,7 @@ test('F-36 AC8: no new column: closed_trades and option_trades have no fee colum
     const ddl = schema.match(new RegExp(`create table if not exists ${table} \\(([\\s\\S]*?)\\n\\);`, 'i'));
     assert.ok(ddl, `${table} DDL found`);
     assert.doesNotMatch(ddl[1], /fee/i, table);
-    assert.doesNotMatch(schema, new RegExp(`schema_add_column\\('${table}', '[^']*fee`, 'i'));
+    assert.doesNotMatch(schema, new RegExp(`schema_add_column\\('${table}', '(?:[a-z0-9]+_)*fees?(?:_[a-z0-9]+)*'`, 'i')); // "feed_after" is not one
   }
   const m = matchTrades([act('BUY', 2, 5, 1, 10), act('SELL', 2, 15, 5, 7)]);
   for (const t of m.trades) assert.deepEqual(Object.keys(t).filter((k) => /fee/i.test(k)), []);
