@@ -19,6 +19,8 @@ the 24-hour grace (amends #62's grace; approval council cycle 5, C5-30).
   oldest matured row first, stops at the deadline, route end or a lost lease. Frozen records included.
 - Schema (additive): two `users` columns, three partial indexes.
 - Docs: `docs/SYNC.md` "Publish once the date has passed (F-35)", log fields; F-21 hand-off note.
+- Merged with main's matcher catch-up (C5-43 b): it rebuilds under the trader's lock with `rebuildRecord`, so it advances
+  the watermark like any rebuild; the route runs the matured pass in `runShard` and the catch-up after it.
 
 ## Decisions
 Recorded in the feature file (dated, with reasons) and the committee record. Highlights: corporate actions follow the
@@ -31,7 +33,7 @@ count; switching it is a follow-up chore (business lead).
 
 ## Testing
 - `npx tsc --noEmit` clean; `npm run build` ok; `node scripts/autopilot.ts guard origin/main` ok.
-- `npm test` on the branch with main merged (1b0dbcc): 0 failures; F-24 gate: all 11 `lib/sync-reconcile*.test.ts` green.
+- `npm test` on the branch with main merged (2675fa1, with the matcher catch-up): 2,393 pass, 0 failures; F-24 gate: all 11 `lib/sync-reconcile*.test.ts` green.
 - New `lib/f35-publish.test.ts` (18): AC1 (absent from closed_trades/option_trades, the profile reads and the compare card;
   counted), AC2 (first tick after the date, no new activity), AC3 (two ticks, one rebuild, a third none; counted by real
   rebuild calls), AC4 (failed rebuild leaves the watermark; retried), busy lock, scope (frozen publishes a loss with status
