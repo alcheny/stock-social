@@ -1,7 +1,7 @@
 # F-36 · Fees in the return's denominator
 
 Status: blocked
-Blocked: waits for the owner's answer to cycle-5 owner question Q1 (amends protected DESIGN §2.5, the return formula); also builds after F-24 (PR #84) merges, since it edits `lib/trades.ts`, and its MATCHER_VERSION bump ships only once the cycle-5 chore C5-43(b) is on main
+Blocked: its MATCHER_VERSION bump ships only once chore C5-43(b) (`claude/chores-cycle5-matcher-catchup`) is on main (merge order; the owner answered Q1 yes on 2026-11-02 and F-24 merged as #84)
 Start conditions: the owner answers cycle-5 Q1 yes (`docs/direction/cycle5-2026-11-01.md` §8), and #84 merges. It is
 the matcher build slot, shared with F-32: one builder, separate version bumps that never ship in the same deploy.
 
@@ -31,6 +31,10 @@ conditions).
   5); UX, CO, VW, A11Y, LC.
 - 2026-11-01: Changed figures arrive only through the normal rebuild. The trader gets no alert or "your return
   dropped" message. Why: approved by the approval council (cycle 5); TR.
+- 2026-11-02: The owner answered cycle-5 Q1 yes: a return divides by entry cost plus entry fees, with a
+  MATCHER_VERSION bump and a dated /how note. The DESIGN §2.5 text edit goes to the protected-files session (approved
+  by the owner on 2026-11-02), never in the build PR. Only the merge-order condition on chore C5-43(b) remains. Why:
+  the owner's decision of 2026-11-02 (cycle-5 Q1, accepted en bloc).
 
 ## Acceptance criteria
 - [ ] The probe (fictional: buy 2 @5, fee 10, sell @15) prints +50%.
@@ -49,7 +53,7 @@ conditions).
 - Changing how options compute their basis (already includes fees).
 
 ## Open questions
-- Owner (cycle-5 Q1): may the return divide by entry cost plus entry fees? The council recommends yes.
+- Resolved 2026-11-02 (cycle-5 Q1): yes (Decisions).
 
 ## POLICY notes
 - F3a: one documented formula on /how, with dated history (COMPLIANCE §12).

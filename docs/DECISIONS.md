@@ -33,6 +33,56 @@ strongest signal after `docs/DESIGN.md`'s rules.
 
 ## Log
 
+### 2026-11-02 · Owner decisions brief 2026-11-01 (§2, items 2.1-2.63) and cycle-5 owner questions Q1-Q4 → accepted en bloc, with the exceptions in the entries below
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** the owner accepted every council recommendation in `docs/direction/owner-decisions-2026-11-01.md` §2 and every recommendation in `docs/direction/cycle5-2026-11-01.md` §8. Where councils conflicted, the brief's recommended side wins. The work each item needs is mapped in `docs/direction/owner-decisions-2026-11-02-worklist.md`.
+
+- **Accepted as recommended:** 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 2.12, 2.13, 2.14, 2.15, 2.16, 2.17, 2.18, 2.19, 2.20, 2.21, 2.22 (method: see the separate entry), 2.23, 2.24 (with the addition in the 2.25 entry), 2.26, 2.27, 2.28 (separate entry), 2.29 (with the wording in its separate entry), 2.30, 2.31, 2.32, 2.33 (separate entry), 2.34, 2.35, 2.36, 2.37, 2.38, 2.39 (option A), 2.40, 2.41, 2.42, 2.43, 2.44, 2.45, 2.46 (separate entry), 2.47, 2.48, 2.49, 2.50, 2.51, 2.52, 2.53, 2.54, 2.56, 2.57, 2.58, 2.59, 2.60, 2.61, 2.62, 2.63; cycle-5 Q1 (fees in the denominator, F-36), Q2 (the 18+ tick may survive one email-error round trip, if the legal committee confirms), Q3 (separate entry), Q4 (the protected CI row-count step, merged when green).
+- **Not as recommended:** 2.25 (overridden; separate entry). 2.55 (the repository is made private; separate entry).
+- **Conflicts settled by the brief's recommended side:** 2.12 deleting the vendor connection on a confirmed freeze is decided now, before real users (not deferred); 2.23 viewers without age assurance get a non-personalized or follows-only order, with no age-assurance build; 2.25's thin-name question: withholding symbols on thinly traded names is deferred; 2.33 near-edge distance from 0, not lower-bound ranking; 2.35 the 5-second test runs before any CH-1 change; 2.39 "Last close ‹Mon D, YYYY›"; 2.40 "independent trades", not "bets"; 2.48 the literal F3b reading; 2.56 no hard monthly spend cap (BR idea 11 not adopted); 2.57 Q6 (b) as refined by the protected-files entry below.
+- **Left open by the brief (no recommended side), carried as open points in the worklist:** 2.36 whether profit factor is removed from DESIGN §2.5 (the board's secondary-row placement stands); 2.63 whether strike inference goes in the consent text or the Privacy Policy; 2.55's licence choice.
+- 2.26 and 2.27: council cycle 5 found both overtaken by #89, which already counts every later sell of the pair after an oversell or a same-instant date-only pair with evidence. Main's rule is at least as strict as the accepted ones, so F-28 and F-30 stay `draft` and no matcher change is made for them (worklist).
+
+### 2026-11-02 · OD 2.25 open positions → overridden: unrealized values keep showing publicly
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** the owner accepts the market-data risk. Real users' unrealized values keep showing publicly on every surface F-6 shows them today. There is no "Open positions exist and aren't shown yet" line and no dated TR-4 exception. The question of public unrealized values is added to the vendor letter (Appendix A, item 2.24). The rest of 2.25 stands: no market-data vendor for now; one "Open" line (F-34, which now takes F-4's card line, lowest value first); withholding thin names deferred. POLICY's "Before a public launch" list still names the vendor's market-data limits; that launch gate is unchanged by this entry.
+
+### 2026-11-02 · OD 2.28 transfers → yes, as recommended; F-22 approved
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** a transfer is a share move, with F-22's basis rule (oldest first only where it cannot change a basis; moved-in units excluded and counted; every transfer out counted; unknown kinds still tainted). F-22 goes to `Status: ready`. F-32 Part B still waits for the vendor's written MRC2-10 answer. The POLICY F3 edit naming transfers out (brief 3.17) goes to the protected-files session.
+
+### 2026-11-02 · OD 2.33 and cycle-5 Q3 ranking → near-edge distance from 0, with an evidence floor
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** rank by the near-edge distance from 0 of the range, documented on /how. Ranking weight starts at the moderate evidence tier (30 independent trades over 90 days), with a 1-point floor on the spread. This replaces the owner's 2026-11-01 ranking floor of 10 (`lib/confidence.ts`). F-33 builds it; the TR-9 and CLAUDE.md:92 text edits (brief 3.6, 3.20) go to the protected-files session.
+
+### 2026-11-02 · Chart precision above ±100% → about 3 significant figures
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** above ±100%, the cumulative figure prints at about 3 significant figures. The F-23 session is building it.
+
+### 2026-11-02 · Held-sells line wording (OD 2.29, F-24) → "N sells excluded while a possible duplicate is checked."
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** the owner's final wording for F-24's public held count, replacing the committee's interim text in `lib/copy.ts`. The count stays public whenever it is above 0 (council cycle 5, C5-2), which goes beyond 2.29's "counted for you only".
+
+### 2026-11-02 · OD 2.22 under-18 reports → an audited, owner-run account-deletion script
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** a founded under-18 report is handled like a child-privacy notice (delete, log, review the age gate) through an owner-run deletion script with an audit record. The F-16/F-17 session is building it. Deleting data stays the owner's act (POLICY H): the script runs only when the owner runs it.
+
+### 2026-11-02 · OD 2.46 accessibility rule engine → approved as a dev dependency (MPL-2.0)
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** the owner approves the accessibility rule engine as a dev dependency under its MPL-2.0 licence. MPL-2.0 is not in `LICENSE_OK`, so it needs an owner review entry in `LICENSE_REVIEWED` (`scripts/compliance.ts`) and the `package.json`/`package-lock.json` change; all three are protected and go to the protected-files session.
+
+### 2026-11-02 · OD 2.55 repository → made private
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** the owner makes the repository private and switches its visibility in GitHub; CI minutes on a private repository are a concern the owner carries. The licence choice in 2.55 (none, or a named licence) is not decided by this entry; no LICENSE file is added.
+
+### 2026-11-02 · Protected-file changes → approved now; the orchestrator merges each one when green and independently reviewed
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** the owner approves the protected-file edits that follow from these decisions (brief §3). The orchestrator merges each protected-file PR once its CI is green and it has an independent review. A separate session prepares those PRs. This refines 2.57 Q6 (b). It does not cover anything POLICY H keeps with the owner beyond these edits: making the product public, real users, payments, deleting data, credentials and deploy settings.
+
+### 2026-11-02 · Development resumed
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** development resumed on 2026-11-02. The 60% weekly usage cap applied to last week only.
+
 ### 2026-10-15 · #11 Confidence interval on performance (TR-9): confidence() and honest headline dis… → chose A (Inline honesty (profile headline))
 
 **Decided by:** human (@alcheny) · **Why:** font and color design are better. needs to standardize the profile from clicking and the profile from swiping from a trade in the feed

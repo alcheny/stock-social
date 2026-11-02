@@ -1,7 +1,6 @@
 # F-17 · Handle and name integrity: reserved handles, rename hold, display-name rules
 
-Status: blocked
-Blocked: waits for F-9 to merge (PR #65, `claude/fix-user-text-safety`) with F-9's acceptance criteria met on main (its normaliser and `checkDisplayName` in `lib/handles.ts`)
+Status: ready
 Start conditions: F-9 merges first (its normaliser in `lib/moderation.ts` is reused). Security hardening (#42, which
 edits `lib/auth/attempts.ts` and `app/auth/actions.ts`) has merged (ea7cd52).
 
@@ -64,6 +63,12 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 - 2026-11-01: A rename changes every handle-keyed share image, card and cache key, so no card or image is served under
   a freed or held handle. Rejection messages name the field and the rule in visible text, use `role=alert` and move
   focus to the field. Why: approved by the approval council (cycle 3); RE, EN, A11Y, UX.
+- 2026-11-02: Unblocked: F-9 merged in #65 (ff25ad5). Being built on `claude/f16-f17-trust-safety` (#100). Why: the
+  stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02.
+- 2026-11-02: The owner accepted OD 2.17 (OD-12): an old handle is reserved for 365 days; a handle that ever had a
+  connected record is retired and never reissued; one rename per 30 days. Where #100 already builds part of this, the
+  rest is mapped in `docs/direction/owner-decisions-2026-11-02-worklist.md`. Why: the owner's decision of 2026-11-02
+  (OD 2.17, accepted en bloc).
 
 ## Acceptance criteria
 - [ ] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and

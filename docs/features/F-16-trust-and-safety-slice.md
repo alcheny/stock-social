@@ -1,7 +1,6 @@
 # F-16 · Trust and safety slice: profile report, owner digest, audited hide, takedown page
 
-Status: blocked
-Blocked: waits for F-9 to merge (PR #65, `claude/fix-user-text-safety`) with F-9's acceptance criteria met on main (fix #4 merged in #59)
+Status: ready
 Start conditions: F-9 (thesis safety, which adds `lib/reports.ts`) and fix #4 (one shared visible-user predicate)
 merge first.
 
@@ -83,6 +82,18 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
   audit row is written in the same transaction as the hide. The report action is a quiet menu item, never next to
   Follow or Share. Why: approved by the approval council (cycle 3); red team (reports are a weapon), TS, RE, UX, PD
   (veto condition: CS for the reporter limits and hidden identity).
+- 2026-11-02: Unblocked: F-9 merged in #65 (ff25ad5) and fix #4 in #59. Being built on `claude/f16-f17-trust-safety`
+  (#100). Why: the stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02.
+- 2026-11-02: The owner accepted OD 2.18: the takedown page wording, the anti-impersonation line and a report action
+  on each thesis and profile are approved, and the copyright agent is registered before theses go live (an owner
+  action), not at Open. OD 2.19: one transactional-only email sender, isolated in one file and listed as a
+  sub-processor. OD 2.20: the owner takes the held-thesis release duty with `scripts/review-theses.ts`, daily during
+  Beta. Why: the owner's decisions of 2026-11-02 (accepted en bloc).
+- 2026-11-02: Under-18 reports (OD 2.22): a founded report is handled like a child-privacy notice: delete, log, review
+  the age gate. Deletion runs through an audited, owner-run account-deletion script: it deletes the whole profile and
+  all raw and derived data the way in-app deletion does, writes an audit record with no personal data (date, reason
+  code, counts), and runs only when the owner runs it. The F-16/F-17 session builds it. Why: the owner's decision of
+  2026-11-02 (OD 2.22); POLICY H (deleting data stays the owner's act), P6.
 
 ## Acceptance criteria
 - [ ] A test fails on any `from closed_trades` read under `app/` or `lib/` that lacks the shared visible-user predicate

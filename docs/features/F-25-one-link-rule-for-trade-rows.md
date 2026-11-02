@@ -1,7 +1,6 @@
 # F-25 · One link rule for trade rows
 
-Status: blocked
-Blocked: waits for F-9 (PR #65, `claude/fix-user-text-safety`), F-11 (branch `claude/fix-truthful-labels`, no open PR) and F-26 (the footer link builds on the note slot F-26 frees) to merge into main; it does not wait for F3-8, which it supersedes for the stock-page rows
+Status: ready
 
 ## Why
 The trade page (the note, the record strip, Share) can't be reached from the feed card, the pane or the stock page's
@@ -125,6 +124,9 @@ the signed-out feed would widen the mismatch, so the URL changes in the same fea
   profile row, named for that destination), open-position rows (no trade page exists for an open position), and F-7
   filing links. Why: decided by the committee under the owner's instruction of 2026-11-01; they are not closed-trade
   rows.
+- 2026-11-02: Unblocked: F-9 (#65), F-11 (#85) and F-26 (#87) have merged. Being built on `claude/f25-one-link-rule`
+  (#102). Under OD 2.63 (accepted by the owner), the "never shown" wording for `sell_id` stays only once this feature
+  makes it true. Why: the stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02; OD 2.63.
 
 ## Acceptance criteria
 - [ ] On the feed, the pane, the profile, the month page, the stock page (trades and notes lists), similar trades,
