@@ -129,6 +129,45 @@ dbTest('F-21 decision 4: an OCC row in a marked account is counted once, on the 
   }
 });
 
+dbTest('F-21 review blocking 1: an unmarked OCC pair stored in both tables is one trade (the options matcher\'s), never two', async () => {
+  const { sql, tag, mkUser, act, opt, counters, total, cleanup, insertActivities, rebuildRecord } = await setup();
+  const { insertOptionActivities } = await import('./options-sync.ts');
+  try {
+    const u = await mkUser('a');
+    const acc = `${tag}-acc`;
+    await insertActivities(u, 'snaptrade', [act('ob', acc, 'BUY', 1, 1, 1, OCC), act('os', acc, 'SELL', 2, 2, 1, OCC)], sql);
+    await insertOptionActivities(u, 'snaptrade', [opt('ob', acc, 'BUY', 'BUY_TO_OPEN', '2024-01-01T15:00:00Z', 1), opt('os', acc, 'SELL', 'SELL_TO_CLOSE', '2024-01-02T15:00:00Z', 2)] as never);
+    await rebuildRecord(u);
+    const c = await counters(u);
+    assert.deepEqual([c.excluded_options_other, c.excluded_positions, c.excluded_shared], [0, 0, 0]);
+    assert.equal(await total(u), 1); // the one option close, shown in option_trades
+    // On the share path alone it is still one (counted under options via the share path).
+    const u2 = await mkUser('b');
+    await insertActivities(u2, 'snaptrade', [act('pb', `${acc}2`, 'BUY', 1, 1, 1, OCC), act('ps', `${acc}2`, 'SELL', 2, 2, 1, OCC)], sql);
+    await rebuildRecord(u2);
+    assert.equal((await counters(u2)).excluded_options_other, 1);
+    assert.equal(await total(u2), 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+dbTest('F-21 review fix 2: a future-dated sell in a marked account is counted once, as shared (never in the future count)', async () => {
+  const { sql, tag, mkUser, act, counters, total, mark, cleanup, insertActivities, rebuildRecord } = await setup();
+  try {
+    const u = await mkUser('a');
+    const acc = `${tag}-acc`;
+    await insertActivities(u, 'snaptrade', [act('fs', acc, 'SELL', 10, new Date(Date.now() + 5 * 86_400_000), 5)], sql);
+    await mark(acc, u);
+    await rebuildRecord(u);
+    const c = await counters(u);
+    assert.deepEqual([c.excluded_shared, c.excluded_future_sells, c.excluded_future], [1, 0, 0]);
+    assert.equal(await total(u), 1);
+  } finally {
+    await cleanup();
+  }
+});
+
 dbTest('F-21 E6 (pinned, ponytail, owner flag): an OCC share-path sell the share matcher counted as corporate is counted again under options', async () => {
   const { sql, tag, mkUser, act, counters, cleanup, insertActivities, rebuildRecord } = await setup();
   const { insertCorporateActions } = await import('./corporate-actions.ts');

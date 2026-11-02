@@ -98,6 +98,9 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
   - the shared-account line reads "their account is part of another profile's record" ("its account" in the singular).
   Why: POLICY's owner decision of 2026-11-01 makes the legal committee's conditions rules; leaving the long option closes
   out would understate the exclusions (F3a, F4).
+- 2026-11-02: The profile's future-dated line counts sells only (excluded_future_sells); future buys stay in Record tools.
+  Why: decided by the committee under the owner's instruction of 2026-11-01; the council's rule that one number never
+  mixes buys and sells under 'trades'.
 
 ## Acceptance criteria
 - [ ] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);

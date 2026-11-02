@@ -10,7 +10,7 @@ import { visibleId, visibleUser } from '@/lib/visible-users.ts';
 import { paneModel } from '@/lib/pane-model.ts'; // F-23
 import { feedPaneChart, PAYLOAD_V } from '@/lib/chart-series.ts'; // F-23
 import { exclusionInput, storedExclusions } from '@/lib/exclusions-load.ts'; // F-21
-import { lineCount } from '@/lib/exclusions.ts'; // F-21
+import { exclusionTotal } from '@/lib/exclusions.ts'; // F-21 (paneModel keeps the one "0 while importing" rule)
 
 // F-2 PR-3b fix round 1 (business lead D2): a Similar trades row's pane, fetched when its sheet first opens
 // (app/lazy-pane.tsx), so the profile no longer renders three other traders' records. Public like the profile (signed
@@ -40,7 +40,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
   const now = new Date();
   // FIXES-LABELS (code review): the entry times (openedAt) feed the model's range line and New record on the server.
   // F-21: the exclusion sum rides the model (an integer; no PAYLOAD_V bump: a body without it reads as 0, decision 3).
-  const model = { ...paneModel(rows, state, now, open, openAsOf), excluded: lineCount(exclusionInput(stored.get(user.id as number), options.get(user.id as number)!), state) };
+  const model = paneModel(rows, state, now, open, openAsOf, exclusionTotal(exclusionInput(stored.get(user.id as number), options.get(user.id as number)!)));
   const chart = feedPaneChart(rows, now);
   // FIXES-LABELS: status (F-11): the pane's status as static segments (absolute dates; this JSON is cached 60 s).
   const status = paneSegments((await statusFor(user.id as number, state)) ?? undefined, now) ?? null;

@@ -36,6 +36,9 @@ function userColumns(schemaText: string): string[] {
   return cols;
 }
 
+// ponytail: the writer scan reads only top-level lib/*.ts and the literal `update users set excluded_x =` form, and the
+// schema scan sees only users.excluded_* columns — fix: scan lib/**, scripts/** and every `set ... excluded_` assignment
+// form, and classify counters on other tables (public_filers.excluded is covered through PUBLIC_REASONS only).
 /** Every exclusion key or counter in the sources that lib/exclusions.ts neither sums nor names as left out. */
 export function unclassified(s: Sources): string[] {
   const out: string[] = [];

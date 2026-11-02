@@ -3,7 +3,7 @@
 // lib/connections.ts only call these helpers; rebuildTrades and lib/trades.ts are untouched.
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
-import { FUTURE_GRACE_HOURS, INSERT_CHUNK, notFuture as notFutureA, rebuildTrades, storedFirst, USER_LOCK } from './sync.ts';
+import { FUTURE_GRACE_HOURS, INSERT_CHUNK, rebuildTrades, storedFirst, USER_LOCK } from './sync.ts';
 import { onlyShared } from './shared-accounts.ts'; // F-21
 import { notDuplicate } from './reconcile.ts'; // F-21
 import { chainsOf, loadCorporateActions, pairKey } from './corporate-actions.ts';
@@ -134,9 +134,16 @@ export async function exerciseDays(tx: Db, userId: number): Promise<{ account_id
   return [...out.values()];
 }
 
+// F-21: an activity row `a` whose vendor row is also stored as an option row (counted there, never twice).
+const optionTwin = (db: Db, a: Fragment) => db`exists (select 1 from option_activities x where x.source = ${a}.source and x.external_id = ${a}.external_id)`;
+
 // The option pairs among the rows the rebuild reads (paper accounts and future-dated rows left out), their closes removed.
 async function removeOptionPairs(tx: TransactionSql, userId: number): Promise<number> {
-  const pairs = await tx`select o.account_id, o.symbol, count(*) filter (where o.side = 'SELL')::int as sells from activities o
+  // F-21 (review blocking 1): a sell whose vendor row is also stored as an option row is counted by the options matcher
+  // (rebuildOptionTrades), so it leaves `sells` (the extraOther count) — the same twin predicate as sharedExcluded. Every
+  // sell still leaves excluded_positions (orphans), whichever counter holds it.
+  const pairs = await tx`select o.account_id, o.symbol, count(*) filter (where o.side = 'SELL')::int as all_sells,
+      count(*) filter (where o.side = 'SELL' and not ${optionTwin(tx, tx`o`)})::int as sells from activities o
     where o.user_id = ${userId} and (upper(btrim(o.symbol)) ~ ${OCC_SQL_PATTERN} or ${optionTypeSet(tx, tx`o.raw`)})
       and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)} group by o.account_id, o.symbol`;
   if (!pairs.length) return 0;
@@ -147,7 +154,7 @@ async function removeOptionPairs(tx: TransactionSql, userId: number): Promise<nu
   await keepTheses(tx, userId, hit.filter((h) => h.thesis !== null));
   if (hit.length) await tx`delete from closed_trades where user_id = ${userId} and sell_id in ${tx(hit.map((h) => h.sell_id as string))}`;
   const sells = pairs.reduce((a, p) => a + (p.sells as number), 0);
-  const orphans = Math.max(0, sells - hit.length);
+  const orphans = Math.max(0, pairs.reduce((a, p) => a + (p.all_sells as number), 0) - hit.length);
   if (orphans) await tx`update users set excluded_positions = greatest(0, excluded_positions - ${orphans}) where id = ${userId}`;
   return sells;
 }
@@ -196,6 +203,8 @@ export async function withRenames(tx: TransactionSql, userId: number, taint: { a
   return [...out.values()];
 }
 
+/** Review fix 2: future-dated sells are counted here too (the future count leaves marked accounts out), so a
+ *  future-dated sell in a marked account is counted once, as shared. */
 /** F-21 (committee decision 4): what the marks of accounts belonging to another profile leave out of this record, in the
  *  headline's unit (sells and option closes, never buys), for users.excluded_shared. The share part counts SELL rows in
  *  marked accounts under the stream's own paper, future, stored-first and duplicate filters; a sell of an option pair
@@ -205,13 +214,15 @@ export async function withRenames(tx: TransactionSql, userId: number, taint: { a
 // ponytail: the option part holds every marked-account option row in memory at once (marks are rare and owner-made) —
 // fix: stream it in contract order like rebuildOptionTrades if marked accounts ever carry large option histories.
 export async function sharedExcluded(tx: TransactionSql, userId: number, asOf = new Date()): Promise<number> {
+  // Review fix 6: no marks (almost every record), no queries.
+  if (!(await tx`select 1 from shared_account_marks where user_id = ${userId} limit 1`).length) return 0;
   const [{ n }] = await tx`select count(*)::int as n from activities a where a.user_id = ${userId} and a.side = 'SELL'
     and ${onlyShared(tx, userId, 'a')}
     and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
-    and ${notFutureA(tx)} and ${storedFirst(tx)} and ${notDuplicate(tx)}
+    and ${storedFirst(tx)} and ${notDuplicate(tx)}
     and not (exists (select 1 from activities p where p.user_id = a.user_id and p.account_id = a.account_id and p.symbol = a.symbol
         and (upper(btrim(p.symbol)) ~ ${OCC_SQL_PATTERN} or ${optionTypeSet(tx, tx`p.raw`)}))
-      and exists (select 1 from option_activities x where x.source = a.source and x.external_id = a.external_id))`;
+      and ${optionTwin(tx, tx`a`)})`;
   const rows = await tx<Stored[]>`select ${cols(tx)} from option_activities o where o.user_id = ${userId}
     and ${onlyShared(tx, userId, 'o')} and ${notPaper(tx, userId)} and ${notFuture(tx)}`;
   const m = matchOptions(rows.map(toRow), asOf);

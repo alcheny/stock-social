@@ -39,6 +39,8 @@ dbTest('F-21: one exclusion query per feed page; trade and month loaders add non
     assert.equal(log.filter((q) => /excluded_future_sells/.test(q)).length, 1, 'exactly one new query per page');
     assert.equal(page.exclusions?.get(a), 3);
     assert.equal(page.exclusions?.get(b), 0);
+    // ponytail: the profile's number is computed here through storedExclusions, not through the page's own reads
+    // (app/u/[handle]/load.ts) — fix: render the profile (or call its load) and read the #excluded heading; the e2e does.
     const profile = exclusionTotal(exclusionInput((await storedExclusions([a])).get(a), (await optionHeadline([a])).get(a)!));
     assert.equal(profile, 3);
     log.length = 0;
