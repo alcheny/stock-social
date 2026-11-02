@@ -88,7 +88,12 @@ test('F-4 2026-10-31 (link preview): every element kept, chart about 24%; square
     for (const k of ['name', 'label', 'headline', 'headlineLabel', 'range', 'countValue', 'countNote', 'periodLength', 'periodSince', 'caption', 'evidence', 'trust', 'disclaimer'] as const)
       assert.ok(u[k], `${name}: ${k}`);
     const a = area(u);
-    if (name === 'failed+open') assert.ok(a >= 0.21, `${name} ${a.toFixed(3)}`); // the one state with two extra rows
+    // F-34 (plan §3, BL3): the open line's image form takes 2 rows on the unfurl (rows × openCut); the chart keeps 15% or more.
+    const L = CARD_LAYOUT.unfurl, openRows = u.open?.rows?.length ?? 0;
+    if (u.open) assert.equal(openRows, 2, name);
+    assert.equal(u.chart!.h, L.chart.h - (u.note ? L.noteCut : 0) - openRows * L.openCut, name);
+    if (name === 'failed+open') assert.ok(a >= 0.18 && a >= 0.15, `${name} ${a.toFixed(3)}`); // 556×249: 18.3%
+    else if (name === 'open') assert.ok(a >= 0.213, `${name} ${a.toFixed(3)}`); // 556×290: 21.3%
     else assert.ok(a >= 0.24, `${name} ${a.toFixed(3)}`);
     for (const kind of ['square', 'story'] as const) assert.ok(area(card(R.modUp, { ...o, kind })) >= 0.30, `${kind} ${name}`);
   }

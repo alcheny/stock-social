@@ -9,12 +9,12 @@
 // link from the configured origin, and the alt text built from this model.
 import { HEAD_PILL_ROW, unfurlHeadRows } from './card-head.ts'; // FIXES-CYCLE4-PART2 (F4-15)
 import { counted } from './format.ts';
-import { imageTrust, isPublicRecord, OPTIONS, SHARE_CARD, type RecordState } from './copy.ts';
+import { imageRows, imageTrust, isPublicRecord, openLine, OPTIONS, SHARE_CARD, type OpenLine, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { confidence, headline, isNewRecord, pct, type Confidence, type ConfidenceInput, type Tier } from './trades.ts';
 import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, trustSign, type Span, type SpanUnit } from './confidence.ts';
 import { arithmeticRange } from './bets.ts';
-import { openSummary, tone, type Tone } from './open-split.ts';
+import { openFacts, tone, type Tone } from './open-split.ts';
 import { downsampleIndices } from './downsample.ts';
 import { pathD } from './chart-series.ts';
 import { siteUrl } from './ticker.ts';
@@ -161,6 +161,7 @@ export type CardInput = {
   now: Date;
   link: string | null; // the profile link printed on the square / story pictures (they travel without an unfurl)
   open?: number[]; // F-6: unrealized percent of each open position (0.05 = +5%), nothing else
+  openAsOf?: Date; // F-34: their MIN(fetched_at); without it the card prints no open line (never an undated value)
   // OPTIONS (docs/features/logs/options/plan.md D5, AC 24): from lib/options-load.ts only: whether the headline reads
   // "share trade", and the gated count line or the options line. No option figure otherwise.
   options?: { shareLabel: boolean; line: string | null };
@@ -170,30 +171,29 @@ export type CardInput = {
 // no average on the card (the profile carries F-6's average; the card names the lowest and highest instead). Counts
 // and tones are F-6's own (lib/open-split.ts), so the card and the profile count alike; the lowest comes first so a
 // held loser is never hidden; one position, or all printed alike, reads "at x%".
+// F-34: a thin adapter over the one producer (lib/copy.ts#openLine): `line` is what every surface prints, and the other
+// fields are read from its parts. `rows`: the unfurl's image form (lib/copy.ts#imageRows), null on the square and story.
 export type CardOpen = {
   count: number; up: number; down: number; flat: number;
   low: string; high: string; lowTone: Tone; highTone: Tone;
-  title: string; shortTitle: string; // "Still open: 3 positions" / "3 open, unrealized"
-  split: string; spread: string;
-  full: string; // "Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%"
-  short: string; // the link preview's form: "3 open, unrealized · 2 up, 1 down · lowest -8.0%, highest +12.1%"
-  note: string;
+  title: string; // "Still open: 3 positions"
+  split: string; spread: string; // "2 up, 1 down" / "lowest -8.0% down, highest +12.1% up" (U+00A0 inside each)
+  full: string; // line.text
+  note: string; // line.asOf: the muted words on the title's row
+  line: OpenLine;
+  rows: string[] | null;
 };
-export function cardOpen(pcts: number[]): CardOpen | null {
-  const sum = openSummary(pcts);
-  if (!sum) return null;
-  const xs = pcts.filter(Number.isFinite);
-  const { up, down, flat } = sum;
-  const lo = Math.min(...xs), hi = Math.max(...xs);
-  const low = pct(lo), high = pct(hi);
-  // One position needs no up/down count: "Still open: 1 position · at -8.0%" (UX test 2026-11-01).
-  const split = xs.length === 1 ? '' : `${up} up, ${down} down${flat ? `, ${flat} flat` : ''}`;
-  const spread = low === high ? `at ${low}` : `lowest ${low}, highest ${high}`;
-  const join = (title: string) => [title, split, spread].filter(Boolean).join(' · ');
+export function cardOpen(pcts: number[], asOf: Date | null | undefined): CardOpen | null {
+  const f = openFacts(pcts), line = openLine(f, asOf ?? null);
+  if (!f || !line) return null;
+  const part = (r: string) => line.parts.find((p) => p.role === r);
+  const at = part('at'), lo = part('low') ?? at!, hi = part('high') ?? at!;
+  const text = (p: typeof lo) => `${p.label} ${p.value}\u00a0${p.word}`;
   return {
-    count: xs.length, up, down, flat, low, high, lowTone: tone(lo), highTone: tone(hi),
-    title: SHARE_CARD.openFull(xs.length), shortTitle: SHARE_CARD.openShort(xs.length), split, spread,
-    full: join(SHARE_CARD.openFull(xs.length)), short: join(SHARE_CARD.openShort(xs.length)), note: SHARE_CARD.openNote,
+    count: f.n, up: f.up, down: f.down, flat: f.flat, low: lo.value!, high: hi.value!, lowTone: tone(f.low), highTone: tone(f.high),
+    title: line.parts[0].label, split: part('split')?.label ?? '',
+    spread: at ? text(at) : `${text(lo)}${hi.sep}${text(hi)}`,
+    full: line.text, note: line.asOf, line, rows: null,
   };
 }
 
@@ -267,9 +267,11 @@ export function recordCard(i: CardInput): CardModel {
     period: null, periodSince: null, periodLength: null, evidence: null,
     newRecord: false, trust: null, caption: null, link: i.kind === 'unfurl' ? null : i.link, disclaimer: DISCLAIMER, chart: null,
     // F-6: open positions only where the profile lists them (a broker record) and never while an import runs.
-    open: i.state !== 'none' && t.stats ? cardOpen(i.open ?? []) : null,
+    open: i.state !== 'none' && t.stats ? cardOpen(i.open ?? [], i.openAsOf) : null,
     ...(i.options ? { shareLabel: i.options.shareLabel, optionsLine: t.stats ? i.options.line : null } : {}), // OPTIONS
   };
+  // F-34 (plan §3, BL3): the unfurl draws the line's image form, packed into its full text width at the body size.
+  if (card.open && i.kind === 'unfurl') card.open.rows = imageRows(card.open.line, CARD_LAYOUT.unfurl.font.body, CARD_LAYOUT.unfurl.width - 2 * CARD_LAYOUT.unfurl.padX);
   // OPTIONS fix round 4 (N1): an options-only record says "No closed share trades yet", as the profile does, and the
   // picture draws its options line under it.
   if (card.body === SHARE_CARD.empty && (i.options?.shareLabel || i.options?.line)) card.body = OPTIONS.noShareCloses;
@@ -290,7 +292,7 @@ export function recordCard(i: CardInput): CardModel {
   const range = c.perTrade ? SHARE_CARD.likely(pct(c.perTrade.low), pct(c.perTrade.high)) : null;
   const wide = i.kind === 'unfurl' && unfurlWide(pct(avg), range);
   // OPTIONS: on the unfurl the options line takes the caption's row and wraps once; the chart gives up that row.
-  const box = { w: L.chart.w - (wide ? UNFURL_WIDE_SHIFT : 0), h: L.chart.h - (t.note ? L.noteCut : 0) - (card.open ? L.openCut : 0) - (card.optionsLine && i.kind === 'unfurl' ? L.noteCut : 0) };
+  const box = { w: L.chart.w - (wide ? UNFURL_WIDE_SHIFT : 0), h: L.chart.h - (t.note ? L.noteCut : 0) - (card.open ? L.openCut * (card.open.rows?.length ?? 1) : 0) - (card.optionsLine && i.kind === 'unfurl' ? L.noteCut : 0) };
   // FIXES-CYCLE4-PART2 (F4-15, C4-16): pills that would squeeze the @handle move to the top of the chart column, and the
   // chart gives up their rows (lib/card-head.ts), so the card's height never changes.
   const newRecord = isNewRecord(i.trades, n, i.now) && !isPublicRecord(i.state); // F-7 (C17): never on a public record
@@ -327,7 +329,7 @@ export function cardAlt(m: CardModel): string {
     if (m.trust) parts.push(m.trust);
   }
   if (m.optionsLine) parts.push(m.optionsLine); // OPTIONS
-  if (m.open) parts.push(`${SHARE_CARD.openAlt} ${[counted(m.open.count, 'position'), m.open.split, m.open.spread].filter(Boolean).join(', ')}.`);
+  if (m.open) parts.push(m.open.line.alt); // F-34: the line's alt form
   if (m.link) parts.push(`${m.link}.`);
   parts.push(m.disclaimer);
   return parts.join(' ');

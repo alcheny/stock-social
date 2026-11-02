@@ -34,3 +34,30 @@ export function combined(closed: number[], unrealized: number[]): { n: number; a
   for (const x of open) sum += x;
   return { n: done.length + open.length, avg: sum / (done.length + open.length) };
 }
+
+// F-34 · the open line's facts (docs/features/logs/F-34/plan.md §1): openSummary's counts plus the lowest and highest
+// finite value. The words are lib/copy.ts#openLine's; this stays string-free.
+export type OpenFacts = { n: number; up: number; down: number; flat: number; low: number; high: number };
+export function openFacts(pcts: number[]): OpenFacts | null {
+  const s = openSummary(pcts);
+  if (!s) return null;
+  let low = Infinity, high = -Infinity;
+  for (const x of pcts) if (Number.isFinite(x)) { low = Math.min(low, x); high = Math.max(high, x); }
+  return { n: s.n, up: s.up, down: s.down, flat: s.flat, low, high };
+}
+
+// F-34 §2b: packs items into rows of at most `width` px at `size` px (`glyph` em per character), greedily, never breaking
+// an item; an item's `sep` is dropped where a row starts. null when one item alone is wider than a row.
+export function packRows(items: { sep: string; text: string }[], size: number, width: number, glyph = 0.6): string[] | null {
+  const fits = (t: string) => t.length * size * glyph <= width;
+  const rows: string[] = [];
+  let cur = String(); // (no literal: this module's only literals are the tone names)
+  for (const x of items) {
+    if (!fits(x.text)) return null;
+    const joined = cur ? cur + x.sep + x.text : x.text;
+    if (fits(joined)) cur = joined;
+    else { rows.push(cur); cur = x.text; }
+  }
+  if (cur) rows.push(cur);
+  return rows;
+}

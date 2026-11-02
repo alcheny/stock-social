@@ -10,6 +10,10 @@ import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
 import { IMAGE_PALETTE } from './palette.ts';
 import { DISCLAIMER_SIZE } from './image-fit.ts'; // FIXES-LABELS (D-09, DS-19)
+// F-34: the one open line (lib/copy.ts#openLine) and its image rows; the band search for the open block (lib/open-band.ts).
+import { imageRows, openLine, openRowSpans, type OpenLine } from './copy.ts';
+import { openFacts } from './open-split.ts';
+import { openBand, type OpenBandStep } from './open-band.ts';
 
 export { RECORD_STRIP };
 
@@ -54,7 +58,8 @@ export const forgetFeedStrips = () => memo.clear();
 // ---- the strip ----
 export type StripInput = StripFigures & {
   state: RecordState; demo: boolean; verified: boolean; handle: string;
-  open?: number[]; // unrealized percent per open position (F-6): only the count is shown
+  open?: number[]; // unrealized percent per open position (F-6)
+  openAsOf?: Date; // F-34: the positions' as-of (MIN(fetched_at)); without it no open line is printed
   // OPTIONS (docs/features/logs/options/plan.md D5, AC 24; legal round 3 demand 5): the trader has option closes or
   // exclusions (lib/options-load.ts#paneView's label, gated per trader). The strip's average leaves options out, so it
   // says so; no option figure is ever passed in or shown.
@@ -78,6 +83,7 @@ export type Strip = {
   text: string; // the figures as one line
   alt: string; // the same facts in words, for image alt text and link previews
   tooEarly: boolean;
+  open: OpenLine | null; // F-34: the open line (pages and images), printed as `withAsOf`, `alt` and the image form
 };
 
 // Tone by the printed sign ("0.0%" is neither), so colour never disagrees with the text.
@@ -93,6 +99,8 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
   const tooEarly = i.evidence.tier === 'too-early' || !i.evidence.perTrade;
   const figures: StripPart[] = [];
   const altParts: string[] = [];
+  // F-34: one producer for the open line; pages and images only, never while importing.
+  const open = full && !importing && i.open?.length ? openLine(openFacts(i.open), i.openAsOf ?? null) : null;
   if (!importing) {
     if (surface !== 'figures') {
       const count = counted(i.evidence.n, 'closed trade');
@@ -116,7 +124,7 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
     if (i.excludingOptions && surface !== 'figures') altParts.push(OPTIONS.altQualifier);
     if (full) {
       figures.push({ role: 'losses', text: SHARE_CARD.lossesIncluded, tone: null, sep: ' · ' });
-      if (i.open?.length) figures.push({ role: 'open', text: SHARE_CARD.openShort(i.open.length), tone: null, sep: ' · ' });
+      if (open) figures.push({ role: 'open', text: open.withAsOf, tone: null, sep: ' · ' });
     }
     // OPTIONS: the qualifier closes the record's figures (not the month's own figures: the record strip below them says it).
     if (i.excludingOptions && surface !== 'figures') figures.push({ role: 'options', text: OPTIONS.shareLabel, tone: null, sep: ' · ' });
@@ -133,7 +141,7 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
     importing ? `${SHARE_CARD.importingBody}. ${SHARE_CARD.importingNote.replace(/\.$/, '')}` : null,
     altParts.length ? altParts.join(', ') : null,
     !importing && full ? 'Losses included' : null,
-    !importing && full && i.open?.length ? `${counted(i.open.length, 'open position')}, unrealized` : null,
+    open ? open.alt : null,
     full ? DISCLAIMER.replace(/\.$/, '') : null,
   ].filter(Boolean).map((s) => `${s!.replace(/\.$/, '')}.`).join(' ');
   return {
@@ -142,7 +150,7 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
     figures,
     link: full ? { text: RECORD_STRIP.link(i.handle), href: `/u/${i.handle}` } : null,
     disclaimer: full ? DISCLAIMER : null,
-    text, alt, tooEarly,
+    text, alt, tooEarly, open,
   };
 }
 
@@ -155,7 +163,8 @@ export const SQUARE_CROP = { x0: 285, x1: 915 } as const;
 export const BRAND_BOX = { x: 24, y: 24, width: 240, height: 40, text: 'Stock Social', size: 26 } as const;
 export const IMAGE_COLOURS = IMAGE_PALETTE.strip; // F-20: the share-image colour table (lib/palette.ts)
 export type ImageTone = keyof typeof IMAGE_COLOURS;
-export type ImageLine = { role: string; text: string; size: number; tone: ImageTone; weight: 400 | 700 | 800; optional?: boolean; y?: number };
+export type ImageLine = { role: string; text: string; size: number; tone: ImageTone; weight: 400 | 700 | 800; optional?: boolean; y?: number;
+  spans?: { text: string; tone: ImageTone }[]; block?: 'open' }; // F-34: the open rows' toned values, and their block
 
 // Largest size ≤ max at which the text fits the band's width at 0.6 em per glyph.
 export const fitPx = (text: string, max: number, width: number = STRIP_BAND.width) => Math.min(max, Math.floor(width / (Math.max(text.length, 1) * STRIP_BAND.glyph)));
@@ -215,7 +224,7 @@ export function stripImageLines(s: Strip, o: { handle: string; newRecord: boolea
       // one line down to the 26 px floor; split the range over two lines if records ever reach that.
       L.push({ role: 'range', text, size: Math.max(STRIP_BAND.minPx, fitPx(text, STRIP_BAND.recordPx)), tone: 'text', weight: 400 });
     }
-    const tail = s.figures.filter((p) => p.role === 'losses' || p.role === 'open').map((p) => p.text).join(' · ');
+    const tail = s.figures.filter((p) => p.role === 'losses').map((p) => p.text).join(' · '); // F-34: the open rows are the band's own block (openImageBand)
     if (tail) L.push({ role: 'losses', text: tail, size: Math.max(STRIP_BAND.minPx, fitPx(tail, 30)), tone: 'muted', weight: 400 });
     // OPTIONS: "Excluding options" on its own line under the record's figures, inside the band; when that line would not
     // fit the band (a failed import's note and open positions), it joins the count line instead ("12 closed trades ·
@@ -243,6 +252,25 @@ export function stripImageLines(s: Strip, o: { handle: string; newRecord: boolea
   return L;
 }
 
+// ---- F-34: the open block on the trade and month images (plan §3) ----
+export type Band = ReturnType<typeof layoutBand> & { step?: OpenBandStep };
+// The band with the open rows, from the strip's open line: lib/open-band.ts searches the steps over `build` (today's
+// lines at a disclaimer, hero and thesis/"One of N months" choice); each open row gets its toned value spans.
+// ponytail: a state the 192-state matrix does not cover that fits no step falls back to today's band without the open
+// rows (the page and the alt keep the line) — widen the search (a smaller open size) if a test ever finds one.
+export function openImageBand(s: Strip, o: { build: (x: { disc: number; a: number; b: number; extra: boolean }) => ImageLine[]; heroSteps: [number, number][]; hasFrozen: boolean }): Band | null {
+  const line = s.open;
+  if (!line) return null;
+  const b = openBand({
+    base: o.build, rows: (size) => imageRows(line, size, STRIP_BAND.width, STRIP_BAND.glyph), asOf: line.image.asOf,
+    losses: SHARE_CARD.lossesIncluded, failedShort: RECORD_BODY.failedShort, heroSteps: o.heroSteps,
+    hasNote: s.note === RECORD_BODY.failed, hasFrozen: o.hasFrozen, band: STRIP_BAND,
+  });
+  if (!b) return null;
+  const spans = (l: ImageLine) => openRowSpans(l.text, line).map((x) => ({ text: x.text, tone: (x.tone === 'up' || x.tone === 'down' ? x.tone : 'text') as ImageTone }));
+  return { ...b, lines: b.lines.map((l) => (l.block === 'open' ? { ...l, spans: spans(l) } : l)) };
+}
+
 // FIXES-LABELS: status. The frozen line whole when it fits the band at the floor size, else split at its last " · ".
 export function frozenLines(text: string): string[] {
   if (fitPx(text, STRIP_BAND.minPx) >= STRIP_BAND.minPx) return [text];
@@ -260,15 +288,20 @@ function noteLines(s: string): string[] {
 
 // Stacks the lines top-down inside the band: optional lines (a thesis) give way first, then the gaps shrink from 14 px
 // to 4 px. Returns the lines with their y, and whether everything fits (height and width).
+// F-34 (plan §3 step 10): with an open block, no gap inside a wrapped block (open, note, frozen and disclaimer rows: the
+// line height spaces them) and the gaps between blocks may shrink to 2 px; without one, exactly today's layout.
 export function layoutBand(lines: ImageLine[]): { lines: ImageLine[]; fits: boolean; tooWide: string[] } {
   const room = STRIP_BAND.bottom - STRIP_BAND.top;
-  const h = (ls: ImageLine[], gap: number) => ls.reduce((a, l) => a + l.size * STRIP_BAND.lineHeight, 0) + gap * Math.max(ls.length - 1, 0);
+  const open = lines.some((l) => l.block === 'open'), minGap = open ? 2 : 4;
+  const blockOf = (role: string) => (role.startsWith('open') ? 'open' : role.replace(/\d+$/, ''));
+  const gapBefore = (ls: ImageLine[], k: number) => k > 0 && !(open && blockOf(ls[k - 1].role) === blockOf(ls[k].role) && ['open', 'note', 'frozen', 'disclaimer'].includes(blockOf(ls[k].role)));
+  const h = (ls: ImageLine[], gap: number) => ls.reduce((a, l, k) => a + l.size * STRIP_BAND.lineHeight + (gapBefore(ls, k) ? gap : 0), 0);
   let ls = lines;
-  while (h(ls, 4) > room && ls.some((l) => l.optional)) { const k = ls.findLastIndex((l) => l.optional); ls = ls.filter((_, j) => j !== k); }
+  while (h(ls, minGap) > room && ls.some((l) => l.optional)) { const k = ls.findLastIndex((l) => l.optional); ls = ls.filter((_, j) => j !== k); }
   let gap = 14;
-  while (gap > 4 && h(ls, gap) > room) gap--;
+  while (gap > minGap && h(ls, gap) > room) gap--;
   let y = STRIP_BAND.top;
-  const placed = ls.map((l) => { const p = { ...l, y }; y += l.size * STRIP_BAND.lineHeight + gap; return p; });
+  const placed = ls.map((l, k) => { if (gapBefore(ls, k)) y += gap; const p = { ...l, y }; y += l.size * STRIP_BAND.lineHeight; return p; });
   return { lines: placed, fits: h(ls, gap) <= room, tooWide: ls.filter((l) => lineWidth(l) > STRIP_BAND.width).map((l) => l.text) };
 }
 

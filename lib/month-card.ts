@@ -7,7 +7,7 @@ import { imageTrust, isPublicRecord, RECORD_STRIP, SHARE_CARD, type RecordState 
 import { DISCLAIMER } from './share.ts';
 import { pct } from './trades.ts';
 import { count, count as fmtCount, counted } from './format.ts';
-import { DISCLAIMER_LINES, DISCLAIMER_STEPS, fitDisclaimer, fitPx, layoutBand, recordStrip, STRIP_BAND, stripImageLines, type ImageLine, type Strip, type StripFigures } from './record-strip.ts';
+import { DISCLAIMER_LINES, DISCLAIMER_STEPS, fitDisclaimer, fitPx, layoutBand, openImageBand, recordStrip, STRIP_BAND, stripImageLines, type Band, type ImageLine, type Strip, type StripFigures } from './record-strip.ts';
 // FIXES-LABELS (D-09, D-24): the F3 line at ≥ 28 px (lib/image-fit.ts); "One of N months on record".
 import { FIXES_LABELS } from './copy.ts';
 import { MONTH_DISCLAIMER_SIZE } from './image-fit.ts';
@@ -68,7 +68,7 @@ export function monthCard(r: MonthCardInput) {
 // FIXES-LABELS (D-24): `months`, "One of N months on record" under the label (optional: it gives way first). FIXES-LABELS:
 // status: `frozen`, a frozen record's line (lib/record-status.ts#imageFrozenText), in the strip after the record.
 type MonthBandInput = { handle: string; recap: { label: string; monthSoFar: boolean; count: number }; record: { newRecord: boolean }; months?: number };
-function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: number): ImageLine[] {
+export function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: number): ImageLine[] {
   const m = r.recap;
   // FIXES-CYCLE4-PART2 (F4-4, C4-9; tester round 1): a trader with option closes gets "Excluding options" (the strip's own
   // part, legal words unchanged) on the month's count line, so the qualifier adds no row and never gives way.
@@ -96,7 +96,14 @@ function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: numb
   }
   return L;
 }
-export function monthBand(r: MonthBandInput, whole: Strip, month: Strip, frozen?: string | null): ReturnType<typeof layoutBand> {
+export function monthBand(r: MonthBandInput, whole: Strip, month: Strip, frozen?: string | null): Band {
+  // F-34 (plan §3): with open positions, the open block's search ("One of N months" gives way first; the label may step
+  // to 26 px, never below the record rows).
+  const heroSteps: [number, number][] = [];
+  for (const figPx of [30, 28, STRIP_BAND.minPx]) for (const labelPx of [52, 48, 44, 40, 36, 32, 30, 28, STRIP_BAND.minPx]) heroSteps.push([labelPx, figPx]);
+  const open = whole.open && openImageBand(whole, { heroSteps, hasFrozen: !!frozen,
+    build: (x) => stripImageLines(whole, { handle: r.handle, newRecord: r.record.newRecord, hero: monthHero(x.extra ? r : { ...r, months: undefined }, month, x.a, x.b), frozen, disclaimerPx: x.disc }) });
+  if (open) return open;
   // FIXES-LABELS (D-09, F-11): what gives way, in order. Every line at a disclaimer of ≥ 28 px; then without "One of N
   // months" (a frozen line outranks it); last, F-12's own rule (optional lines drop, the largest disclaimer that fits).
   // ponytail: beside a failed import's two note lines the frozen line gives way on the month image (the page shows it) — move the failed note to the label line to make room

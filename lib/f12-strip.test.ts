@@ -220,7 +220,9 @@ test('F-12 AC3 (model): month image lines fit the band in the worst cases; no wi
     const band = monthBand(r, w, m);
     const placed = checkBand(band.lines, `${state} demo=${demo} n=${month.length}`);
     const label = placed.find((l) => l.role === 'month')!;
-    assert.ok(label.size >= 40 && label.size <= 52, String(label.size));
+    // F-34 (plan §3 step 4): beside an open block the label may step down to the record rows' size, never below them.
+    const rec = Math.max(...placed.filter((l) => ['count', 'average', 'range', 'early'].includes(l.role)).map((l) => l.size));
+    assert.ok(label.size >= (placed.some((l) => l.block === 'open') ? rec : 40) && label.size <= 52, String(label.size));
     assert.equal(label.text, 'September 2026');
     const count = placed.find((l) => l.role === 'monthCount')!;
     assert.equal(count.text, `${month.length === 1 ? '1 closed trade' : `${month.length} closed trades`} this month`);
@@ -273,7 +275,7 @@ test('F-12 AC7: trade and month surfaces read closed trades only; open positions
   for (const f of ['lib/trade-share-load.ts', 'lib/recap-load.ts']) {
     const s = src(f);
     // The only open_positions read is the unrealized percent, never a symbol.
-    for (const m of s.matchAll(/from open_positions/g)) assert.match(s.slice(Math.max(0, m.index! - 80), m.index), /select unrealized_pct\s*$/, f);
+    for (const m of s.matchAll(/from open_positions/g)) assert.match(s.slice(Math.max(0, m.index! - 80), m.index), /select p\.unrealized_pct, p\.fetched_at\s*$/, f); // F-34: and the as-of (MIN(fetched_at))
   }
   for (const f of ['app/u/[handle]/trade/[sellId]/page.tsx', 'app/u/[handle]/month/[ym]/page.tsx', 'app/u/[handle]/trade/[sellId]/opengraph-image.tsx', 'app/u/[handle]/month/[ym]/opengraph-image.tsx']) {
     const s = src(f);

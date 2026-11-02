@@ -1,6 +1,6 @@
 // Pure payload for the trade permalink page and card. No sizes or prices exist here, and nothing varies by sign.
 import { confidence, evidenceLine, isNewRecord, pct, rangeText, stats, type ConfidenceInput } from './trades.ts';
-import { DISCLAIMER_STEPS, fitPx, layoutBand, STRIP_BAND, stripFigures, stripImageLines, type ImageLine, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
+import { DISCLAIMER_STEPS, fitPx, layoutBand, openImageBand, STRIP_BAND, stripFigures, stripImageLines, type Band, type ImageLine, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
 import { wholeRecordPreview, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { dateText } from './date-text.ts'; // FIXES-LABELS (D-05)
@@ -33,6 +33,7 @@ export function tradeSharePayload(i: TradeShareInput, today: Date) {
 export type TradeView = ReturnType<typeof tradeSharePayload> & {
   handle: string; displayName: string; state: RecordState; verified: boolean;
   open?: number[]; // unrealized percents, read for a connected or failed record only
+  openAsOf?: Date; // F-34: their MIN(fetched_at) (lib/trade-share-load.ts#openRead)
   status?: StatusFacts | null; // FIXES-LABELS: status (F-11): the status-line facts beside the state
   // F-9 (fix-user-text): the note's dates and the trade id for the Report control; never part of the share image data.
   note?: { tradeId: string; writtenAt: Date | null; editedAt: Date | null };
@@ -42,7 +43,7 @@ export type TradeView = ReturnType<typeof tradeSharePayload> & {
 };
 
 export const tradeStripInput = (t: TradeView): StripInput => ({
-  ...t.strip, state: t.state, demo: t.demo, verified: t.verified, handle: t.handle, open: t.open,
+  ...t.strip, state: t.state, demo: t.demo, verified: t.verified, handle: t.handle, open: t.open, openAsOf: t.openAsOf,
   excludingOptions: t.excludingOptions, // OPTIONS
 });
 
@@ -85,11 +86,14 @@ export function tradeHero(t: Pick<TradeView, 'symbol' | 'returnPct' | 'holdingDa
 // monthBand does. Then the same without the thesis (it gives way before a frozen line); last, any disclaimer step with the
 // optional lines giving way inside layoutBand. Returns the last try if none fits.
 // ponytail: beside a failed import's two note lines the frozen line gives way on the trade image (the page shows it) — move the failed note to the label line to make room
-export function tradeBand(t: Pick<TradeView, 'symbol' | 'returnPct' | 'holdingDays' | 'closedAt' | 'thesis' | 'handle' | 'newRecord'>, strip: Strip, frozen?: string | null): ReturnType<typeof layoutBand> {
+export function tradeBand(t: Pick<TradeView, 'symbol' | 'returnPct' | 'holdingDays' | 'closedAt' | 'thesis' | 'handle' | 'newRecord'>, strip: Strip, frozen?: string | null): Band {
   const build = (disclaimerPx: number, symbolPx: number, heldPx: number, thesis = t.thesis) =>
     stripImageLines(strip, { handle: t.handle, newRecord: t.newRecord, hero: tradeHero({ ...t, thesis }, { symbolPx, heldPx }), frozen, disclaimerPx });
   const sizes: [number, number][] = [];
   for (const heldPx of [30, 28, STRIP_BAND.minPx]) for (let symbolPx = 80; symbolPx >= 40; symbolPx -= 8) sizes.push([symbolPx, heldPx]);
+  // F-34 (plan §3): with open positions, the open block's search (thesis kept, then given way).
+  const open = strip.open && openImageBand(strip, { build: (x) => build(x.disc, x.a, x.b, x.extra ? t.thesis : null), heroSteps: sizes, hasFrozen: !!frozen });
+  if (open) return open;
   for (const thesis of t.thesis ? [t.thesis, null] : [null]) for (const px of DISCLAIMER_STEPS.filter((x) => x >= 28)) for (const [symbolPx, heldPx] of sizes) {
     const ls = build(px, symbolPx, heldPx, thesis), b = layoutBand(ls);
     if (b.fits && !b.tooWide.length && b.lines.length === ls.length) return b;

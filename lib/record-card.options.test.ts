@@ -28,7 +28,7 @@ test('AC24 (fix round 3): the card shows the "Excluding options" pill (headline 
     if (kind === 'unfurl') assert.ok(m.chart!.h < plain.chart!.h);
     else assert.equal(m.chart!.h, plain.chart!.h);
     // With open positions the label is the closed form.
-    assert.equal(recordCard({ ...base, kind, open: [0.1], options: { shareLabel: true, line: gated } }).headlineLabel, 'average per closed trade');
+    assert.equal(recordCard({ ...base, kind, open: [0.1], openAsOf: new Date(Date.UTC(2026, 9, 30)), options: { shareLabel: true, line: gated } }).headlineLabel, 'average per closed trade');
   }
   // Open options only (no closes): no label, the line still shows.
   const o = recordCard({ ...base, kind: 'square', options: { shareLabel: false, line: OPTIONS.gated(0, 1) } });
@@ -52,7 +52,7 @@ test('F4-5: the unfurl description carries ", excluding options" after the headl
   // Everything else is the plain description's words, in order.
   assert.equal(d.replace(`, ${OPTIONS.altQualifier}`, '').replace(` · ${gated}`, ''), p);
   // Open positions: the count line still follows the evidence, the open line after it.
-  const o = recordCard({ ...base, kind: 'unfurl', open: [0.1], options: { shareLabel: true, line: gated } });
+  const o = recordCard({ ...base, kind: 'unfurl', open: [0.1], openAsOf: new Date(Date.UTC(2026, 9, 30)), options: { shareLabel: true, line: gated } });
   assert.ok(cardDescription(o, 'F6 LINE')!.endsWith(` · ${gated} · F6 LINE`));
   // Open options only (no share label): the line shows, no qualifier.
   const l = recordCard({ ...base, kind: 'unfurl', options: { shareLabel: false, line: OPTIONS.gated(0, 1) } });

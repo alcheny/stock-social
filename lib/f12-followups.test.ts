@@ -31,7 +31,7 @@ function view(c: Case): TradeView {
   const all = [...record(40), pick];
   const p = tradeSharePayload({ symbol: pick.symbol, returnPct: pick.returnPct, holdingDays: pick.holdingDays, closedAt: pick.closedAt, thesis: THESIS, thesisStatus: 'published', demo: c.demo, allTrades: all }, NOW);
   const real = !c.demo && (c.state === 'connected' || c.state === 'failed');
-  return { ...p, handle: LONG_HANDLE, displayName: 'F12', state: c.state, verified: !c.demo, open: real ? [0.1, -0.2, 0.3] : undefined };
+  return { ...p, handle: LONG_HANDLE, displayName: 'F12', state: c.state, verified: !c.demo, open: real ? [0.1, -0.2, 0.3] : undefined, ...(real ? { openAsOf: new Date(Date.UTC(2026, 9, 30, 9)) } : {}) }; // F-34: the loader's as-of
 }
 
 // Every placed line inside the band at the floor or above, no line wider than the band, the disclaimer whole at the foot.
@@ -69,7 +69,9 @@ test('cycle-2 #9: failed import, short symbol, held under a day, closed Sep 30 �
   assert.equal(old.fits, false, 'the reproduced case overflows at the largest sizes');
   const placed = assertBand(tradeBand(v, strip), 'failed two-digit day');
   // The failed-import note and the strip are all there.
-  for (const role of ['label', 'symbol', 'held0', 'held1', 'handle', 'count', 'losses', 'note0', 'disclaimer2']) assert.ok(placed.some((l) => l.role === role), role);
+  for (const role of ['label', 'symbol', 'held0', 'held1', 'handle', 'count', 'note0', 'disclaimer2']) assert.ok(placed.some((l) => l.role === role), role);
+  // F-34 (plan §3 step 5): beside the open block "losses included" is its own row or joins the count row.
+  assert.ok(placed.some((l) => l.role === 'losses' || (l.role === 'count' && l.text.endsWith(' · losses included'))), 'losses');
   assertSymbolRow(placed, c, 'failed two-digit day');
   // Shrinks only as far as needed: the symbol row stays the biggest line.
   const sym = placed.find((l) => l.role === 'symbol')!;

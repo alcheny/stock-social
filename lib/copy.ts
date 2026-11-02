@@ -1,10 +1,11 @@
 // Fixed product copy for F-1 (docs/features/logs/F-1/plan.md §2, the UX lead's strings verbatim).
 // Every string here is tested against the banned-claims list (lib/copy.test.ts). Change copy here only.
 // F-1 PR-3 fix round 4 (UX lead demand 2): every count goes through lib/format.ts (thousands grouped: "2,828").
-import { count, counted, toneWord } from './format.ts';
+import { count, counted, pct, toneWord } from './format.ts';
 import { CLOSES_PAGE } from './paging.ts';
 import { EXCLUSION_DAYS } from './discovery/weights.ts';
-import { tone, type Tone } from './open-split.ts'; // A11Y-FIXES #23 (group 3)
+import { tone, packRows, type OpenFacts, type Tone } from './open-split.ts'; // A11Y-FIXES #23 (group 3); F-34: packRows, OpenFacts
+import { dateText } from './date-text.ts'; // F-34: the open line's as-of, always with its year
 
 export const SIGNIN = {
   title: 'Publish your trades',
@@ -144,6 +145,8 @@ export const RECORD_BODY = {
   positionsTitle: 'Open positions',
   // A failed import is never shown as a whole record (TR-3): the line is visible to everyone, the retry to the owner.
   failed: 'The import did not finish, so this record may be incomplete.',
+  // F-34 (§3 step 6): the image-only one-row form, the second clause of `failed` (the label row says "Import did not finish").
+  failedShort: 'This record may be incomplete.',
   retry: 'Try again',
 } as const;
 // F-7: 'public' / 'public_demo' (a fictional fixture) is a record built from public filings (lib/connections.ts#recordStates).
@@ -178,10 +181,8 @@ export const SHARE_CARD = {
   chartCaption: 'Sum of trade returns, in order · position size not shown',
   // F-6 on the card (committee 2026-11-01): realized and unrealized apart, in words, percent only, no symbols.
   perClosedTrade: 'average per closed trade',
-  openFull: (n: number) => `Still open: ${n} ${n === 1 ? 'position' : 'positions'}`,
-  openShort: (n: number) => `${n} open, unrealized`,
-  openNote: 'unrealized, not sold yet',
-  openAlt: 'Still open, unrealized as of the last sync:',
+  // F-34: read only by openLine below (the one producer of the open line).
+  openFull: (n: number) => `Still open: ${count(n)} ${n === 1 ? 'position' : 'positions'}`,
 } as const;
 // The profile's link-preview text (app/u/[handle]/page.tsx). Committee round 1, demand 10: "0% win rate" when there are
 // no wins (the old `pct(0, 0).slice(1)` dropped the digit and printed "% win rate").
@@ -793,9 +794,6 @@ export const OPEN = {
   asOfLabel: (day: string) => ` · as of ${day}`,
   chartNote: 'Chart: closed trades only. Not plotted: ',
   asOf: (day: string) => `Unrealized, at current value, as of ${day}. Not in the closed-trade figures or the chart.`,
-  feedLabel: 'Also open:',
-  feedCounts: (o: OpenCounts) => ` ${counted(o.n, 'position')} · ${upDown(o)} · `,
-  feedTail: (n: number, day: string) => `${n === 1 ? ' unrealized' : ' avg unrealized'}, as of ${day}`,
   tickerTitle: (symbol: string) => `Open positions in ${symbol}`,
   // Stock pages are dated too: a record that stopped refreshing never reads as current (orchestrator review 1).
   tickerTraders: (traders: number, day: string) => `, held by ${counted(traders, 'trader')}, as of ${day}.`,
@@ -811,14 +809,104 @@ export const OPEN = {
     'Stock pages show only a total of open positions in that stock, never who holds them; each trader’s open positions are on their profile.',
   ],
 };
+// ---- F-34 · the open line: the only producer (docs/features/F-34-one-open-positions-line.md, plan §1–§2) ----
+// Every surface prints this line: `text` on the profile, the pane and the square/story card; `withAsOf` on the trade
+// and month pages, the feed card and the three link-preview descriptions; `alt` in the image alts; the image form
+// (imageRows) on the 1200×630 images. F-4's card line, lowest value first, a word after every value (POLICY A1).
+export const OPEN_LINE = {
+  lowest: 'lowest', highest: 'highest', at: 'at', up: 'up', down: 'down', flat: 'flat',
+  asOfPrefix: 'unrealized as of', imageAsOfPrefix: 'as of', chartNoteTail: 'open positions.',
+  // The profile and pane count tile's caption (F-34 Q3: the line carries the split).
+  countOne: 'open position', countMany: 'open positions',
+} as const;
+export type OpenLinePart = { role: 'title' | 'split' | 'at' | 'low' | 'high'; label: string; value: string | null; word: string | null; tone: Tone | null; sep: '' | ' · ' | ', ' };
+export type OpenLine = {
+  text: string; // "Still open: 3 positions · 2 up, 1 down · lowest -15.0% down, highest +4.0% up" (U+00A0 inside each value)
+  parts: OpenLinePart[];
+  asOf: string; // "unrealized as of Sep 30, 2026" (the year always)
+  withAsOf: string; // `${text}, ${asOf}`
+  alt: string; // withAsOf with " · " → ", " and U+00A0 → " ", then "." (no "·", no parentheses: F-12)
+  image: { title: string; asOf: string }; // "Still open: 3" and "as of Sep 30, 2026" (the 1200×630 image form)
+};
+const NBSP = '\u00a0';
+const partText = (p: OpenLinePart) => (p.value === null ? p.label : `${p.label} ${p.value}${NBSP}${p.word}`);
+// The open line from the facts (lib/open-split.ts#openFacts) and the positions' as-of (the stored MIN(fetched_at)).
+// null without either: no surface ever prints an undated value.
+export function openLine(f: OpenFacts | null, asOf: Date | null): OpenLine | null {
+  if (!f || !asOf || !f.n) return null;
+  const valued = (role: 'at' | 'low' | 'high', label: string, x: number, sep: OpenLinePart['sep']): OpenLinePart => {
+    const t = tone(x);
+    return { role, label, value: pct(x), word: OPEN_LINE[t], tone: t, sep };
+  };
+  const parts: OpenLinePart[] = [{ role: 'title', label: SHARE_CARD.openFull(f.n), value: null, word: null, tone: null, sep: '' }];
+  if (f.n > 1) parts.push({ role: 'split', label: upDown(f), value: null, word: null, tone: null, sep: ' · ' });
+  if (pct(f.low) === pct(f.high)) parts.push(valued('at', OPEN_LINE.at, f.low, ' · '));
+  else parts.push(valued('low', OPEN_LINE.lowest, f.low, ' · '), valued('high', OPEN_LINE.highest, f.high, ', '));
+  const text = parts.map((p) => p.sep + partText(p)).join('');
+  const day = dateText(asOf, asOf, { year: 'always' });
+  const asOfText = `${OPEN_LINE.asOfPrefix} ${day}`;
+  const withAsOf = `${text}, ${asOfText}`;
+  return {
+    text, parts, asOf: asOfText, withAsOf,
+    alt: `${withAsOf.replaceAll(' · ', ', ').replaceAll(NBSP, ' ')}.`,
+    image: { title: `${SHARE_CARD.openFull(f.n).split(':')[0]}: ${count(f.n)}`, asOf: `${OPEN_LINE.imageAsOfPrefix} ${day}` },
+  };
+}
+// The image form (§2b): the same parts with the short title and the short as-of, as-of last ("date-first" when that
+// saves a row). One string each order; imageRows packs exactly one of them.
+const imageItems = (l: OpenLine) => ({
+  title: { sep: '', text: l.image.title },
+  rest: l.parts.slice(1).map((p) => ({ sep: p.sep as string, text: partText(p) })),
+  asOf: { sep: ' · ', text: l.image.asOf },
+});
+const joinItems = (xs: { sep: string; text: string }[]) => xs.map((x, k) => (k ? x.sep : '') + x.text).join('');
+export const imageText = (l: OpenLine) => { const i = imageItems(l); return joinItems([i.title, ...i.rest, i.asOf]); };
+export const imageTextDateFirst = (l: OpenLine) => { const i = imageItems(l); return joinItems([i.title, i.asOf, ...i.rest]); };
+// The one producer of image open rows (BL-R2-1): rows at `size` px in `width` px; a row never breaks inside a part.
+export function imageRows(l: OpenLine, size: number, width: number, glyph = 0.6): string[] | null {
+  const i = imageItems(l);
+  const last = packRows([i.title, ...i.rest, i.asOf], size, width, glyph), first = packRows([i.title, i.asOf, ...i.rest], size, width, glyph);
+  return !last ? first : !first ? last : first.length < last.length ? first : last;
+}
+// The tone spans of one image row: each value and its word in its tone, the rest in the text tone.
+export function openRowSpans(row: string, l: OpenLine): { text: string; tone: Tone | null }[] {
+  const out: { text: string; tone: Tone | null }[] = [];
+  let rest = row;
+  for (const p of l.parts) {
+    if (p.value === null) continue;
+    const v = `${p.value}${NBSP}${p.word}`, k = rest.indexOf(v);
+    if (k < 0) continue;
+    if (k) out.push({ text: rest.slice(0, k), tone: null });
+    out.push({ text: v, tone: p.tone });
+    rest = rest.slice(k + v.length);
+  }
+  if (rest) out.push({ text: rest, tone: null });
+  return out;
+}
+// end openLine
+
 // Every OPEN string as shown, for the copy walk below (its walker calls functions with placeholder arguments, which the
 // count and date copy cannot take).
 function openCopy(): string[] {
   const o = { n: 3, up: 1, down: 1, flat: 1, avg: -0.05 }, one = { n: 1, up: 0, down: 1, flat: 0, avg: -0.04 }, day = asOfDay(new Date(0));
   return [OPEN.realizedLabel, OPEN.unrealizedLabel, OPEN.avgUnrealized, OPEN.line(o), OPEN.line(one), OPEN.positions(o), OPEN.positions(one),
-    OPEN.combinedLabel, OPEN.combinedTail(9), OPEN.evidencePrefix, OPEN.asOfLabel(day), OPEN.chartNote, OPEN.asOf(day), OPEN.feedLabel,
-    OPEN.feedCounts(o), OPEN.feedTail(3, day), OPEN.feedTail(1, day), OPEN.tickerTitle('ABC'), OPEN.tickerTraders(2, day), OPEN.tickerNote,
-    OPEN.tickerNoteBare, OPEN.compare('x', day), OPEN.compareBare('x', day), ...OPEN.how];
+    OPEN.combinedLabel, OPEN.combinedTail(9), OPEN.evidencePrefix, OPEN.asOfLabel(day), OPEN.chartNote, OPEN.asOf(day),
+    OPEN.tickerTitle('ABC'), OPEN.tickerTraders(2, day), OPEN.tickerNote,
+    OPEN.tickerNoteBare, OPEN.compare('x', day), OPEN.compareBare('x', day), ...OPEN.how,
+    // F-34 (EN6): the open line's outputs for the plan's §2 states, listed explicitly (the walker cannot call openLine).
+    ...openLineStates(), OPEN.chartNote + OPEN_LINE.chartNoteTail, OPEN_LINE.countOne, OPEN_LINE.countMany];
+}
+// The §2 state fixtures (the open-split test inputs): mixed, all losing, all winning, one, one flat, all flat, printed
+// alike, near -100%, 12 positions.
+function openLineStates(): string[] {
+  const at = new Date(Date.UTC(2026, 8, 30));
+  const states = [[-0.15, 0.04, 0.012], [-0.08, -0.215, -0.031], [0.02, 0.15, 0.4], [-0.08], [0.0004], [0.0004, -0.0003], [0.05, 0.0501], [-0.99999999],
+    [-0.15, 0.04, 0.02, 0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, 0]];
+  return states.flatMap((p) => {
+    const xs = p.filter(Number.isFinite), up = xs.filter((x) => tone(x) === 'up').length, down = xs.filter((x) => tone(x) === 'down').length;
+    const l = openLine({ n: xs.length, up, down, flat: xs.length - up - down, low: Math.min(...xs), high: Math.max(...xs) }, at)!;
+    return [l.text, l.withAsOf, l.alt, imageText(l), imageTextDateFirst(l)];
+  });
 }
 
 export function allCopy(): string[] {

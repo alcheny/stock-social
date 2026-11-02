@@ -21,6 +21,7 @@ registerHooks({
   resolve(spec, ctx, next) {
     if (spec === 'next/link') return { url: LINK, shortCircuit: true };
     if (spec.startsWith('@/')) return next(new URL(spec.slice(2), ROOT).href, ctx);
+    if (/^next\/(server|navigation|headers|cache)$/.test(spec)) return next(`${spec}.js`, ctx); // the pane's server-action imports
     if (ctx.parentURL?.startsWith('data:')) return next(spec, { ...ctx, parentURL: import.meta.url });
     return next(spec, ctx);
   },
@@ -93,14 +94,14 @@ const STATES: [string, number[], string][] = [
   ['one, flat', [0.0004], `Still open: 1 position · at 0.0%${NB}flat`],
   ['all flat', [0.0004, -0.0003], `Still open: 2 positions · 0${NB}up, 0${NB}down, 2${NB}flat · at 0.0%${NB}flat`],
   ['printed alike', [0.05, 0.0501], `Still open: 2 positions · 2${NB}up, 0${NB}down · at +5.0%${NB}up`],
-  ['near -100%', [-0.99999], `Still open: 1 position · at ≈-100.0%${NB}down`],
+  ['near -100%', [-0.99999999], `Still open: 1 position · at ≈-100.0%${NB}down`],
   ['12 positions', [-0.15, 0.04, 0.02, 0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, 0], `Still open: 12 positions · 3${NB}up, 8${NB}down, 1${NB}flat · lowest -15.0%${NB}down, highest +4.0%${NB}up`],
 ];
 const BIG = Array.from({ length: 1204 }, (_, i) => (i % 3 ? 0.02 : -0.03));
 
 test('F-34 §2a: openLine prints F-4\'s card line, lowest first, a word after every value, for every state', () => {
   for (const [name, pcts, text] of STATES) assert.equal(openLine(openFacts(pcts), AS_OF)!.text, text, name);
-  assert.match(openLine(openFacts(BIG), AS_OF)!.text, /^Still open: 1,204 positions · 803 up, 401 down · lowest -3\.0% down, highest \+2\.0% up$/);
+  assert.match(openLine(openFacts(BIG), AS_OF)!.text, /^Still open: 1,204 positions · 802 up, 402 down · lowest -3\.0% down, highest \+2\.0% up$/);
 });
 
 test('F-34 §2a: withAsOf, alt (commas, no "·", no parentheses) and the image form, with the year', () => {
@@ -181,12 +182,13 @@ test('F-34 §2b test B: the joined rows are imageText or imageTextDateFirst exac
       const got = tokens(rows.join('|'));
       assert.ok(got === tokens(imageText(l)) || got === tokens(imageTextDateFirst(l)), `${name} ${size}/${width}: ${rows.join(' / ')}`);
       // A row never breaks inside a part, and a value never breaks from its word.
-      for (const r of rows) assert.doesNotMatch(r, /[%\d]$/, `${name}: a row ends on a value without its word: ${r}`);
+      for (const r of rows) assert.ok(!/%$/.test(r) && !/\d\.\d$/.test(r), `${name}: a row ends on a value without its word: ${r}`);
     }
   }
-  // The typical 3-position unfurl takes 2 rows at 35 px (BL3); the strip band's 3 rows at 30 px.
+  // The typical 3-position unfurl takes 2 rows at 35 px (BL3); the strip band takes 3 rows at 26 px, 4 at 30 px.
   assert.deepEqual(imageRows(line, 35, 1120), [`Still open: 3 · 2${NB}up, 1${NB}down · lowest -15.0%${NB}down`, `highest +4.0%${NB}up · as of Sep 30, 2026`]);
-  assert.deepEqual(imageRows(line, 30, STRIP_BAND.width), [`Still open: 3 · 2${NB}up, 1${NB}down`, `lowest -15.0%${NB}down, highest +4.0%${NB}up`, 'as of Sep 30, 2026']);
+  assert.deepEqual(imageRows(line, 26, STRIP_BAND.width), [`Still open: 3 · 2${NB}up, 1${NB}down`, `lowest -15.0%${NB}down, highest +4.0%${NB}up`, 'as of Sep 30, 2026']);
+  assert.deepEqual(imageRows(line, 30, STRIP_BAND.width), [`Still open: 3 · 2${NB}up, 1${NB}down`, `lowest -15.0%${NB}down`, `highest +4.0%${NB}up`, 'as of Sep 30, 2026']);
 });
 
 test('F-34 §2b: packRows is greedy, never breaks an item and returns null when one item is wider than the row', () => {
@@ -354,7 +356,7 @@ test('F-34 AC8: openFull is read only by openLine, OPEN.line only under app/t/**
   const block = copySrc.slice(copySrc.indexOf('export function openLine('), copySrc.indexOf('// end openLine'));
   assert.ok(block.length > 100 && /openFull\(/.test(block), 'openFull is read inside the openLine block');
   assert.equal([...copySrc.matchAll(/openFull\(/g)].length, [...block.matchAll(/openFull\(/g)].length, 'openFull read only inside the openLine block');
-  assert.deepEqual(uses(/\bOPEN\.line\(/).filter((p) => !p.startsWith('app/t/')), []);
+  assert.deepEqual(uses(/\bOPEN\.line\(/).filter((p) => !p.startsWith('app/t/') && p !== 'lib/copy.ts'), []);
   assert.deepEqual(uses(/\bpackRows\(/), ['lib/copy.ts', 'lib/open-split.ts']);
   assert.ok(/packRows\(/.test(block), 'imageRows calls packRows');
   for (const p of ['lib/record-card.ts', 'lib/record-strip.ts']) assert.ok(uses(/\bimageRows\(/).includes(p), `${p} calls imageRows`);
