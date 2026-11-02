@@ -19,7 +19,7 @@ import { paneTrust } from '@/lib/pane.ts';
 import { Badge, PublicNotice } from '../../ui.tsx';
 import { UserNote } from '../../user-note.tsx';
 import { HeldNote } from '@/lib/user-note.ts';
-import { HANDLE_RULE, nextRenameAt, nextRenameText, profileHandleError, RENAME_HOLD, RENAME_RULE, renamedText } from '@/lib/handles.ts';
+import { HANDLE_RULE, nextRenameAt, nextRenameText, profileHandleError, RENAME_HOLD, RENAME_RETIRE, RENAME_RULE, RENAME_RULE_RETIRED, renamedText, retiresHandle } from '@/lib/handles.ts';
 import { FocusHeading } from '../../connect/result/focus-heading.tsx'; // F-17 fix round 2 (UX1): the rename status takes focus
 // F-7 public-record traders.
 import { isPublicRecord, PUBLIC, publicExclusions } from '@/lib/copy.ts';
@@ -255,7 +255,8 @@ export default async function Profile({ params, searchParams }: Params) {
   const renamed = isMe && (await searchParams)?.renamed === '1';
   const renameNext = nextRenameAt(renamedAt);
   const renameSoon = renameNext && renameNext.getTime() > Date.now() ? nextRenameText(renamedAt) : null;
-  const trustShown = impersonationLineShown(); // F-16: draft line in the sandbox until the owner approves it
+  const retires = isMe && await retiresHandle(user.id); // OD 2.17: the owner's own rename hint only
+  const trustShown = impersonationLineShown(); // F-16: approved (OD 2.18), so shown on every deploy
   const listed = trades.slice(win.start, win.start + win.shown);
   const firstNew = win.next !== null ? trades[win.end] : null;
 
@@ -348,7 +349,10 @@ export default async function Profile({ params, searchParams }: Params) {
             <button>Save</button>
           </form>
           <p id="handle-hint" className="muted small">{HANDLE_RULE}</p>
-          <p className="muted small rename-rule" data-rename-rule>{soonError ? RENAME_HOLD : <>{RENAME_RULE}{renameSoon && ` ${renameSoon}`}</>}</p>
+          {/* OD 2.17 (2026-11-02): a connected record's old handles are retired, not held for a year, so the hint says so. */}
+          {retires
+            ? <p className="muted small rename-rule" data-rename-rule>{soonError ? RENAME_RETIRE : <>{RENAME_RULE_RETIRED}{renameSoon && ` ${renameSoon}`}</>}</p>
+            : <p className="muted small rename-rule" data-rename-rule>{soonError ? RENAME_HOLD : <>{RENAME_RULE}{renameSoon && ` ${renameSoon}`}</>}</p>}
         </details>
       )}
       {!shareAfterFigures && ownerShareCard /* FIXES-LABELS (PR #85 review, nit 1) */}

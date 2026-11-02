@@ -27,7 +27,10 @@ const CLOSED_DEV = { NODE_ENV: 'production', ALLOW_DEV_AUTH: '1', SNAPTRADE_CLIE
 const OPEN = { NODE_ENV: 'production', LAUNCH_OPEN: '1', SNAPTRADE_CLIENT_ID: 'real' };
 const CONTACT = { TAKEDOWN_CONTACT: 'notices@example.com' };
 
-test('AC-F16-13 takedown: reachable in the sandbox; on a deploy that admits real users only once approved and a role mailbox is set', () => {
+// OD 2.18 (owner decision 2026-11-02, accepted): the wording is approved, so on a deploy that admits real users the page is
+// reachable once approved, with or without the contact (the page then says it is not set yet). The assertions on an
+// approved wording without a contact and on the repo's constant changed with that decision; the draft cases stand.
+test('AC-F16-13 takedown: reachable in the sandbox; on a deploy that admits real users only once approved (OD 2.18: with or without the role mailbox)', () => {
   assert.equal(gateState(SANDBOX), 'sandbox');
   assert.equal(gateState(SANDBOX_PROD), 'sandbox');
   assert.equal(gateState(CLOSED), 'closed');
@@ -39,24 +42,29 @@ test('AC-F16-13 takedown: reachable in the sandbox; on a deploy that admits real
   for (const env of [CLOSED, CLOSED_DEV, OPEN]) {
     assert.equal(takedownReachable(env, false), false, JSON.stringify(env));
     assert.equal(takedownReachable({ ...env, ...CONTACT }, false), false, JSON.stringify(env));
-    // Approved: still needs the contact, and a contact that is an address.
-    assert.equal(takedownReachable(env, true), false, JSON.stringify(env));
-    assert.equal(takedownReachable({ ...env, TAKEDOWN_CONTACT: '   ' }, true), false);
-    assert.equal(takedownReachable({ ...env, TAKEDOWN_CONTACT: 'not an address' }, true), false);
+    // Approved (OD 2.18): reachable without the contact too; a contact that is not an address is never shown.
+    assert.equal(takedownReachable(env, true), true, JSON.stringify(env));
+    assert.equal(takedownReachable({ ...env, TAKEDOWN_CONTACT: '   ' }, true), true);
+    assert.equal(takedownReachable({ ...env, TAKEDOWN_CONTACT: 'not an address' }, true), true);
     assert.equal(takedownReachable({ ...env, ...CONTACT }, true), true, JSON.stringify(env));
   }
-  // The default reads the repo's constant: draft.
-  assert.equal(TAKEDOWN.approved, false);
-  assert.equal(takedownReachable({ ...OPEN, ...CONTACT }), false);
-  assert.equal(takedownReachable({ ...CLOSED, ...CONTACT }), false);
+  // The default reads the repo's constant: approved (OD 2.18).
+  assert.equal(TAKEDOWN.approved, true);
+  assert.equal(takedownReachable({ ...OPEN, ...CONTACT }), true);
+  assert.equal(takedownReachable({ ...CLOSED, ...CONTACT }), true);
+  assert.equal(takedownReachable(CLOSED), true);
+  // Fails closed on the contact: unset, blank or not an address shows no address at all.
   assert.equal(takedownContact({ TAKEDOWN_CONTACT: ' notices@example.com ' }), 'notices@example.com');
   assert.equal(takedownContact({}), null);
+  assert.equal(takedownContact({ TAKEDOWN_CONTACT: '   ' }), null);
+  assert.equal(takedownContact({ TAKEDOWN_CONTACT: 'not an address' }), null);
 });
 
-test('AC-F16-13 takedown: own title, draft banner, no legal-status claim, agent or reply time, no address in the code', () => {
+// OD 2.18: the draft banner is gone with the approval (the draft assertions changed with that decision).
+test('AC-F16-13 takedown: own title, no draft banner (OD 2.18), no legal-status claim, agent or reply time, no address in the code', () => {
   assert.equal(TAKEDOWN.title, `Notices and takedown requests · ${PRODUCT_NAME}`);
-  assert.match(TAKEDOWN.draft, /^Draft: /);
-  const words = [TAKEDOWN.h1, TAKEDOWN.draft, TAKEDOWN.contactTitle, TAKEDOWN.unset, TAKEDOWN.link, ...TAKEDOWN.lines].join(' ');
+  assert.ok(!('draft' in TAKEDOWN));
+  const words = [TAKEDOWN.h1, TAKEDOWN.contactTitle, TAKEDOWN.unset, TAKEDOWN.link, ...TAKEDOWN.lines].join(' ');
   assert.doesNotMatch(words, LEGAL_CLAIM);
   assert.doesNotMatch(words, MARK_RE);
   assert.doesNotMatch(words, ADDRESS);
@@ -67,14 +75,18 @@ test('AC-F16-13 takedown: own title, draft banner, no legal-status claim, agent 
   }
   const page = read('app/takedown/page.tsx');
   assert.match(page, /if \(!takedownReachable\(\)\) notFound\(\);/);
-  assert.match(page, /\{!TAKEDOWN\.approved && <p role="note"/);
+  assert.doesNotMatch(page, /role="note"|takedown-draft/);
+  assert.match(page, /\{contact \? <a className="tap44" href=\{`mailto:\$\{contact\}`\}>\{contact\}<\/a> : TAKEDOWN\.unset\}/);
+  // Not indexed while it gives no address to write to.
+  assert.match(page, /TAKEDOWN\.approved && takedownContact\(\) \? \{\} : \{ robots: \{ index: false, follow: false \} \}/);
   assert.match(page, /export const dynamic = 'force-dynamic'/);
   assert.match(read('.env.example'), /^TAKEDOWN_CONTACT=$/m);
 });
 
-test('AC-F16-14 line: the agreed wording, the product name as plain text, no platform, nothing about identity; draft until the owner flips it', () => {
+// OD 2.18 (2026-11-02): the line is approved, so the repo's constant is true and it shows on every deploy.
+test('AC-F16-14 line: the agreed wording, the product name as plain text, no platform, nothing about identity; approved by the owner (OD 2.18)', () => {
   assert.equal(TRUST_LINE.text, `${PRODUCT_NAME} never messages anyone about a trading record. Anyone who contacts you elsewhere using this profile isn't acting for ${PRODUCT_NAME}.`);
-  assert.equal(TRUST_LINE.approved, false);
+  assert.equal(TRUST_LINE.approved, true);
   assert.equal(TRUST_LINE.text.split(PRODUCT_NAME).length - 1, 2);
   assert.doesNotMatch(TRUST_LINE.text, MARK_RE);
   assert.doesNotMatch(TRUST_LINE.text, /verif|identity|confirmed|real person|official/i);
@@ -84,7 +96,7 @@ test('AC-F16-14 line: the agreed wording, the product name as plain text, no pla
   for (const env of [CLOSED, CLOSED_DEV, OPEN]) {
     assert.equal(impersonationLineShown(env, false), false);
     assert.equal(impersonationLineShown(env, true), true);
-    assert.equal(impersonationLineShown(env), false); // the repo's constant
+    assert.equal(impersonationLineShown(env), true); // the repo's constant (OD 2.18)
   }
 });
 
@@ -148,7 +160,7 @@ test('AC-F16-10 hidden and retired notices and the hidden trader\'s private line
     assert.ok(allCopy().includes(s), s);
   }
   assert.match(HIDDEN_OWN.line, /not shown to others right now/);
-  for (const s of [TRUST_LINE.text, TAKEDOWN.draft, ...TAKEDOWN.lines]) assert.ok(allCopy().includes(s), s);
+  for (const s of [TRUST_LINE.text, TAKEDOWN.unset, ...TAKEDOWN.lines]) assert.ok(allCopy().includes(s), s);
   // The private line renders only for the signed-in hidden trader on their own handle, with the settings link.
   const nf = code(read('app/u/[handle]/not-found.tsx'));
   assert.match(nf, /if \(s !== 'hidden'\) return false;/);
@@ -205,7 +217,7 @@ test('fix round 2 (UX5, UX6): the takedown link shows in the footer and on the h
   // Inside the owner's row, so a signed-out viewer of the hidden profile never gets it from this page.
   const own = nf.slice(nf.indexOf('{own && <div data-own-line>'), nf.indexOf('</div>}', nf.indexOf('{own && <div data-own-line>')));
   assert.match(own, /href="\/takedown"/);
-  assert.ok(!takedownReachable(CLOSED) && takedownReachable(SANDBOX));
+  assert.ok(takedownReachable(SANDBOX) && !takedownReachable(CLOSED, false)); // OD 2.18: a draft would still be sandbox-only
 });
 
 test('fix round 2 (T2, UX2, BL3): the report page checks for an earlier report first; the sign-in button is a 44 px target; the return path is a ponytail', () => {

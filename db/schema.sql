@@ -1231,3 +1231,15 @@ select schema_add_column('users', 'excluded_held', 'int not null default 0');
 -- duplicate: left out of the rebuild); one suspected by a give-up (a busy account, failed or multi-page widened reads)
 -- was never decided, so it stays held (its pair's later sells counted).
 select schema_add_column('activity_reissues', 'undecided', 'boolean not null default false');
+-- ---- F-16 follow-up (owner decision 2026-11-02): the owner's audited account deletions (lib/owner-delete.ts) ----
+-- Append-only. No foreign key on user_id, so the row outlives the deleted account; no handle, email or name. The reason
+-- codes are checked in code (lib/owner-delete.ts DELETE_REASONS), so a new code never needs this table changed; the
+-- actor is a role word, never a person (the same rule as trust_audit's actor).
+create table if not exists trust_deletions (
+  id bigint generated always as identity primary key,
+  user_id bigint not null,                              -- the deleted account's id; deliberately no references
+  reason text not null,                                 -- lib/owner-delete.ts DELETE_REASONS
+  actor text not null check (actor ~ '^[a-z][a-z0-9-]{0,31}$'),
+  at timestamptz not null default now()
+);
+select schema_add_index('trust_deletions_user', 'create index trust_deletions_user on trust_deletions (user_id, at)');

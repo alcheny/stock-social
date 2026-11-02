@@ -114,12 +114,14 @@ test('F-16 profile and pane: the line with the F3 disclaimer in view at 360 px; 
   }
 });
 
-test('F-16 /takedown in the sandbox: own title, draft banner, one h1, no address while the contact is unset, no legal-status claim', async ({ page }) => {
+// OD 2.18 (2026-11-02): the wording is approved, so the draft banner is gone (this assertion changed with that decision).
+test('F-16 /takedown in the sandbox: own title, no draft banner, one h1, no address while the contact is unset, no legal-status claim', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   const res = await page.goto('/takedown');
   expect(res?.status()).toBe(200);
   await expect.poll(() => page.locator('head title').allTextContents()).toEqual(['Notices and takedown requests · Stock Social']); // metadata may stream in
-  await expect(page.getByRole('note')).toHaveText('Draft: this wording has not been approved yet.');
+  await expect(page.locator('main [role="note"]')).toHaveCount(0);
+  await expect(page.locator('main')).not.toContainText('Draft');
   await expect(page.locator('h1')).toHaveCount(1);
   await expect(page.locator('h1')).toHaveText('Notices and takedown requests');
   await expect(page.locator('meta[name="robots"][content*="noindex"]').first()).toBeAttached();

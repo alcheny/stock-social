@@ -896,7 +896,6 @@ h1 { overflow-wrap: anywhere; }
 /* Fix round 2 (BL2): the hidden owner's links on their own row, like "Back to the feed" and "All stocks". */
 .own-links { display: flex; flex-wrap: wrap; gap: 0 16px; }
 .report-done:focus, .report-alert:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
-.takedown-draft { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--surface); }
 /* F-17 rename (plan §2.6): the visible label on its own line, the rejection under the field (next sibling in the DOM). */
 form.handle-form { flex-wrap: wrap; align-items: center; }
 form.handle-form label { flex-basis: 100%; }

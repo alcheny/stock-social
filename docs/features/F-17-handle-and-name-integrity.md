@@ -32,7 +32,8 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 - 2026-11-01: A hold stores only the handle string and a release date. It lasts at most one year (DESIGN TR-5;
   `lib/delete.ts` already uses 365 days). It never blocks profile deletion and never resolves to a deleted person's
   data. Holds are released by the same path on account deletion. Nothing is retired forever. Why: approved by the
-  approval council (cycle 2); POLICY P6; deletion decision 2026-11-01 (veto condition: DK, LG).
+  approval council (cycle 2); POLICY P6; deletion decision 2026-11-01 (veto condition: DK, LG). (2026-11-02: "Nothing is retired
+  forever" is superseded for accounts with a connected record by OD 2.17, below; the rest of this decision stands.)
 - 2026-11-01: The old path returns a neutral "This handle is no longer in use" page with a 404 status and its own
   title. It shows no profile content and no link to the new handle. There is no 301 rename machinery. Why: approved by
   the approval council (cycle 2); LG, RT, A11Y (no 301: veto condition: CS).
@@ -70,6 +71,17 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 - 2026-11-01: Leaving the untouched provisional handle and renaming back to one's own held handle don't start the 30-day clock; a taken-back hold ends with `until = now()`, never a delete. Why: decided by the committee under the owner's instruction of 2026-11-01; at most one hold exists either way, and nothing is deleted (Q8, business lead B3).
 - 2026-11-01: The "New handle" label is visible. Why: decided by the committee under the owner's instruction of 2026-11-01; WCAG 3.3.2, and the rule message sits beside a visible field name (Q11).
 - 2026-11-01: Brand words stay substring rules; only "Verified" and "Official" match on word boundaries. Why: decided by the committee under the owner's instruction of 2026-11-01; a name that embeds the product's name still impersonates it (engineer E7).
+- 2026-11-02: A handle whose account had a connected record (any `activities` row with source `snaptrade`) is retired
+  and never reissued: on a rename and on account deletion its hold is stored with `until = 'infinity'`, on top of the
+  one-rename-per-30-days rule. A demo or unconnected account's old handle keeps the 365-day hold. Retired holds are
+  exempt from the one-hold cap (a rename never ends one) and from the purge (infinity never ends); a written retired
+  row stays retired. The holder may still rename back to their own retired handle at any time, as with any own hold;
+  it stays retired and out of everyone else's reach. After deletion the row is the handle string alone (`user_id`
+  null). The owner's rename hint says "retired" instead of "a year" for such an account. Why: owner decision OD 2.17
+  (accepted), relayed by the orchestrator; a Verified record's handle is what its share links and screenshots name, so
+  reissuing it would let someone else stand behind a verified record's links (impersonation, DESIGN TR-5). The
+  engineer's choices: rename-back stays allowed (recommended by the orchestrator: the holder's own handle, no new
+  squatting), and the cap counts only year holds, so a connected trader accrues at most one retired handle per 30 days.
 
 ## Acceptance criteria
 - [x] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and
@@ -104,7 +116,7 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
       the field (e2e at 360 px).
 
 ## Out of scope
-- Retiring handles forever (O-9): owner.
+- Retiring handles forever (O-9): owner. (Decided 2026-11-02 for connected records, OD 2.17: see Decisions.)
 - 301 redirects from old handles.
 - Impersonation of named firms: handled by F-16's report and the owner's hide, not by a list.
 
@@ -113,5 +125,6 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 
 ## Build log
 - 2026-11-01: F-16 and F-17 built as one slot on `claude/f16-f17-trust-safety` (committee record `docs/features/logs/F-16-F-17/committee-2026-11-01.md`, plan `plan.md` v3); Status set to built in its PR. Every acceptance criterion is met. Owner items: confirm Q1 (the integrated vendor's word kept in the reserved list under POLICY T1).
+- 2026-11-02: OD 2.17 built on `claude/f16-owner-delete`: `lib/handles.ts#holdUntil` (changeHandle and deleteProfile), the cap and take-back skip retired rows, the rename hint (`RENAME_RETIRE`); tests `lib/f17-retire.test.ts`, `lib/f17-retire.db.test.ts`.
 
 ## Rework notes

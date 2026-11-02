@@ -2,8 +2,9 @@
 
 F-16 (`docs/features/F-16-trust-and-safety-slice.md`, plan `docs/features/logs/F-16-F-17/plan.md` §5.3, §5.5, §5.6,
 §5.8). The owner runs every step here from their own terminal, with `DATABASE_URL` for the deployment in `.env`. No
-step needs a session, a page or an email. Every command below changes state only, never removes it, and every hide or
-unhide writes its own audit row (`trust_audit`) in the same transaction.
+step needs a session, a page or an email. Every hide or unhide changes state only, never removes it, and writes its own
+audit row (`trust_audit`) in the same transaction. The one command that removes data is the owner's account deletion
+(section 3, `scripts/owner-delete.ts`), which writes its own audit row (`trust_deletions`) with the deletion mark.
 
 ## 1. Handling a report
 
@@ -57,13 +58,26 @@ See what was done: `node --env-file=.env scripts/hide.ts history <user_id>` (cod
   (an owner decision, F-16 Open questions).
 - When the owner finds such a report founded, the owner's step is `docs/COMPLIANCE.md` Section 7's under-18
   procedure, the one for a COPPA notice: delete the account, log what was done, and review the sign-up age gate.
-- Closing the account is the owner's own decision and the owner's own action, taken through the product's
-  account-closing path in settings or a documented owner procedure. It is never automatic and never done for you by
-  a script or an assistant.
-- **Owner item (open):** there is no audited, owner-run account-closing path yet. The settings path closes only the
-  signed-in account, and no owner script closes another account with an audit row. Until one exists, keep the
-  `may-be-under-18` hide in place and record the decision with `scripts/trust-digest.ts resolve`; building that path
-  is an owner decision (F-16 Open questions).
+  The owner does it like this:
+  1. **Delete**, from the owner's own terminal:
+
+     ```
+     node --env-file=.env scripts/owner-delete.ts <user_id> under-18-founded --confirm=<handle>
+     ```
+
+     `--confirm` must be the account's current handle, so a mistyped id deletes nothing. The deletion is the same
+     path the settings page uses (`lib/delete.ts#deleteProfile`): the vendor user, billing, the account's rows, and
+     the handle is held (retired for good if the account had a connected record).
+  2. **Log**: the script writes one `trust_deletions` row (user id, reason, actor, time; no handle, email or name) in
+     the same transaction as the deletion mark, so nothing is deleted without its log row. Check it with
+     `node --env-file=.env scripts/owner-delete.ts history <user_id>`. The reports about the account go with it.
+  3. **Review the gate**: read the sign-up age attestation path again (F-1, `docs/COMPLIANCE.md` Section 7) and record
+     what you found and changed in your own notes, outside the repository.
+- If the vendor step fails, the script exits with the error and the account stays marked (hidden everywhere, its log
+  row written); run the same command again, or let the hourly tick finish it.
+- Other owner-decided deletions use the same script with `legal-notice` or `owner-decision` as the reason.
+- Deleting an account is the owner's own decision and the owner's own action. It is never automatic and never done for
+  you by an assistant or an automated job: no agent runs this script.
 
 ## 4. Resolving reports and repeat unfounded reporters
 
@@ -91,6 +105,20 @@ The restore replaces the very tables that record those changes, so read them fro
      psql "$DATABASE_URL" -c "\copy (select handle, until from handle_reservations where user_id is null and until - interval '365 days' > timestamptz 'BACKUP_TIME' order by until) to 'closed-after-backup.csv' csv header"
      ```
 
+     A retired handle (OD 2.17) has no release date to count back from, so also export every retired handle held after
+     a closing (`until = 'infinity'` and `user_id` is null); a restored account that holds one of them was closed
+     after the backup:
+
+     ```
+     psql "$DATABASE_URL" -c "\copy (select handle from handle_reservations where user_id is null and until = 'infinity' order by handle) to 'retired-after-closing.csv' csv header"
+     ```
+
+   - every owner deletion made after the backup's time (section 3), so its log row comes back too:
+
+     ```
+     psql "$DATABASE_URL" -c "\copy (select at, user_id, reason, actor from trust_deletions where at > timestamptz 'BACKUP_TIME' order by at, id) to 'deletions-after-backup.csv' csv header"
+     ```
+
    - every hide and unhide made after the backup's time:
 
      ```
@@ -99,9 +127,12 @@ The restore replaces the very tables that record those changes, so read them fro
 
    Keep both files on the owner's machine, outside the repository. Never paste them into an issue, a PR or a log.
 3. Restore the backup.
-4. For each handle in `closed-after-backup.csv`, find the restored account that holds it and re-run the product's
-   account-closing path (`lib/delete.ts#deleteProfile`, the same path the settings page uses), so the closing is
-   complete again, including the vendor step.
+4. For each user id in `deletions-after-backup.csv`, if the restored database has that account, re-run
+   `scripts/owner-delete.ts <user_id> <reason> --confirm=<its handle> --actor=<actor>` with the row's own reason and
+   actor (this writes the log row again). Then, for each handle in `closed-after-backup.csv` and in
+   `retired-after-closing.csv`, find the restored account that holds it (skip a handle no restored account holds) and
+   re-run the product's account-closing path (`lib/delete.ts#deleteProfile`, the same path the settings page uses), so
+   the closing is complete again, including the vendor step.
 5. Replay `trust-audit-after-backup.csv` in order (oldest first), one command per row with the row's own reason and
    actor: `scripts/hide.ts profile`, `thesis`, `unhide-profile` or `unhide-thesis` with `--actor=<actor>`. Skip a row
    whose account no longer exists after step 4. Check the result with `scripts/hide.ts history <user_id>`.
@@ -123,5 +154,6 @@ These are items to check with counsel or the AI legal committee's findings, not 
 ## 7. What this runbook never does
 
 - It holds no secrets, no keys, no personal addresses and no real user data.
-- It never removes data: hides and unhides are reversible state changes with an audit row.
+- Hides and unhides never remove data: they are reversible state changes with an audit row. The only removal is the
+  owner's own account deletion in section 3, with its log row.
 - It never asks an assistant or an automated job to close accounts or remove data.

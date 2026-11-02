@@ -1095,20 +1095,20 @@ export const HIDDEN_OWN = {
   settings: 'Settings',
   download: 'Download my data',
 } as const;
-// The anti-impersonation line (plan §5.4, v2 B7; app/trust-foot.tsx). Draft: the owner flips `approved` after approving
-// the wording (F-16 Open questions); until then it renders only in the sandbox (lib/takedown.ts#impersonationLineShown).
+// The anti-impersonation line (plan §5.4, v2 B7; app/trust-foot.tsx). Approved by the owner as drafted (OD 2.18,
+// 2026-11-02), so it renders on every deploy (lib/takedown.ts#impersonationLineShown).
 // Plain text, names no platform, says nothing about identity or verification. Literally true while no record-based
 // message exists (the only mail is the sign-in link, LOGIN_MAIL).
 export const TRUST_LINE = {
-  approved: false,
+  approved: true,
   text: `${PRODUCT_NAME} never messages anyone about a trading record. Anyone who contacts you elsewhere using this profile isn't acting for ${PRODUCT_NAME}.`,
 } as const;
-// The notices and takedown page (plan §5.7; app/takedown/page.tsx). Draft until the owner flips `approved` (and sets
-// TAKEDOWN_CONTACT, a role mailbox). No legal-status wording, agent title or reply time (lib/f16-static.test.ts).
+// The notices and takedown page (plan §5.7; app/takedown/page.tsx). Wording approved by the owner as drafted (OD 2.18,
+// 2026-11-02); the draft banner is gone. The contact is env config (TAKEDOWN_CONTACT, a role mailbox): until it is set
+// the page says `unset`. No legal-status wording, agent title or reply time (lib/f16-static.test.ts).
 export const TAKEDOWN = {
-  approved: false,
+  approved: true,
   title: `Notices and takedown requests · ${PRODUCT_NAME}`,
-  draft: 'Draft: this wording has not been approved yet.',
   h1: 'Notices and takedown requests',
   lines: [
     `Use this page to tell us about something on ${PRODUCT_NAME} that you believe infringes your copyright, impersonates you or someone else, shares personal information or breaks the law.`,
