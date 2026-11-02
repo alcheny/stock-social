@@ -162,7 +162,9 @@ export class Breaker {
 // The database settings sharded sync relies on (committee round 2, reliability): both timeouts set; the gap a sync may
 // leave between statements (`idle_in_transaction_session_timeout`) above the largest sync cost and below the per-user
 // lease; enough connections for every shard's workers plus their two spare connections and 20 for the rest of the app.
-export type DbSettings = { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number };
+// C5-40: `jit` is the session's JIT flag, 1 on and 0 off (on by default; most of a rollup read's time on a default
+// server). Left out (an older caller), it is not checked.
+export type DbSettings = { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number; jit?: 0 | 1 };
 export function dbConfigCheck(s: DbSettings, plan: { shards: number; workers: number; maxSyncCostMs: number; userLeaseMs: number }) {
   const problems: string[] = [];
   if (s.statementTimeoutMs <= 0) problems.push('statement_timeout is 0');
@@ -173,6 +175,7 @@ export function dbConfigCheck(s: DbSettings, plan: { shards: number; workers: nu
   }
   const need = plan.shards * (plan.workers + 2) + 20;
   if (s.maxConnections < need) problems.push(`max_connections is below ${need}`);
+  if (s.jit === 1) problems.push('jit is on'); // C5-40: `alter role … set jit = off` (docs/SYNC.md → Database)
   return { ok: problems.length === 0, problems };
 }
 

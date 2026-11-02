@@ -16,6 +16,7 @@ import { HeldNote, UserNote } from '@/lib/user-note.ts';
 import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
 import { SwipeHint } from './first-visit-client.tsx';
 import { RecordStrip } from './record-strip.tsx';
+import { Arrowed } from './arrow.tsx'; // C5-39
 import { WarnNotice } from './warn-notice.tsx'; // F-27
 import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
@@ -39,7 +40,7 @@ export function RowBadge({ kind }: { kind: TrustBadge | null }) {
 
 // F-7 (legal C15, plan Round 5 item 4): the not-joined line and correction link on a public record's pages and pane.
 export function PublicNotice({ link = true }: { link?: boolean }) {
-  return <p className="public-line" data-public-line>{PUBLIC.notJoined}{link && <> <Link className="tap44" href="/public-records">{PUBLIC.correction}</Link></>}</p>;
+  return <p className="public-line" data-public-line>{PUBLIC.notJoined}{link && <> <Link className="tap44" href="/public-records"><Arrowed text={PUBLIC.correction} /></Link></>}</p>;
 }
 
 export type TradeRow = {

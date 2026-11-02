@@ -142,7 +142,8 @@ test('AC-F16-14 line: no image route reaches TrustFoot or TRUST_LINE (record car
 test('AC-F16-14 / B6 profile: the line is the last thing in <main>; the quiet menu sits with it, never beside Follow or Share, and not on your own profile', () => {
   const page = code(read('app/u/[handle]/page.tsx'));
   // Fix round 2 (BL7): "← Feed" joined the menu's row (the only change to this assertion).
-  assert.match(page, /<div className="f16-block">\s*<div className="profile-end"><Link href="\/" className="tap44">← Feed<\/Link>\{!isMe && <ProfileReportMenu handle=\{user\.handle\} \/>\}<\/div>\s*<TrustFoot shown=\{trustShown\} \/>\s*<\/div>\s*<\/main>/);
+  // Chores cycle 5 (C5-39, council cycle 5): the arrow is drawn but not in the link's name (aria-hidden span).
+  assert.match(page, /<div className="f16-block">\s*<div className="profile-end"><Link href="\/" className="tap44"><span aria-hidden="true">←<\/span> Feed<\/Link>\{!isMe && <ProfileReportMenu handle=\{user\.handle\} \/>\}<\/div>\s*<TrustFoot shown=\{trustShown\} \/>\s*<\/div>\s*<\/main>/);
   assert.equal(page.match(/<ProfileReportMenu\b/g)?.length, 1);
   // Not gated on a session: the menu shows signed out too (B6).
   assert.doesNotMatch(page, /me && !isMe && <ProfileReportMenu/);

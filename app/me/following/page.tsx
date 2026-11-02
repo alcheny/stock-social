@@ -84,8 +84,8 @@ export default async function Following({ searchParams }: { searchParams?: Promi
       </>}
       {/* F-2 PR-5: the viewer's hidden trades and personalization switches. */}
       <h2>{HIDDEN_TRADES.title}</h2>
-      <p><Link href="/me/hidden">{HIDDEN_TRADES.title} →</Link></p>
-      <p><Link href="/me/personalize">{PERSONALIZE.link} →</Link></p>
+      <p><Link href="/me/hidden">{HIDDEN_TRADES.title}<span aria-hidden="true"> →</span></Link></p>
+      <p><Link href="/me/personalize">{PERSONALIZE.link}<span aria-hidden="true"> →</span></Link></p>
       {/* F-2 PR-4: the viewer's likes live on their own paged page. */}
       <h2>{LIKES.title}</h2>
       <p><Link href="/me/likes">{LIKES.link}</Link></p>

@@ -10,7 +10,7 @@ test.use({ viewport: { width: 360, height: 740 } });
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 const billingOn = !!process.env.STRIPE_API_BASE;
 const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
-const NOTES = "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.";
+const NOTES = "Other subscribers' private notes about you are deleted and you are removed from their saved views.";
 const POSITION = 'Closed trades imported read-only from connected broker accounts. Losses included.';
 const tag = `c3${Date.now().toString(36).slice(-6)}`;
 let seq = 0;

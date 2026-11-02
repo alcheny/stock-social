@@ -66,6 +66,7 @@ import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' da
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
+import { Arrowed } from '../../arrow.tsx'; // C5-39
 // F-21: the #excluded section (lib/exclusions.ts sums; summed filing reasons move into it, the rest stay below it).
 import { ExcludedSection } from './excluded-section.tsx';
 import { fromRow } from '@/lib/exclusions-load.ts';
@@ -301,7 +302,7 @@ export default async function Profile({ params, searchParams }: Params) {
       </p>
       {pub && filer && <div className="public-top" data-public-top>
         <PublicNotice link={false} />
-        <p className="muted small">{PUBLIC.since(trades.length ? day(new Date(Math.min(...trades.map((t) => t.opened_at.getTime())))) : PUBLIC.notYet, filer.lastChecked ? day(filer.lastChecked) : PUBLIC.notYet)} · <Link className="tap44" href="/public-records">{PUBLIC.correction}</Link></p>
+        <p className="muted small">{PUBLIC.since(trades.length ? day(new Date(Math.min(...trades.map((t) => t.opened_at.getTime())))) : PUBLIC.notYet, filer.lastChecked ? day(filer.lastChecked) : PUBLIC.notYet)} · <Link className="tap44" href="/public-records"><Arrowed text={PUBLIC.correction} /></Link></p>
         <p className="muted small">{PUBLIC.caveat}{stale && ` ${PUBLIC.stale}`}</p>
       </div>}
       {me && !isMe && !pub && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}{done === 'hidden' && <> <Link href="/me/following">{FOLLOW.settingsLink}</Link></>}</p>}</div>}
@@ -477,7 +478,7 @@ export default async function Profile({ params, searchParams }: Params) {
           beside Follow or Share), then the anti-impersonation line last in <main>, so the footer's F3 disclaimer sits
           directly after it. Fix round 2 (BL7): the menu sits left, on "← Feed"'s line. */}
       <div className="f16-block">
-        <div className="profile-end"><Link href="/" className="tap44">← Feed</Link>{!isMe && <ProfileReportMenu handle={user.handle} />}</div>
+        <div className="profile-end"><Link href="/" className="tap44"><span aria-hidden="true">←</span> Feed</Link>{!isMe && <ProfileReportMenu handle={user.handle} />}</div>
         <TrustFoot shown={trustShown} />
       </div>
     </main>

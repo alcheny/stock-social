@@ -68,6 +68,8 @@ test('a hidden profile is counted on no public surface, and its old handle is a 
       await page.goto(`/t/compare?a=${S}&b=${R}`);
       const compareEmpty = (await page.locator('main').innerText()).includes(`No verified closed trades in ${S} yet.`);
       const stockImage = Buffer.compare(await (await request.get(`/t/${S}/opengraph-image`)).body(), emptyImage) === 0;
+      // C5-43(c): the stored sitemap is the cron's (none runs under e2e); run its rebuild before reading it.
+      await (await import('../lib/sitemaps.ts')).rebuildSitemapIndex();
       const sitemap = (await (await request.get('/sitemap.xml')).text()).includes(`/t/${R}</loc>`);
       const codes: Record<string, number> = {};
       for (const [k, u] of Object.entries(urls)) codes[k] = await status(request, u);

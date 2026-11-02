@@ -963,7 +963,7 @@ export const BILLING = {
   refunded: 'Your subscription ended with a refund.',
   downloadHelp: 'A JSON file with your saved views, notes and subscription status.',
   deleteBilling: 'If you subscribe to Record tools, deleting cancels it first; you are not charged again. We keep only the record of what you agreed to at checkout, for 3 years, without your name or email.',
-  deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
+  deleteNotes: "Other subscribers' private notes about you are deleted and you are removed from their saved views.", // C5-36: shown only when it applies (lib/delete.ts#notesLineApplies), so no "if you publish"
 } as const;
 export { billingDate };
 // ---- F-25 one link rule for trade rows (docs/features/F-25-one-link-rule-for-trade-rows.md). Before PUBLIC, which reads

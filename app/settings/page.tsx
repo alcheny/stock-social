@@ -24,8 +24,8 @@ export default async function Settings({ searchParams }: { searchParams?: Promis
       <p><Link href="/me/following">{FOLLOW.settingsLink}</Link></p>
       {/* F-2 PR-5: the personalization switches. */}
       <p><Link href="/me/personalize">{PERSONALIZE.link}</Link></p>
-      {/* F-3: Record tools and the account page (no price here: traders read this page too). */}
-      <h2>{RECORD_TOOLS.title}</h2>
+      {/* F-3: Record tools and the account page (no price here: traders read this page too). C5-36: one "Record tools",
+          the link (the heading above it said the same words). */}
       <p><Link href="/tools">{RECORD_TOOLS.title}</Link></p>
       <p><Link href="/account">{RECORD_TOOLS.account}</Link></p>
       <h2>{SETTINGS.deleteTitle}</h2>

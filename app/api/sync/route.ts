@@ -68,6 +68,14 @@ export async function POST(req: NextRequest) {
     // F-3: the billing reconciliation, once a day (lib/billing.ts#reconcileIfDue). Never a branch for the sync below.
     try { await reconcileIfDue(); } catch (e) { console.error('billing reconcile failed', logSafe(e)); }
     housekeeping = { purgedLinks, connections, deletions, purged, housekeepingMs: Math.round(performance.now() - t0) };
+    // ---- chores cycle 5 (C5-43 part c): sitemap ----
+    // The stored sitemap is rebuilt here, at most once per REBUILD_MS fleet-wide; no request aggregates closed_trades
+    // (lib/sitemaps.ts). Never a branch for the sync below. Counts only.
+    try {
+      const { rebuildSitemapIfDue } = await import('@/lib/sitemaps.ts');
+      housekeeping.sitemap = await rebuildSitemapIfDue();
+    } catch (e) { console.error('sitemap rebuild failed', logSafe(e)); }
+    // ---- end chores cycle 5 (C5-43 part c) ----
   }
   // Privacy work (committee D13, D14, D3, D19; orchestrator review 2): the privacy purges and today's display-log rows
   // get a small fixed slot before the sync (PRIVACY_SLOT_MS each, so a busy tick can never starve them), then use any

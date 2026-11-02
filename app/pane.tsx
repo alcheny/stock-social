@@ -104,7 +104,7 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
   return (
     <section className="pane" aria-label={`${name}'s record`}>
       <header>
-        {back && <button type="button" className="back" data-back>← Back</button>}
+        {back && <button type="button" className="back" data-back><span aria-hidden="true">←</span> Back</button>}
         {/* Fix round 1 (UX 6): room for the whole handle plus the start of the name; the header wraps before it would
             squeeze the name away, and the name ends in an ellipsis. */}
         <Link href={`/u/${handle}`} className="who" style={{ minWidth: `min(100%, ${handle.length + 4}ch)` }}><WhoName name={name} handle={handle} /></Link>
@@ -124,7 +124,7 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
       {/* F-25 Shape R: each row links to its trade page (app/f25-links.tsx; compact props, the same markup). */}
       <PaneTradeRows handle={handle} current={p.recent.findIndex((t) => t.id === highlight)}
         rows={p.recent.map((t): PaneRowData => [t.tradeKey ?? null, t.symbol, numericDay(t.day * 86_400_000) /* F-23: the UTC day */, pct(t.returnPct), tone(t.returnPct)])} />
-      <p><Link href={`/u/${handle}`} className="button">See full profile →</Link></p>
+      <p><Link href={`/u/${handle}`} className="button">See full profile<span aria-hidden="true"> →</span></Link></p>
       {/* OPTIONS fix round 2: the note follows the gate (the paneView line), so it can't go stale when the gate opens.
           QA round 1 (finding 12): a Demo record's footer names Demo, never connected accounts. */}
       <p className="muted">{pub ? PUBLIC.paneFoot : trust.badge === 'demo' ? FIXES_LABELS.paneFoot.demo : OPTIONS.paneNote(!!options?.open)}</p>

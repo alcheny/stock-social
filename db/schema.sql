@@ -893,7 +893,7 @@ select schema_add_index('signup_attempts_sweep', 'create index signup_attempts_s
 -- the further sitemaps' ids agree across servers. One row per scope ('' for the app; tests use their own prefix).
 -- firsts[i]: the first indexable symbol of further sitemap i+1 (the DB's default order); n: indexable symbols at the
 -- build; published: the most further sitemap ids ever listed (never shrinks: a listed id answers 200, maybe empty).
--- Symbols and counts only; no user ids. Rebuilt at most once per REBUILD_MS by a request (lib/sitemaps.ts).
+-- Symbols and counts only; no user ids. Rebuilt at most once per REBUILD_MS by the cron (lib/sitemaps.ts, C5-43 (c)).
 create table if not exists sitemap_chunks (
   scope text primary key,
   firsts text[] not null,
@@ -1231,6 +1231,39 @@ select schema_add_column('users', 'excluded_held', 'int not null default 0');
 -- duplicate: left out of the rebuild); one suspected by a give-up (a busy account, failed or multi-page widened reads)
 -- was never decided, so it stays held (its pair's later sells counted).
 select schema_add_column('activity_reissues', 'undecided', 'boolean not null default false');
+
+-- ---- chores cycle 5 (C5-43 part a): status facts in constant time ----
+-- lib/record-status-load.ts: a trader's first entry is one index row (min(opened_at)); the account count walks the
+-- distinct accounts one index row each and the demo check is one row (the source column).
+-- Both are partial on an always-true condition (the columns are not null) so that only a query naming that condition
+-- can use them: min() adds it itself and the status read names it; every other read of these tables keeps its plan (and
+-- the row order an unordered read happens to get, lib/display-log.batch.test.ts).
+-- ponytail: both are built inside the schema's transaction (no `concurrently`, see schema_add_index), so on a large
+-- production closed_trades or activities table the first apply holds writes for the build — owner deploy step: create
+-- them by hand with `create index concurrently` (same names and columns) before deploying; the helper then skips them.
+-- The conditions are `>= '-infinity'` / `>= ''` (true of every row), not `is not null`: Postgres 17 removes `is not null`
+-- on a not-null column from a query before matching partial indexes, so such an index could never be used there (CI).
+select schema_add_index('closed_trades_user_first', 'create index closed_trades_user_first on closed_trades (user_id, opened_at) where opened_at >= ''-infinity''');
+select schema_add_index('activities_user_source_acct', 'create index activities_user_source_acct on activities (user_id, source, account_id) where account_id >= ''''');
+-- ---- end chores cycle 5 (C5-43 part a) ----
+
+-- ---- chores cycle 5 (C5-43 part c): sitemap ----
+-- The stored sitemap (lib/sitemaps.ts): per scope, indexable symbol and trader, that trader's verified closes and the UTC
+-- day of their newest close, written by the cron's rebuild (at most once per REBUILD_MS) from closed_trades. A request
+-- reads only this table and sitemap_chunks, never closed_trades; it still drops a trader whose deletion is in progress
+-- at once (lib/visible-users.ts), and the row goes with the account. Public: the symbol and the day (the sitemap's
+-- <loc> and <lastmod>); the count only decides whether a symbol is listed.
+create table if not exists sitemap_traders (
+  scope text not null,
+  symbol text not null,
+  user_id int not null references users on delete cascade,
+  verified_trades int not null,
+  last_closed_day date not null,
+  primary key (scope, symbol, user_id)
+);
+select schema_add_index('sitemap_traders_user', 'create index sitemap_traders_user on sitemap_traders (user_id)');
+-- ---- end chores cycle 5 (C5-43 part c) ----
+
 -- F-35 (docs/features/F-35-publish-once-the-date-has-passed.md): a trade is published once its date has passed
 -- (executed_at <= now()), never on the 24-hour grace. `published_through` is the database clock of the record's last
 -- committed rebuild (lib/options-sync.ts#rebuildRecord): every row dated at or before it was in that rebuild's published

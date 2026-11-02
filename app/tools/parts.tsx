@@ -8,15 +8,18 @@ import { subscribe } from './actions.ts';
 import { FocusMessage } from './focus.tsx';
 
 // Committee K8: the disclaimer in plain view at the top of every surface, with the three legal links.
-export function Disclaimer() {
+// C5-37 (approval council cycle 5): the links are a plain group, not a second "Legal" landmark (the site footer's
+// nav is the one). `muted` is /account's variant (F-3 legal condition R8 keeps the sentence and its links there): the
+// same sentence and links, not bold.
+export function Disclaimer({ muted = false }: { muted?: boolean }) {
   return (
-    <div className="rt-disclaimer">
-      <p><b>{DISCLAIMER}</b></p>
-      <nav aria-label="Legal" className="rt-legal">
+    <div className={muted ? 'rt-disclaimer muted' : 'rt-disclaimer'} data-variant={muted ? 'muted' : undefined}>
+      <p>{muted ? DISCLAIMER : <b>{DISCLAIMER}</b>}</p>
+      <p className="rt-legal">
         <Link href="/terms">{FOOTER.terms}</Link>
         <Link href="/privacy">{FOOTER.privacy}</Link>
         <Link href="/how">{FOOTER.how}</Link>
-      </nav>
+      </p>
     </div>
   );
 }

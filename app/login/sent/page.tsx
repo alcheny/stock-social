@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { resendLink } from '../../auth/actions.ts';
 import { SIGNIN } from '@/lib/copy.ts';
+import { Arrowed } from '../../arrow.tsx'; // C5-39
 import { ATTEMPT_COOKIE, ownsAttempt } from '@/lib/auth/links.ts';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 
@@ -30,7 +31,7 @@ export default async function LinkSent({ searchParams }: { searchParams?: Promis
           <button className={`button${failed ? '' : ' secondary'}`} aria-describedby={failed ? 'send-err' : undefined}>{SIGNIN.sendAgain}</button>
         </form>
       )}
-      <p><Link href="/login" className="tap">{SIGNIN.back}</Link></p>
+      <p><Link href="/login" className="tap"><Arrowed text={SIGNIN.back} /></Link></p>
     </main>
   );
 }

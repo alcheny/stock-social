@@ -161,7 +161,7 @@ test('email link: attestation stored before any redirect, link signs in once wit
   const attemptId = Number(page.url().match(/a=(\d+)/)![1]);
   await expect(page.getByText('Check your email. The link works for 15 minutes.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send again' })).toBeVisible();
-  expect((await page.getByRole('link', { name: '← Back' }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await page.getByRole('link', { name: 'Back', exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
   // "Send again" belongs to this browser: another browser with the (sequential) id gets no resend control.
   const stranger = await page.context().browser()!.newContext();
   const other = await stranger.newPage();

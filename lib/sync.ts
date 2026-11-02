@@ -239,8 +239,8 @@ export const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActiv
 
 // F3-3: how long a connection's accounts must stay unlisted, over at least two successful lists, before it freezes.
 export const FREEZE_CONFIRM_HOURS = 24;
-// ponytail: the marks compare the app's clock (`now`), not the database clock the claim rounds use, so instance skew
-// shifts the 24 h window by the skew — fix: compare against the database's now() as clockSql does.
+// C5-43 (d): the marks (`missing_since`, `disconnected_at`) are on the database clock, as the claim rounds are
+// (lib/sync.ts#syncUser), so instance skew never moves the 24 h window.
 
 export type SyncableUser = { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // The hourly sync's users (F-1, COMPLIANCE §3 consent at collection): a trader is synced only once a connection is
@@ -441,12 +441,18 @@ export async function syncUser(
   user: { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null },
   broker: Broker = defaultBroker,
   rebuild: (userId: number, tx: TransactionSql) => Promise<unknown> = (id, tx) => rebuildRecord(id, tx), // OPTIONS
-  now = new Date(),
+  pinned?: Date, // tests only: pins every stamp below, the freeze marks included, to this time; the app passes none
   opts: SyncOpts = {},
 ): Promise<number | 'skipped'> {
   if (!user.snaptrade_user_id || !user.snaptrade_secret_enc) return 0;
   const bu = { snaptradeUserId: user.snaptrade_user_id, secretEnc: user.snaptrade_secret_enc };
   const shiftMs = opts.shiftMs ?? 0;
+  const now = pinned ?? new Date();
+  // ---- chores cycle 5 (C5-43 part d): database clock for freeze marks ----
+  // TR-5 (F3-3): the freeze marks read the database's clock (shifted by the tests' `shiftMs`, as the cadence marks are),
+  // never the calling instance's, so the FREEZE_CONFIRM_HOURS window is the same on every server.
+  const freezeAt = (tx: TransactionSql) => (pinned ? tx`${pinned}::timestamptz` : tx`now() + ${shiftMs}::float8 * interval '1 millisecond'`);
+  // ---- end chores cycle 5 (C5-43 part d) ----
   // The vendor reads that returned (recorded only after each call returns), for the marks written after the transaction.
   const readActs: string[] = [], readPos: string[] = [];
   // F-24: accounts planned for a pass page this sync, and those whose page step threw an error that counts (after the
@@ -488,9 +494,9 @@ export async function syncUser(
       const listed = tx(accounts.length ? accounts.map((a) => a.id) : ['']);
       const none = tx`not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${listed})`;
       const live = tx`c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`;
-      const frozen = await tx`update connections c set disconnected_at = ${now} where ${live} and ${none}
-        and c.missing_since <= ${now}::timestamptz - ${FREEZE_CONFIRM_HOURS}::float8 * interval '1 hour'`;
-      await tx`update connections c set missing_since = ${now} where ${live} and ${none} and c.missing_since is null`;
+      const frozen = await tx`update connections c set disconnected_at = ${freezeAt(tx)} where ${live} and ${none}
+        and c.missing_since <= ${freezeAt(tx)} - ${FREEZE_CONFIRM_HOURS}::float8 * interval '1 hour'`;
+      await tx`update connections c set missing_since = ${freezeAt(tx)} where ${live} and ${none} and c.missing_since is null`;
       await tx`update connections c set missing_since = null where ${live} and not ${none} and c.missing_since is not null`;
       return { accounts, frozen: frozen.count };
     });
@@ -525,6 +531,8 @@ export async function syncUser(
         // QA round 2 (N2): stamped again when it was listed again in between (a trade on it executed after the last stamp,
         // which only a later listing imports), so a second removal shows its own date (lib/record-status-load.ts hides a
         // stamp older than such a trade).
+        // ponytail: removed_at (a label date, not a window) is still the instance's clock — use freezeAt(tx) if a skewed
+        // instance's date ever shows.
         await tx`update broker_accounts b set removed_at = ${now}
           where b.user_id = ${user.id} and b.confirmed_at is not null
             and (b.removed_at is null or exists (select 1 from activities av where av.user_id = b.user_id and av.account_id = b.account_id and av.executed_at > b.removed_at))

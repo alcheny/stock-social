@@ -268,7 +268,7 @@ test('fix round 2 (BL7, UX6): the profile\'s "…" sits left, on "← Feed"\'s l
   await page.setViewportSize({ width: 360, height: 740 });
   await page.goto('/u/momentum_maya');
   const menu = page.locator('main .f16-block summary');
-  const feed = page.locator('main .f16-block').getByRole('link', { name: '← Feed' });
+  const feed = page.locator('main .f16-block').getByRole('link', { name: 'Feed', exact: true }); // C5-39: the arrow is not in the name
   await expect(feed).toHaveAttribute('href', '/');
   const m = (await menu.boundingBox())!, f = (await feed.boundingBox())!;
   expect(Math.abs((m.y + m.height / 2) - (f.y + f.height / 2))).toBeLessThanOrEqual(4);

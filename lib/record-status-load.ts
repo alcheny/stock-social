@@ -14,17 +14,34 @@ type Json = { id: number; consentAt: string; disconnectedAt: string | null; inst
 
 const date = (s: string | null) => (s ? new Date(s) : null);
 
-// ponytail: the account count and the demo check scan each trader's activities (as the profile's own reads do) — a
-// per-user account count and source flag written by the sync would make them constant-time on a feed page
-export async function statusRows(userIds: number[]): Promise<Map<number, StatusRow>> {
-  const ids = [...new Set(userIds)].map(Number);
-  const out = new Map<number, StatusRow>();
-  if (!ids.length) return out;
-  const rows = await sql`
-    with closes as (
-      select user_id, min(opened_at) as first_entry, max(closed_at) as last_close from closed_trades where user_id = any(${ids}::int[]) and user_id in (${visibleUserIds()}) group by user_id /* F-16 */
+// ---- chores cycle 5 (C5-43 part a): status facts in constant time ----
+// The read is a constant number of index rows per trader and account, whatever the record's size (it read every close
+// and activity of each trader on every feed page): the first entry and last close are one index row each
+// (closed_trades_user_first, closed_trades_user); the account count walks the distinct accounts of
+// activities_user_source_acct one index row per account (a loose index scan); the demo check is one row of the same
+// index; the removal-date check reads activities only for an account that has a removal date
+// (lib/chores-cycle5.db.test.ts reads the rows each scan reads with EXPLAIN).
+// Each lookup is written `order by … limit 1` on its index, not min()/max(): in a correlated subquery the planner sizes
+// a trader by the table's average, and on a database of small records a plain aggregate over all of a trader's rows can
+// cost the same as the one-row path (CI's fresh Postgres 17 read all 3,000 closes); with an ordered limit the index
+// path is the only one without a full sort, so it wins whatever the estimates.
+// The partial indexes' conditions (`opened_at >= '-infinity'`, `account_id >= ''`: true of every row, both columns are
+// not null) are repeated word for word here. Not `is not null`: Postgres 17 drops `is not null` on a not-null column
+// from the query before matching partial indexes, so an index on that condition can never be proven usable there.
+// ponytail: an account that has a removal date still range-reads its activities after that date (normally none) — a
+// per-account "last executed_at" column written by the sync would make it one row.
+export const statusQuery = (ids: number[]) => sql`
+    with recursive closes as (
+      select i.uid as user_id, (select t.opened_at from closed_trades t where t.user_id = i.uid and t.opened_at >= '-infinity' order by t.opened_at limit 1) as first_entry,
+        (select t.closed_at from closed_trades t where t.user_id = i.uid order by t.closed_at desc limit 1) as last_close from unnest(${ids}::int[]) i(uid)
+      where i.uid in (${visibleUserIds()}) /* F-16 */
+    ), walk as (
+      select i.uid as user_id, (select a.account_id from activities a where a.user_id = i.uid and a.source = 'snaptrade' and a.account_id >= '' order by a.account_id limit 1) as acct from unnest(${ids}::int[]) i(uid)
+      union all
+      select w.user_id, (select a.account_id from activities a where a.user_id = w.user_id and a.source = 'snaptrade' and a.account_id >= '' and a.account_id > w.acct order by a.account_id limit 1)
+      from walk w where w.acct is not null
     ), accts as (
-      select user_id, count(distinct account_id)::int as n from activities where user_id = any(${ids}::int[]) and source = 'snaptrade' group by user_id
+      select user_id, count(acct)::int as n from walk group by user_id
     ), conns as (
       select c.user_id, jsonb_agg(jsonb_build_object('id', c.id, 'consentAt', c.consent_at, 'disconnectedAt', c.disconnected_at, 'institution', c.institution,
         'accounts', (select coalesce(jsonb_agg(jsonb_build_object('id', x.a->>'id', 'isPaper', coalesce((x.a->>'isPaper')::boolean, false),
@@ -32,7 +49,8 @@ export async function statusRows(userIds: number[]): Promise<Map<number, StatusR
             -- FIXES-LABELS (code review): a removed account the vendor listed again no longer reads "Account removed":
             -- the sync clears removed_at when a list names the account again (PR #85 review B1, lib/sync.ts), and a
             -- trade on it executed after the removal (which only a later listing imports) hides an older stamp too.
-            'removedAt', case when exists (select 1 from activities av where av.user_id = c.user_id and av.account_id = ba.account_id
+            -- C5-43 (a): an account with no removal date reads no activities (CASE tests in order).
+            'removedAt', case when ba.removed_at is null then null when exists (select 1 from activities av where av.user_id = c.user_id and av.account_id = ba.account_id
               and av.executed_at > ba.removed_at) then null else ba.removed_at end) order by x.ord), '[]'::jsonb)
           from jsonb_array_elements(c.accounts) with ordinality x(a, ord)
           left join broker_accounts ba on ba.account_id = x.a->>'id' and ba.user_id = c.user_id)) order by c.id) as list
@@ -47,13 +65,20 @@ export async function statusRows(userIds: number[]): Promise<Map<number, StatusR
     )
     select u.id, u.last_synced_at, u.public_filer_id is not null as filer, cl.first_entry, cl.last_close, coalesce(ac.n, 0) as accounts,
       coalesce(cn.list, '[]'::jsonb) as connections, coalesce(i.list, '{}'::text[]) as brokers,
-      exists (select 1 from activities d where d.user_id = u.id and d.source = 'demo') as demo,
+      exists (select 1 from activities d where d.user_id = u.id and d.source = 'demo' and d.account_id >= '') as demo, -- C5-43 (a): the partial index's condition
       exists (select 1 from connections c where c.user_id = u.id and c.consent_at is not null and c.state in ('importing', 'connected', 'failed')) as consented,
       exists (select 1 from broker_accounts b where b.user_id = u.id and b.confirmed_at is not null and b.connection_id is null) as legacy
     from users u
     left join closes cl on cl.user_id = u.id left join accts ac on ac.user_id = u.id
     left join conns cn on cn.user_id = u.id left join insts i on i.user_id = u.id
     where u.id = any(${ids}::int[])`;
+// ---- end chores cycle 5 (C5-43 part a) ----
+
+export async function statusRows(userIds: number[]): Promise<Map<number, StatusRow>> {
+  const ids = [...new Set(userIds)].map(Number);
+  const out = new Map<number, StatusRow>();
+  if (!ids.length) return out;
+  const rows = await statusQuery(ids);
   for (const r of rows) {
     const connections: StatusConnection[] = (r.connections as Json[]).map((c) => ({
       id: Number(c.id), consentAt: new Date(c.consentAt), disconnectedAt: date(c.disconnectedAt), institution: c.institution,

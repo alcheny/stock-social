@@ -82,6 +82,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   portal_probes: { personal: false, retention: 'none', holds: 'per vendor portal origin, whether it can be framed and until when' },
   rate_marks: { personal: true, retention: 'short', holds: 'the last import-poll time per user id; pruned by lib/rate-limit.ts after a day' },
   sitemap_chunks: { personal: false, retention: 'none', holds: 'sitemap chunk boundary symbols, indexable-symbol count, highest sitemap id published and build time (no user ids)' },
+  // Chores cycle 5 (C5-43 (c)): the stored sitemap, rebuilt by the cron from the public record (lib/sitemaps.ts).
+  sitemap_traders: { personal: true, retention: 'account', holds: 'per indexable symbol and trader (user id): that trader\'s verified close count and the UTC day of their newest close, rebuilt by the cron at most every 10 minutes; deleted with the account' },
   similar_pools: { personal: true, retention: 'short', holds: 'the Similar trades section pool: user ids with ranking numbers derived from public records (no quantities or prices); one row per scope, overwritten every 10 s while profiles are viewed; rows idle past a day are deleted by lib/privacy-purge.ts' },
   privacy_purge_cursors: { personal: false, retention: 'none', holds: "the orphan purge's scan position per step: a number in the trade_key hash space, a window span, how much of the current lap is walked and a lap count (no user, key or trade)" },
   // F-15 (docs/features/F-15-measurement-foundation.md): aggregate daily view counts. No IP, user agent, viewer or session
