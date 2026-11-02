@@ -161,7 +161,7 @@ test('AC2 (D5 fallback): in the pane the qualifier sits directly before the head
   assert.ok(at('<CombinedLine') > at('<OpenGrid') && at('<OpenGrid') > at('<section className="stats"'));
   assert.ok(at('<PaneOptions') > at('<CombinedLine'), 'the count line after the figures');
   assert.equal(figs.split('<ShareTradesLabel').length, 2, 'one label in the pane');
-  assert.match(figs, /ponytail: cycle 5's pane line order \(F-21's exclusions line, then F-34's open line, then the options qualifier\)/);
+  assert.match(figs, /ponytail: cycle 5's pane line order \(F-21's exclusions line, then F-34's open line, then the options qualifier\) is\s+not applied to the qualifier/);
   assert.doesNotMatch(read('app/globals.css'), /\.pane [^{]*\+ \.share-label/, 'no F-29 spacing rule for a moved label');
 });
 

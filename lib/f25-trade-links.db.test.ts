@@ -219,7 +219,9 @@ dbTest('F-25: the feed page issues the same SQL statements as before for a one-t
     // Measured on origin/main (63f48f4, before F-25) with this same fixture and warm-up: 17 statements for the one-trader
     // page and 13 for the 30-card page (more than 8 traders, so records() reads in two halves). F-25 adds a column to
     // two existing statements and no statement.
-    assert.deepEqual({ one: one.n, thirty: thirty.n }, { one: 17, thirty: 13 });
+    // F-21 (committee decision 9: exactly one new query per page): the exclusion counters' one statement, on both pages.
+    assert.deepEqual({ one: one.n, thirty: thirty.n }, { one: 17 + 1, thirty: 13 + 1 });
+    assert.equal(log.filter((q) => /excluded_future_sells/.test(q)).length, 1, 'F-21: the one exclusion statement');
     for (const c of thirty.cards) assert.equal(c.trade_key, sha(c.sell_id));
   } finally { await sql`delete from users where id in ${sql(ids)}`; }
 });

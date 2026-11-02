@@ -9,6 +9,8 @@ import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 import { visibleId, visibleUser } from '@/lib/visible-users.ts';
 import { paneModel } from '@/lib/pane-model.ts'; // F-23
 import { feedPaneChart, PAYLOAD_V } from '@/lib/chart-series.ts'; // F-23
+import { exclusionInput, storedExclusions } from '@/lib/exclusions-load.ts'; // F-21
+import { exclusionTotal } from '@/lib/exclusions.ts'; // F-21 (paneModel keeps the one "0 while importing" rule)
 import { gateCacheControl } from '@/lib/gate-key.ts'; // F-29
 
 // F-2 PR-3b fix round 1 (business lead D2): a Similar trades row's pane, fetched when its sheet first opens
@@ -28,8 +30,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
   const [user] = await sql`select id from users u where handle = ${handle} and ${visibleUser('u')} and ${filerVisibleSql('u')}` // F-16: hidden is 404;
   if (!user) return no();
   // F-6: the trader's open positions (unrealized percent only), served for a connected or failed record only, as on the feed.
-  const [rows, states, positions, options] = await Promise.all([records([user.id as number]), recordStates([user.id as number]),
-    sql`select unrealized_pct, fetched_at from open_positions where user_id = ${user.id as number} and ${visibleId(user.id as number)}`, optionHeadline([user.id as number])]);
+  const [rows, states, positions, options, stored] = await Promise.all([records([user.id as number]), recordStates([user.id as number]),
+    sql`select unrealized_pct, fetched_at from open_positions where user_id = ${user.id as number} and ${visibleId(user.id as number)}`, optionHeadline([user.id as number]),
+    storedExclusions([user.id as number]) /* F-21 */]);
   const state = states.get(user.id as number)?.state ?? 'connected';
   if (state === 'importing') return no();
   const shown = state === 'connected' || state === 'failed' ? positions : [];
@@ -37,7 +40,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
   const openAsOf = shown.length ? new Date(Math.min(...shown.map((p) => (p.fetched_at as Date).getTime()))) : null;
   const now = new Date();
   // FIXES-LABELS (code review): the entry times (openedAt) feed the model's range line and New record on the server.
-  const model = paneModel(rows, state, now, open, openAsOf);
+  // F-21: the exclusion sum rides the model (an integer; no PAYLOAD_V bump: a body without it reads as 0, decision 3).
+  const model = paneModel(rows, state, now, open, openAsOf, exclusionTotal(exclusionInput(stored.get(user.id as number), options.get(user.id as number)!)));
   const chart = feedPaneChart(rows, now);
   // FIXES-LABELS: status (F-11): the pane's status as static segments (absolute dates; this JSON is cached 60 s).
   const status = paneSegments((await statusFor(user.id as number, state)) ?? undefined, now) ?? null;
