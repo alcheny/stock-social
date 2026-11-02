@@ -217,7 +217,7 @@ dbTest('F5-4: drift guard: inserts, updates, deletes, rebuildTrades, the options
   const acts = [] as Record<string, unknown>[];
   for (let i = 0; i < 6; i++) {
     for (const [side, d, price] of [['BUY', i * 10, 10], ['SELL', i * 10 + 3 + (i % 2) * 9, 10 + i - 2]] as const) {
-      acts.push({ user_id: u, source: i % 3 ? 'snaptrade' : 'demo', external_id: `${acct}-${i}-${side}`, account_id: acct, symbol: syms[i % 2], side, units: 1, price, executed_at: new Date(T0 + d * DAY), raw: {} });
+      acts.push({ user_id: u, source: 'snaptrade', external_id: `${acct}-${i}-${side}`, account_id: acct, symbol: syms[i % 2], side, units: 1, price, executed_at: new Date(T0 + d * DAY), raw: {} });
     }
   }
   await sql`insert into activities ${sql(acts)}`;
