@@ -21,7 +21,7 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
   if (done && !ids) return null;
   const users = await sql`select u.id from users u
     where ${ids ? sql`u.id in ${sql(ids.length ? ids : [0])} and` : sql``}
-      not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version = ${version})
+      not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version >= ${version})
       and (exists (select 1 from activities a where a.user_id = u.id) or exists (select 1 from corporate_actions c where c.user_id = u.id))
     order by u.id`;
   const { rebuilt, failed } = await rebuildEach(users.map((u) => u.id as number), version, budgetMs, false);
@@ -56,10 +56,11 @@ async function rebuildEach(ids: number[], version: number, budgetMs: number, ski
   return { rebuilt, failed, busy };
 }
 
-// A record the matcher has to rebuild for `version`: it has stored rows and no matcher_rebuilt row for that version.
+// A record the matcher has to rebuild for `version`: it has stored rows and no matcher_rebuilt row for that version or a
+// newer one (a record a newer deploy already rebuilt is never rebuilt back by older code).
 // `ids` narrows the population (tests: only their own records); `shard` narrows it to `id % of = shard`.
 const pending = (version: number, ids?: number[], shard?: Shard) => sql`
-  not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version = ${version})
+  not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version >= ${version})
   and (exists (select 1 from activities a where a.user_id = u.id) or exists (select 1 from corporate_actions c where c.user_id = u.id))
   ${ids ? sql`and u.id in ${sql(ids.length ? ids : [0])}` : sql``}
   ${shard && shard.of > 1 ? sql`and u.id % ${shard.of} = ${shard.shard}` : sql``}`;
@@ -77,7 +78,9 @@ export const MATCHER_CATCHUP_BATCH = 200;
  *  being empty, which only a test's private version number may rely on. */
 export async function catchUpMatcher(o: { shard: Shard; budgetMs?: number; version?: number; ids?: number[]; batch?: number; now?: () => number }): Promise<CatchUp | null> {
   const version = o.version ?? MATCHER_VERSION;
-  const [done] = await sql`select 1 from matcher_runs where version = ${version}`;
+  // A newer version done (or a record rebuilt for a newer version, in `pending`) counts as done: code still serving the
+  // cron while the next deploy rebuilds must never rebuild a record back with the older matcher (independent review).
+  const [done] = await sql`select 1 from matcher_runs where version >= ${version} limit 1`;
   if (done) return null;
   const batch = o.batch ?? MATCHER_CATCHUP_BATCH;
   const users = await sql`select u.id from users u where ${pending(version, o.ids, o.shard)} order by u.id limit ${batch}`;

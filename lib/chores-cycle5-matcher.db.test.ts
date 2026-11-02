@@ -12,7 +12,7 @@ before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readF
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 
 // A version no deploy uses (smallint), picked per test so parallel files never share one.
-const privateVersion = () => 20000 + Math.floor(Math.random() * 12000);
+const privateVersion = () => 20000 + Math.floor(Math.random() * 12000); // +1 stays within smallint
 
 async function setup() {
   const { sql } = await import('./db.ts');
@@ -31,22 +31,26 @@ async function setup() {
     return u.id;
   };
   const version = () => { const v = privateVersion(); versions.push(v); return v; };
+  // The figure an older matcher published for record `n`'s close (+50%): the test's own fixture row, as in
+  // lib/fixes-cycle4.db.test.ts (production never patches closed_trades).
+  const staleFigure = (u: number, n: string) => sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+    values (${u}, ${`${tag}-${n}-s`}, ${`${tag}-acc`}, 'FAKE', '2026-10-01T14:00:00Z', '2026-10-02T14:00:00Z', 0.5, 1, true)`;
   const cleanup = async () => {
     if (versions.length) await sql`delete from matcher_runs where version in ${sql(versions)}`;
     if (made.length) await sql`delete from users where id in ${sql(made)}`;
   };
-  return { sql, tag, made, mkRecord, version, cleanup };
+  return { sql, tag, made, mkRecord, version, staleFigure, cleanup };
 }
 
 dbTest('C5-43(b) catch-up: a version bump over 50 records is drained by shard calls with no deploy, then marked done', async () => {
-  const { sql, tag, made, mkRecord, version, cleanup } = await setup();
+  const { sql, tag, made, mkRecord, version, staleFigure, cleanup } = await setup();
   const { catchUpMatcher } = await import('./matcher-rebuild.ts');
   try {
     for (let i = 0; i < 50; i++) await mkRecord(`r${i}`);
     const ids = [...made];
     // One record still shows a figure the old matcher published (the test's own fixture row; production never patches
     // closed_trades): the catch-up must replace it with the current matcher's +10%.
-    await sql`update closed_trades set return_pct = 0.5 where user_id = ${ids[0]}`;
+    await staleFigure(ids[0], 'r0');
     const v = version();
     const of = 3;
     let rebuilt = 0, calls = 0, done = false;
@@ -150,6 +154,39 @@ dbTest('C5-43(b) catch-up: records with no stored rows are never selected, so th
     assert.deepEqual(await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: v, ids: [u.id] }), { rebuilt: 0, failed: 0, busy: 0, left: 0, done: true });
     const [m] = await sql`select 1 from matcher_rebuilt where user_id = ${u.id}`;
     assert.equal(m, undefined);
+  } finally {
+    await cleanup();
+  }
+});
+
+dbTest('C5-43(b) catch-up: older code never rebuilds back a record a newer version already rebuilt, and stops once a newer version is done', async () => {
+  const { sql, tag, made, mkRecord, version, staleFigure, cleanup } = await setup();
+  const { catchUpMatcher } = await import('./matcher-rebuild.ts');
+  try {
+    await mkRecord('n0');
+    await mkRecord('n1');
+    const ids = [...made];
+    const older = version();
+    const newer = older + 1;
+    // The next deploy's rebuild has done the first record (its marker row, as rebuildEach writes it); a stand-in figure
+    // shows whether older code touches it again (the test's own fixture row).
+    await sql`insert into matcher_rebuilt (user_id, version) values (${ids[0]}, ${newer}) on conflict (user_id) do update set version = excluded.version`;
+    await staleFigure(ids[0], 'n0');
+    // A tick still on older code rebuilds only the second record, and the older version is done.
+    assert.deepEqual(await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: older, ids }), { rebuilt: 1, failed: 0, busy: 0, left: 0, done: true });
+    const [kept] = await sql`select version from matcher_rebuilt where user_id = ${ids[0]}`;
+    assert.equal(kept.version, newer);
+    const [c] = await sql`select return_pct from closed_trades where user_id = ${ids[0]} and sell_id = ${`${tag}-n0-s`}`;
+    assert.equal(+c.return_pct, 0.5, 'not rebuilt by the older code');
+    // Once a newer version is done, older code does nothing at all.
+    await sql`delete from matcher_runs where version = ${older}`;
+    await sql`delete from matcher_rebuilt where user_id in ${sql(ids)}`;
+    await sql`insert into matcher_runs (version) values (${newer}) on conflict do nothing`;
+    try {
+      assert.equal(await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: older, ids }), null);
+    } finally {
+      await sql`delete from matcher_runs where version = ${newer}`;
+    }
   } finally {
     await cleanup();
   }

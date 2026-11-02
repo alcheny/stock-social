@@ -33,3 +33,29 @@ code. Every probe record is fictional.
 - A record that fails every time is retried first on each tick of its shard; more than 200 such records in one shard
   would starve the rest.
 - (kept) A sync on old code between the rebuild and the cutover can rebuild one record with the old matcher.
+
+### Independent code review (fresh-context subagent, 2026-11-02, after merging main at ca34767)
+
+- **Blocking 1 (fixed).** `matcher_rebuilt` holds one row per record, so "no row for version N" was also true of a
+  record a newer deploy had already rebuilt for N+1. During the next bump, this code (then the old code serving the
+  cron) could rebuild such a record back with the old matcher while the deploy still marked N+1 done; a frozen record
+  would keep the old figures for good. Fix: a record counts as done for N when its row is N or newer (`>=`, in the
+  shared `pending` fragment and the deploy rebuild's selection), and the catch-up stops once any version ≥ N is done.
+  Test added: "older code never rebuilds back a record a newer version already rebuilt …".
+- Also found while fixing it: the drain test's "old figure" fixture updated a row that did not exist yet
+  (`insertActivities` builds no closes), so it proved nothing. It now inserts the stale close as a fixture row, as
+  `lib/fixes-cycle4.db.test.ts` does, and the test asserts that the close reads +10% afterwards.
+- Verified correct by the reviewer: the lock key and skip path, the shard predicate (matches `lib/sync-shard.ts`), the
+  done-marking logic, unchanged `rebuildAllForMatcher` behaviour, the route's time budget and the tests' isolation on a
+  shared database.
+
+### Gates (PR 1)
+
+- `npx tsc --noEmit`: clean.
+- `npm test`: 2377 tests, 2349 pass, 0 fail, 26 skipped, 2 todo (before the review fix); the touched files were re-run
+  after it (`lib/chores-cycle5-matcher.db.test.ts`, `lib/fixes-cycle4.db.test.ts`: 10 pass, 0 fail).
+- `node scripts/autopilot.ts guard origin/main`: ok.
+- `BASE_REF=main node scripts/compliance.ts auto`: one finding, `node_modules/@img/sharp-wasm32` (license). It comes from
+  this container's installed optional package, not from this branch (package.json and package-lock.json are unchanged
+  from main).
+- `npm run build`: ok.

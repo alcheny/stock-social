@@ -246,8 +246,9 @@ genuine fill) stays held and counted until the owner looks.
 A `MATCHER_VERSION` bump (`lib/trades.ts`) reaches every record without waiting for later deploys. The deploy's
 `scripts/db-setup.ts` still runs `rebuildAllForMatcher` within `MATCHER_REBUILD_MS`; whatever it leaves, every shard
 call of the cron (`lib/matcher-rebuild.ts#catchUpMatcher`, after the shard's sync) picks up:
-- up to 200 of the shard's records (`id % of = shard`) with stored rows and no `matcher_rebuilt` row for the version,
-  frozen and disconnected records included;
+- up to 200 of the shard's records (`id % of = shard`) with stored rows and no `matcher_rebuilt` row for the version
+  or a newer one, frozen and disconnected records included (older code still serving the cron during the next deploy
+  never rebuilds a record back, and stops once a newer version is done);
 - each rebuilt with `rebuildRecord` under the trader's lock, within 20 s of the call's time left (`MATCHER_CATCHUP_MS`);
 - a record whose sync holds the lock is skipped (`busy`) and taken by a later call.
 
