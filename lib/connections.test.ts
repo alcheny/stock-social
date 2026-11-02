@@ -1454,7 +1454,9 @@ dbTest('fix round 4 (engineer re-sit, Low 1): 12 concurrent mints against a hang
   let probes = 0, waiting = 0;
   let release!: () => void;
   const answered = new Promise<void>((r) => { release = r; });
-  const hang = async () => { probes++; await answered; return { headers: new Headers({ 'x-frame-options': 'DENY' }) }; };
+  // C5-42 (chores cycle 5): the order of events, recorded beside the 2 s window below and asserted on its own.
+  const order: string[] = [];
+  const hang = async () => { probes++; order.push('probe started'); await answered; order.push('probe answered'); return { headers: new Headers({ 'x-frame-options': 'DENY' }) }; };
   clearProbeCache();
   try {
     const mints = attempts.map((who) => mintPortal(who, 'r', async (url) => { waiting++; return probePortalMode(url, origin, 'https://app.example', { fetch: hang, timeoutMs: 30_000 }); }, withUrl));
@@ -1465,15 +1467,20 @@ dbTest('fix round 4 (engineer re-sit, Low 1): 12 concurrent mints against a hang
     const [{ n: locks }] = await sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and classid = ${USER_LOCK} and objid in ${sql(ids)}`;
     assert.equal(locks, 0);
     // ... and the whole pool is free: as many parallel queries as the pool has connections answer at once.
-    const free = Promise.all(Array.from({ length: 10 }, () => sql`select 1 as one`));
+    const free = Promise.all(Array.from({ length: 10 }, () => sql`select 1 as one`)).then(() => { order.push('pool answered'); });
     const raced = await Promise.race([free.then(() => 'free'), new Promise((r) => setTimeout(() => r('blocked'), 2_000))]);
     assert.equal(raced, 'free');
     // Every open is already recorded (under the lock), with the fallback answer until the probe speaks.
     const before = await sql`select meta from funnel_events where attempt_id in ${sql(attempts.map((a) => a.attemptId))} and name = 'portal_opened'`;
     assert.equal(before.length, 12);
     assert.ok(before.every((e) => (e.meta as { mode: string }).mode === 'embedded'));
+    order.push('probe released');
     release();
     const done = await Promise.all(mints);
+    order.push('mints done');
+    // Event order, independent of the 2 s window: the one probe starts, the whole pool answers while it still waits,
+    // and only after it is released does it answer and the mints finish.
+    assert.deepEqual(order, ['probe started', 'pool answered', 'probe released', 'probe answered', 'mints done']);
     assert.ok(done.every((d) => d.mode === 'redirect' && d.url.startsWith(`${origin}/portal?u=`)));
     assert.equal(probes, 1);
     const after = await sql`select meta from funnel_events where attempt_id in ${sql(attempts.map((a) => a.attemptId))} and name = 'portal_opened'`;
