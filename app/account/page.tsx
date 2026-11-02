@@ -29,7 +29,7 @@ export default async function Account({ searchParams }: { searchParams?: Promise
     <main className="page rt">
       <h1>{BILLING.accountTitle}</h1>
       {a.kind !== 'trader' && <TestModeLabel on={testMode(billing)} />}
-      <Disclaimer />
+      <Disclaimer muted /* C5-37 */ />
       {sp.e === 'portal' && <p role="alert" className="down">{BILLING.errPortal}</p>}
       {a.kind === 'trader' && <>
         <p>{RECORD_TOOLS.trader}</p>

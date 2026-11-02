@@ -123,7 +123,7 @@ test('F-2 PR-3: signed out, the section sits at position 6 with 3 rows, a true h
     const sheet = first.locator('dialog.pane-sheet');
     await expect(sheet).toHaveAttribute('open', '');
     await expect(sheet.locator('.pane .stats')).toBeVisible();
-    await expect(sheet.getByRole('link', { name: 'See full profile →' })).toHaveAttribute('href', `/u/${handle}`);
+    await expect(sheet.getByRole('link', { name: 'See full profile', exact: true })).toHaveAttribute('href', `/u/${handle}`);
     await expect(sheet.locator('.pane-actions')).toHaveCount(0);
     await expect(sheet.getByText('Not investment advice. Past performance does not guarantee future results.')).toBeVisible(); // F3: the sheet covers the footer
     await shoot(page, 'sheet-from-row-375');
@@ -147,7 +147,7 @@ test('F-2 PR-3: signed out, the section sits at position 6 with 3 rows, a true h
     await expect(note).toBeFocused();
     await expect(note).toBeInViewport({ ratio: 1 });
     await shoot(page, 'sheet-disclaimer-375', FIX1);
-    await sheet.getByRole('button', { name: '← Back' }).click();
+    await sheet.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(sheet).not.toHaveAttribute('open', '');
     expect(page.url()).toMatch(/\/$/);
     expect(posts).toEqual([]); // signed out: no write (and no page fetch yet)

@@ -72,7 +72,7 @@ export default async function MyRecord() {
     <main className="page rec">
       <h1 style={{ marginBottom: 4 }}>My record {demo && <Badge verified={false} />}</h1>
       <p className="muted" style={{ marginTop: 0 }}>Only you can see this page. It&apos;s a description of your closed trades, not advice.</p>
-      <p><Link href={`/u/${me.handle}`}>← Back to my profile</Link></p>
+      <p><Link href={`/u/${me.handle}`}><span aria-hidden="true">←</span> Back to my profile</Link></p>
 
       {r.total === 0 ? (
         <div className="rec-card">

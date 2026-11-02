@@ -228,7 +228,7 @@ test('C3-44: a failed check shows the line (over-disclosure is the safe side); t
   const src = read('lib/delete.ts');
   const fn = src.slice(src.indexOf('export async function notesLineApplies'));
   assert.match(fn, /catch \(e\) \{\s*console\.error\('delete notice check failed', logSafe\(e\)\);\s*return true;/);
-  assert.equal(BILLING.deleteNotes, "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.");
+  assert.equal(BILLING.deleteNotes, "Other subscribers' private notes about you are deleted and you are removed from their saved views.");
   assert.ok(read('docs/features/logs/F-3/plan.md').includes(BILLING.deleteNotes));
   const page = read('app/settings/page.tsx');
   assert.match(page, /\{await notesLineApplies\(me\.id\) && <p className="muted">\{BILLING\.deleteNotes\}<\/p>\}/);

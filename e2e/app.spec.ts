@@ -130,7 +130,7 @@ test('feed: pane opens with → and closes with ←, name tap still opens the pr
   await expect(pane.getByText('win rate', { exact: true })).toBeVisible();
   await expect(pane.getByText('Since first closed trade')).toBeVisible();
   await expect(pane.locator('.rows li')).toHaveCount(5);
-  await expect(pane.getByRole('link', { name: 'See full profile →' })).toHaveAttribute('href', href!);
+  await expect(pane.getByRole('link', { name: 'See full profile', exact: true })).toHaveAttribute('href', href!);
   // With focus in the chart, arrows step chart points and never move the row.
   await pane.locator('.chart-stack').focus();
   const left = await row.evaluate((el) => el.scrollLeft);
@@ -1235,7 +1235,7 @@ test('F-2 PR-1: page 2 appends with no tap at card 25; the 30 → 31 join is sea
     const row31 = rows.nth(30);
     await expect.poll(async () => { await page.keyboard.press('ArrowRight'); return row31.evaluate((el) => el.scrollLeft); }).toBeGreaterThan(300);
     await expect(row31.locator('.pane .chart .zero-label')).toHaveText('0%');
-    await expect(row31.locator('.pane').getByRole('link', { name: 'See full profile →' })).toHaveAttribute('href', `/u/${js[30].handle}`);
+    await expect(row31.locator('.pane').getByRole('link', { name: 'See full profile', exact: true })).toHaveAttribute('href', `/u/${js[30].handle}`);
     await page.keyboard.press('ArrowLeft');
     await expect.poll(() => row31.evaluate((el) => el.scrollLeft)).toBe(0);
     await page.emulateMedia({ colorScheme: 'light' });

@@ -25,7 +25,7 @@ export function LazyPane({ handle, name, highlight, disclaimer = true }: { handl
     return () => { live = false; };
   }, [handle]);
   // F-23 (user test, UX 4): announced like the loading line, and the link never breaks before its arrow.
-  if (data === 'failed') return <p className="muted small sheet-wait" role="status">The record could not be loaded. <a href={`/u/${handle}`} style={{ whiteSpace: 'nowrap' }}>See full profile →</a></p>;
+  if (data === 'failed') return <p className="muted small sheet-wait" role="status">The record could not be loaded. <a href={`/u/${handle}`} style={{ whiteSpace: 'nowrap' }}>See full profile<span aria-hidden="true"> →</span></a></p>;
   if (!data) return <p className="muted small sheet-wait" role="status">Loading <bdi>{name}</bdi>’s record…</p>;
   return <ProfilePane handle={handle} name={name} model={data.model} chart={data.chart} now={new Date()} state={data.state} highlight={highlight} back={false} disclaimer={disclaimer} status={data.status ?? undefined} options={data.options} />;
 }

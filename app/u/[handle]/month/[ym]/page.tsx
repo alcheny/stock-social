@@ -75,7 +75,7 @@ export default async function RecapPage({ params }: Params) {
   return (
     <main className="page month-page">{/* QA round 1 (finding 4): .month-page tightens on a phone (globals.css) */}
       <p>
-        <Link href={`/u/${handle}`}>← {RECORD_STRIP.link(handle)}</Link>{' '}
+        <Link href={`/u/${handle}`}><span aria-hidden="true">←</span> {RECORD_STRIP.link(handle)}</Link>{' '}
         {r.demo && <span className="badge demo" title={FL_DEMO}>Demo</span>}
         {isPublicRecord(r.state) && <Badge kind={r.state} />}
       </p>
@@ -133,7 +133,7 @@ export default async function RecapPage({ params }: Params) {
       <p className="muted small">Percentages only. Never sizes or prices.</p>
       <p className="muted small">{isPublicRecord(r.state) ? PUBLIC.recap : (r.excludingOptions ? FC4.monthFootShares : FL.monthFoot)[r.demo ? 'demo' : 'real'] /* QA round 1 (finding 12); FIXES-CYCLE4-PART2 (F4-4) */}</p>
       {!me && !r.demo && !isPublicRecord(r.state) && <JoinCta handle={handle} via="month" />}
-      <p><Link href="/">← Feed</Link></p>
+      <p><Link href="/"><span aria-hidden="true">←</span> Feed</Link></p>
     </main>
   );
 }

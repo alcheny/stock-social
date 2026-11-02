@@ -64,6 +64,7 @@ import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' da
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
+import { Arrowed } from '../../arrow.tsx'; // C5-39
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
@@ -269,7 +270,7 @@ export default async function Profile({ params, searchParams }: Params) {
       </p>
       {pub && filer && <div className="public-top" data-public-top>
         <PublicNotice link={false} />
-        <p className="muted small">{PUBLIC.since(trades.length ? day(new Date(Math.min(...trades.map((t) => t.opened_at.getTime())))) : PUBLIC.notYet, filer.lastChecked ? day(filer.lastChecked) : PUBLIC.notYet)} · <Link className="tap44" href="/public-records">{PUBLIC.correction}</Link></p>
+        <p className="muted small">{PUBLIC.since(trades.length ? day(new Date(Math.min(...trades.map((t) => t.opened_at.getTime())))) : PUBLIC.notYet, filer.lastChecked ? day(filer.lastChecked) : PUBLIC.notYet)} · <Link className="tap44" href="/public-records"><Arrowed text={PUBLIC.correction} /></Link></p>
         <p className="muted small">{PUBLIC.caveat}{stale && ` ${PUBLIC.stale}`}</p>
       </div>}
       {me && !isMe && !pub && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}{done === 'hidden' && <> <Link href="/me/following">{FOLLOW.settingsLink}</Link></>}</p>}</div>}
@@ -443,7 +444,7 @@ export default async function Profile({ params, searchParams }: Params) {
       )}
       {opt.gate === 'open' && complete && <OptionTradesSection trades={opt.trades} start={Number((await searchParams)?.options) || 0} handle={user.handle} />}
       {similar && <SimilarSection handle={user.handle} similar={similar} signedIn={!!me} />}
-      <p><Link href="/" className="tap44">← Feed</Link></p>
+      <p><Link href="/" className="tap44"><span aria-hidden="true">←</span> Feed</Link></p>
     </main>
   );
 }

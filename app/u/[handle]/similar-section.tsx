@@ -9,6 +9,7 @@ import { RowBadge, WhoName } from '../../ui.tsx';
 import { NotInterested } from '../../not-interested.tsx';
 import { SuggestRow } from '../../suggest-row.tsx';
 import { FeedHides } from '../../feed-hides.tsx';
+import { Arrowed } from '../../arrow.tsx'; // C5-39
 
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -35,9 +36,9 @@ export function SimilarSection({ handle, similar, signedIn }: { handle: string; 
             // trader's pane below it (loaded on first open, D2) and the profile one step further.
             const lead = (
               <header className="sheet-trade">
-                <button type="button" className="back" data-back>← Back</button>
+                <button type="button" className="back" data-back><span aria-hidden="true">←</span> Back</button>
                 <h3 tabIndex={-1}>{SIMILAR.closed(r.symbol, DAY.format(r.closedAt))}</h3>
-                <p><b className={toneClass(r.returnPct)}>{pct(r.returnPct)}</b> <span className="muted">{SIMILAR.held[r.bucket]}</span> <a href={trade}>{SIMILAR.trade}</a></p>
+                <p><b className={toneClass(r.returnPct)}>{pct(r.returnPct)}</b> <span className="muted">{SIMILAR.held[r.bucket]}</span> <a href={trade}><Arrowed text={SIMILAR.trade} /></a></p>
               </header>
             );
             return (

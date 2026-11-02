@@ -77,7 +77,7 @@ test('signed out: after the trader\'s own trades, 3 other traders\' trades, no p
     const sheet = page.locator('dialog.pane-sheet[open]');
     await expect(sheet).toBeVisible();
     await expect(sheet.getByText('Not investment advice. Past performance does not guarantee future results.')).toBeAttached();
-    await expect(sheet.getByRole('link', { name: 'See full profile →' })).toBeAttached();
+    await expect(sheet.getByRole('link', { name: 'See full profile', exact: true })).toBeAttached();
     await page.screenshot({ path: `${SHOTS}/sheet-375-light.png` });
     await page.emulateMedia({ colorScheme: 'dark' }); await page.screenshot({ path: `${SHOTS}/sheet-375-dark.png` }); await page.emulateMedia({ colorScheme: 'light' });
     await page.keyboard.press('Escape');
@@ -161,8 +161,8 @@ test('fix round 1: a tap opens the row\'s trade, then its trader\'s pane; the pr
     const sheet = page.locator('dialog.pane-sheet[open]');
     await expect(sheet.locator('.sheet-trade h3')).toHaveText(text);
     await expect(sheet.locator('.sheet-trade h3')).toBeFocused();
-    await expect(sheet.getByRole('link', { name: 'Trade page →' })).toHaveAttribute('href', href!);
-    await expect(sheet.getByRole('link', { name: 'See full profile →' })).toBeAttached();
+    await expect(sheet.getByRole('link', { name: 'Trade page', exact: true })).toHaveAttribute('href', href!);
+    await expect(sheet.getByRole('link', { name: 'See full profile', exact: true })).toBeAttached();
     const symbol = text.split(' · ')[0];
     await expect(sheet.locator('.pane .rows .line.hl')).toContainText(symbol);
     await page.screenshot({ path: `${SHOTS.replace('pr3b', 'pr3b-fix1')}/sheet-trade-375-light.png` });
@@ -189,7 +189,7 @@ test('fix round 1: hiding every row hides the section and moves focus to "← Fe
     }
     await expect(page.locator('.similar')).toBeHidden();
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('link', { name: '← Feed' })).toBeFocused();
+    await expect(page.getByRole('link', { name: 'Feed', exact: true })).toBeFocused();
     await page.screenshot({ path: `${SHOTS.replace('pr3b', 'pr3b-fix1')}/all-hidden-375-light.png` });
   } finally {
     await f.remove();

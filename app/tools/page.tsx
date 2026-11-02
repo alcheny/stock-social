@@ -169,7 +169,7 @@ async function ViewPage({ view, entitled, status }: { view: View; entitled: bool
   const n = view.traders.length;
   return (
     <main className="page rt">
-      <p className="rt-back"><Link href="/tools">← {RECORD_TOOLS.allViews}</Link></p>
+      <p className="rt-back"><Link href="/tools"><span aria-hidden="true">←</span> {RECORD_TOOLS.allViews}</Link></p>
       <h1 id="view-h">{view.name}</h1>
       <Disclaimer />
       {status}

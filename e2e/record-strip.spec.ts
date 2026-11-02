@@ -163,7 +163,7 @@ test('F-12 AC1/AC4: the trade page shows the strip with "@handle\'s record", los
   const link = section.getByRole('link', { name: "@f10_strip's record" });
   await expect(link).toHaveAttribute('href', '/u/f10_strip');
   await expect(section.locator('[data-disclaimer]')).toHaveText(DISCLAIMER);
-  await expect(page.getByRole('link', { name: '← @f10_strip\'s record' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '@f10_strip\'s record', exact: true })).toBeVisible();
   // One link per destination: the duplicate footer record link is gone.
   await expect(page.getByRole('link', { name: /See their record, wins and losses/ })).toHaveCount(0);
   const { alt } = await pageFacts(page);

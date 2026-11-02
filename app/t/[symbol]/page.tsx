@@ -74,7 +74,7 @@ export default async function Ticker({ params, searchParams }: Params) {
     await markSeen(symbol ?? '', watchState);
     return (
       <main className="page">
-        <p><Link href="/t">← All stocks</Link></p>
+        <p><Link href="/t"><span aria-hidden="true">←</span> All stocks</Link></p>
         <h1>{symbol ?? 'Ticker not found'}</h1>
         {symbol && <Watch symbol={symbol} state={watchState} capHit={capHit} />}
         <p className="muted">{EXPLAINER}</p>
@@ -117,7 +117,7 @@ export default async function Ticker({ params, searchParams }: Params) {
   await markSeen(symbol, watchState);
   return (
     <main className="page">
-      <p><Link href="/t">← All stocks</Link></p>
+      <p><Link href="/t"><span aria-hidden="true">←</span> All stocks</Link></p>
       <h1 style={{ marginBottom: 4 }}>{symbol} {!s.mixed && <Badge verified={!s.demoOnly} />}</h1>
       <Watch symbol={symbol} state={watchState} capHit={capHit} />
       <p className="muted" style={{ marginTop: 0 }}>{FL.tickerExplainer[trustKind(s)]}</p>

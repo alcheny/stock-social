@@ -188,6 +188,9 @@ label.check { display: flex; gap: 8px; align-items: center; }
 .tabs button { background: none; color: var(--muted); padding: 6px 12px; border-radius: 999px; }
 /* Pressed range tab: solid sign color with page-background text (≥ 4.5:1 in both schemes; the 15% tint was 4.0–4.3:1). */
 .tabs button[aria-pressed="true"] { color: var(--bg); background: var(--c); }
+/* C5-38: forced colours drop the background, so the pressed range also gets a border in the system text colour the
+   mode paints it in (currentColor, no literal); padding shrinks by the border so the tab keeps its size. */
+@media (forced-colors: active) { .tabs button[aria-pressed="true"] { border: 2px solid currentColor; padding: 4px 10px; } }
 .tabs button:disabled { opacity: .35; cursor: default; }
 .rows li { scroll-margin-top: 72px; }
 .rows li:target { background: color-mix(in srgb, var(--accent) 14%, transparent); }
@@ -467,6 +470,8 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
    has the same size, border and type: nothing is first-place styled (committee K3). */
 .rt-disclaimer { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin: 12px 0; }
 .rt-disclaimer p { margin: 0; }
+/* C5-37: /account's variant: the same sentence and links in muted text, without the box (a page with no figures). */
+.rt-disclaimer.muted { border: 0; padding: 0; }
 .rt-legal { display: flex; flex-wrap: wrap; gap: 0 16px; }
 .rt-legal a, .rt-links a, .rt-views a { display: inline-flex; align-items: center; min-height: 44px; }
 .badge.test-mode { display: inline-block; background: var(--surface); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }

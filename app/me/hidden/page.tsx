@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { backHandle, ownHiddenTrades } from '@/lib/likes.ts';
 import { HIDDEN_TRADES } from '@/lib/copy.ts';
+import { Arrowed } from '../../arrow.tsx'; // C5-39
 import { showTradeAgainForm } from './actions.ts';
 import { RowBadge, WhoName } from '../../ui.tsx';
 
@@ -32,7 +33,7 @@ export default async function HiddenTrades({ searchParams }: { searchParams?: Pr
                 <span className="who-col">
                   <Link href={`/u/${r.handle}`}><WhoName name={r.name} handle={r.handle} /></Link>
                   <span className="small"><span className="closed"><RowBadge kind={r.filer ?? (r.verified ? null : 'demo')} />{HIDDEN_TRADES.closed(r.symbol, day)}</span>
-                    <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}>{HIDDEN_TRADES.trade}</Link></span>
+                    <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}><Arrowed text={HIDDEN_TRADES.trade} /></Link></span>
                 </span>
                 <form action={showTradeAgainForm.bind(null, r.key, sp.after)}>
                   <button className="secondary" aria-label={HIDDEN_TRADES.showAgainFor(r.handle, r.symbol, day)}>{HIDDEN_TRADES.showAgain}</button>
@@ -43,7 +44,7 @@ export default async function HiddenTrades({ searchParams }: { searchParams?: Pr
         </ul>
       ) : <p>{HIDDEN_TRADES.none}</p>}
       {next && <p><Link className="button secondary" href={`/me/hidden?after=${next}`}>{HIDDEN_TRADES.older}</Link></p>}
-      <p><Link href="/me/following">← {HIDDEN_TRADES.backLink}</Link></p>
+      <p><Link href="/me/following"><span aria-hidden="true">←</span> {HIDDEN_TRADES.backLink}</Link></p>
     </main>
   );
 }

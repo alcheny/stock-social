@@ -16,6 +16,7 @@ import { HeldNote, UserNote } from '@/lib/user-note.ts';
 import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
 import { SwipeHint } from './first-visit-client.tsx';
 import { RecordStrip } from './record-strip.tsx';
+import { Arrowed } from './arrow.tsx'; // C5-39
 import { WarnNotice } from './warn-notice.tsx'; // F-27
 import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
@@ -37,7 +38,7 @@ export function RowBadge({ kind }: { kind: TrustBadge | null }) {
 
 // F-7 (legal C15, plan Round 5 item 4): the not-joined line and correction link on a public record's pages and pane.
 export function PublicNotice({ link = true }: { link?: boolean }) {
-  return <p className="public-line" data-public-line>{PUBLIC.notJoined}{link && <> <Link className="tap44" href="/public-records">{PUBLIC.correction}</Link></>}</p>;
+  return <p className="public-line" data-public-line>{PUBLIC.notJoined}{link && <> <Link className="tap44" href="/public-records"><Arrowed text={PUBLIC.correction} /></Link></>}</p>;
 }
 
 export type TradeRow = {
@@ -113,7 +114,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         {hint && <SwipeHint text={FIRST_VISIT.hint} />}
-        <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
+        <Link href={`/u/${t.handle}`}>See their record, wins and losses<span aria-hidden="true"> →</span></Link>
         {/* F-10 (user test 2026-11-01, F-10 AC10): with the record line, the disclaimer is in view on every card, so the
             first screen at 360 px carries it (the site footer sits below the fold). */}
         {strip && <p className="card-disclaimer" data-disclaimer>{DISCLAIMER}</p>}

@@ -156,7 +156,9 @@ Never shown to traders (traders are entitled). No data is removed or hidden to p
   `{disclaimer, views:[{name, traders:[handles in order], createdAt, updatedAt}], notes:[{trader, text, updatedAt}],
   subscription:{plan, status, currentPeriodEnd, cancelAtPeriodEnd}|null}`; no figures; never others' notes (K11).
 - `/settings` delete view 1 gains two lines (K12, K20) under `deleteExplain`: `If you subscribe to Record tools, deleting cancels it first; you are not charged again. We keep only the record of what you agreed to at checkout, for 3 years, without your name or email.`
-  and `If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.`
+  and `Other subscribers' private notes about you are deleted and you are removed from their saved views.` (C5-36,
+  approval council cycle 5, 2026-11-01: the leading "If you publish a record," was dropped; CHORES-3 shows the line
+  only when it applies, `lib/delete.ts#notesLineApplies`.)
 - F-1 consent screen (K24), one added line, built now: `Your record may also appear in other viewers' private comparison tools; they cannot change it, and you are not told who views it.` (re-run the 375×667 fit test).
 
 ## 10. Accessibility (WCAG 2.2 AA)

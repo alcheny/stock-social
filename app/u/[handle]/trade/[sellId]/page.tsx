@@ -76,7 +76,7 @@ export default async function TradePage({ params }: Params) {
   return (
     <main className="page trade-page">{/* QA round 1 (finding 4): .trade-page tightens on a phone (globals.css) */}
       <p>
-        <Link href={`/u/${t.handle}`}>← {RECORD_STRIP.link(t.handle)}</Link>{' '}
+        <Link href={`/u/${t.handle}`}><span aria-hidden="true">←</span> {RECORD_STRIP.link(t.handle)}</Link>{' '}
         {/* QA round 2 (N9): no Demo badge here; the "This trade" box carries it, one per box */}
         {isPublicRecord(t.state) && <Badge kind={t.state} />}
       </p>
@@ -121,7 +121,7 @@ export default async function TradePage({ params }: Params) {
       <TradeShare kind="trade" isOwner={me !== null && me.handle === t.handle} path={path} title={`${t.symbol} ${pct(t.returnPct)} · @${t.handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
       {!me && !t.demo && !t.filings && <JoinCta handle={t.handle} via="trade" />}
-      <p><Link href="/">← Feed</Link></p>
+      <p><Link href="/"><span aria-hidden="true">←</span> Feed</Link></p>
     </main>
   );
 }
