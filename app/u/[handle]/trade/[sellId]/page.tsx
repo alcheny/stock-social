@@ -113,7 +113,7 @@ export default async function TradePage({ params }: Params) {
         <section className="trade-card trade-thesis" aria-labelledby="trade-thesis">
           <h2 id="trade-thesis">{FL_THESIS}</h2>
           {/* F-9: UserNote. t.thesis is published-only (nulled in SQL, lib/trade-share-load.ts); Report for a signed-in non-author. */}
-          {t.thesis && <UserNote text={t.thesis} handle={t.handle} writtenAt={t.note?.writtenAt ?? null} editedAt={t.note?.editedAt ?? null} reportId={me && me.handle !== t.handle ? t.note?.tradeId : undefined} symbol={t.symbol} />}
+          {t.thesis && <UserNote text={t.thesis} handle={t.handle} writtenAt={t.note?.writtenAt ?? null} editedAt={t.note?.editedAt ?? null} reportId={me && me.handle !== t.handle ? t.note?.tradeKey : undefined /* FIXES-CYCLE5 (F5-2): the close's trade_key */} symbol={t.symbol} />}
           {/* F-26: only the author sees their held note's line, in the note's place, with the link to its profile row. */}
           {own && <HeldNote rule={own.rule} edit={own.edit} />}
         </section>

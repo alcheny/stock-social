@@ -85,3 +85,9 @@ export function winPct(wins: number, n: number): string | null {
   const r = Math.floor((200 * w + n) / (2 * n)); // round half up in integers: 23 of 40 is 57.5%, prints "58%"
   return `${w < n && r === 100 ? 99 : w > 0 && r === 0 ? 1 : r}%`;
 }
+
+// FIXES-CYCLE5 (F5-11, C5-21): a ratio to two decimals, cut down (never rounded up), so a profit factor below 1 never
+// prints "1.00" (0.997 would round to it and read as break-even) and one above 1 never reads larger than it is. The
+// 1e-9 absorbs binary error (2.5 * 100 is 249.99999999999997 in some spellings), so 2.5 prints "2.50", not "2.49".
+// The caller prints "—" for no ratio (no losses).
+export const cut2 = (x: number): string => (Math.floor(x * 100 + 1e-9) / 100).toFixed(2);

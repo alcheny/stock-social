@@ -68,9 +68,8 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
           <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} now={now} strip={stripOf(t)} stripBadge={strips.get(t.user_id) ? badges.get(t.user_id) : undefined}
             status={cardSegments(page.status?.get(t.user_id), now)} /* FIXES-LABELS: status */
             // F-9: Report only for a signed-in reader who is not the trader, and never on a public filer's card (F-7: no notes there).
-            // ponytail: Report still names the close by its row id (lib/reports.ts looks up closed_trades.id), so a report sent from a page
-            // rendered before a rebuild is refused as invalid — key it by trade_key as the card menu now is (F-9's file).
-            report={page.viewer && page.viewer.id !== t.user_id && !isPublicRecord(page.records.get(t.user_id)?.state ?? 'none') ? <ReportNote tradeId={String(t.id)} symbol={t.symbol} /> : undefined}
+            // Report names the close by its trade_key, which survives rebuildTrades (lib/reports.ts accepts it and a row id).
+            report={page.viewer && page.viewer.id !== t.user_id && !isPublicRecord(page.records.get(t.user_id)?.state ?? 'none') ? <ReportNote tradeId={tradeKey(t.sell_id)} symbol={t.symbol} /> : undefined}
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} tradeKey={tradeKey(t.sell_id)} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} likeable={!isPublicRecord(page.records.get(t.user_id)?.state ?? 'none')} /> : undefined}
             // F-26: the author's own held line, from the existing viewer check (no session read here).
             ownHeld={page.viewer && page.viewer.id === t.user_id && t.own_held ? { rule: t.own_hold_rule ?? null } : undefined}

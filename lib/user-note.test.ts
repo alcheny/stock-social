@@ -95,7 +95,7 @@ test('every thesis surface renders through UserNote and nowhere else prints thes
   assert.match(read('../app/u/[handle]/page.tsx'), /reportId=\{me && !isMe \?/);
   assert.match(read('../app/u/[handle]/trade/[sellId]/page.tsx'), /reportId=\{me && me\.handle !== t\.handle \?/);
   // F-7 merge: never on a public filer's card.
-  assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id && !isPublicRecord\(page\.records\.get\(t\.user_id\)\?\.state \?\? 'none'\) \? <ReportNote tradeId=\{String\(t\.id\)\} symbol=\{t\.symbol\} \/> : undefined\}/);
+  assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id && !isPublicRecord\(page\.records\.get\(t\.user_id\)\?\.state \?\? 'none'\) \? <ReportNote tradeId=\{tradeKey\(t\.sell_id\)\} symbol=\{t\.symbol\} \/> : undefined\}/);
   // F-13 merge: the card's thesis slot is thesisLine(t, pub, report): a filer's line, else the UserNote.
   assert.match(read('../app/ui.tsx'), /pub \? <p className="thesis muted" data-public-card>/);
   // F-26: plus the author's own held line (ownHeld), the only other thing the slot can hold.
@@ -110,7 +110,7 @@ test('the author sees "held for review" and the matched rule as text, muted (nev
   const line = s.split('\n').find((l) => l.includes("t.thesis_status === 'held'"))!;
   assert.match(line, /isMe &&/);
   // F-26: the line is HeldNote (one markup for the card, the trade page and the profile), rendered here to check it.
-  assert.match(line, /<HeldNote rule=\{t\.thesis_hold_rule\} \/>/);
+  assert.match(line, /<HeldNote rule=\{t\.thesis_hold_rule\} id=\{`held-\$\{t\.id\}`\} \/>/); // F4-17: the id the edit field names
   const { HeldNote } = await import('./user-note.ts');
   const html = renderToStaticMarkup(createElement(HeldNote, { rule: 'promotion' }));
   assert.match(html, /^<p class="muted thesis-held" data-own-held="">Thesis held for review\. [^<]*Held because it has a promotion\.[^<]*<\/p>$/);

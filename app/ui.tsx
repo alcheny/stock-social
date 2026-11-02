@@ -101,7 +101,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         {!strip && <RowBadge kind={trust.badge} />}
         {menu}
       </header>
-      {trust.incomplete && <WarnNotice role="status">{RECORD_BODY.failed}</WarnNotice>}
+      {trust.incomplete && <WarnNotice>{RECORD_BODY.failed}</WarnNotice>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={tc ? `ret ${tc}` : 'ret'} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>

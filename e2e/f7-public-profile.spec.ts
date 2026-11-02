@@ -114,7 +114,7 @@ test('AC 16, 18, 19: filing links per row, exclusions by reason, open symbols wi
 test('AC 28, 30, 34: no Follow, thesis, share prompt or join CTA; noindex; unfurl and alt carry the label and the line', async ({ page, request }) => {
   await page.goto(`/u/${P}`);
   await expect(page.getByRole('button', { name: /follow/i })).toHaveCount(0);
-  await expect(page.locator('form input[name="thesis"], .share-prompt, .join-cta, .similar')).toHaveCount(0);
+  await expect(page.locator('form [name="thesis"], .share-prompt, .join-cta, .similar')).toHaveCount(0);
   expect(await page.locator('meta[name="robots"]').getAttribute('content')).toMatch(/noindex/);
   for (const sel of ['meta[name="description"]', 'meta[property="og:description"]', 'meta[property="og:image:alt"]']) {
     const v = (await page.locator(sel).first().getAttribute('content'))!;

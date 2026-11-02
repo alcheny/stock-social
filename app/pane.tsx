@@ -70,7 +70,7 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
       {trust.badge === 'demo' && <span className="muted"> {FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20): one Demo name */}</span>}
     </p>
   );
-  const incomplete = trust.incomplete && <WarnNotice role="status">{RECORD_BODY.failed}</WarnNotice>;
+  const incomplete = trust.incomplete && <WarnNotice>{RECORD_BODY.failed}</WarnNotice>;
   const long = open ? longValues(pct(p.avgReturn), pct(open.avg), String(open.n)) : undefined;
   const figures = <>
     {options && <ShareTradesLabel show={options.label} />}
