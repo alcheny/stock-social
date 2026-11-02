@@ -855,6 +855,10 @@ h1 { overflow-wrap: anywhere; }
 }
 /* 320 px: the open line and the disclaimer wrap to three lines each; tighter gaps keep the card's 15% headroom. */
 @media (max-width: 340px) { .feed .row > .card { gap: 12px; } }
+/* F-34 (BL1: only the as-of words may be de-emphasised): at 320 px the feed card's open line keeps every value and word
+   at body size and weight; its as-of words step down to the small size and the line's leading tightens, so the line
+   wraps to at most four lines and the card keeps its 15% headroom (BL-R2-3 as amended 2026-11-02, F-10 AC8). */
+@media (max-width: 340px) { .feed .card .open-also { line-height: 1.2; } .feed .card .open-also > .muted { font-size: 0.8125rem; } }
 /* FIXES-LABELS: status (QA round 2 N8, merge with main): a date and the word before it never break apart. */
 .status-glue { white-space: nowrap; }
 

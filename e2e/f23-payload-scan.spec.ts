@@ -113,7 +113,7 @@ type Surface = { name: string; kind: Kind; body: string; fixture: boolean };
 // The packed chart (lib/chart-series.ts#packChart, v=3) by schema.
 function checkPacked(c: Record<string, unknown>, where: string, out: string[]) {
   const day5 = (v: unknown) => Number.isInteger(v) && (v as number) >= 10_000 && (v as number) <= 99_999;
-  if (c.v !== 2) out.push(`${where}: packed chart v=${String(c.v)}`);
+  if (c.v !== 3) out.push(`${where}: packed chart v=${String(c.v)}`);
   if (!day5(c.base)) out.push(`${where}: base ${String(c.base)} is not a 5-digit UTC day`);
   for (const t of (c.trades ?? []) as unknown[][]) {
     if (typeof t[0] !== 'string') out.push(`${where}: trade id ${String(t[0])}`);

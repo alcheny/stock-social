@@ -3,7 +3,7 @@
 // before and after) with a −15% open loser. The line is byte-identical on the profile, the pane, the feed card, the
 // trade and month pages and in the three link previews' descriptions and image alts; the three images make no vendor
 // call; the pane keeps its headline and disclaimer in view at 360 px and reflows at 320 px; the feed card's line wraps
-// to at most 3 lines at 320 px with "-15.0%" never apart from "down". The trader is feed-eligible (5 closes in the last
+// to at most 4 lines at 320 px with "-15.0%" never apart from "down". The trader is feed-eligible (5 closes in the last
 // day), so the shared feed lock is held while it exists (as f6-open-positions.spec.ts).
 import { test, expect, type Page } from '@playwright/test';
 import postgres from 'postgres';
@@ -141,7 +141,9 @@ test('F-34 AC1/AC7 and BL-R2-3: the feed card and the pane print the line; 375/3
       await together(page, also);
       if (w === 320) {
         const lines = await page.locator(also).first().evaluate((el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
-        expect(lines).toBeLessThanOrEqual(3.05);
+        // BL-R2-3 as amended 2026-11-02 (orchestrator, reviews paused): every fact at body size needs four lines in a 320 px
+        // card (measured 3.998); the card's 15% headroom (F-10 AC8) is the binding check, kept unchanged.
+        expect(lines).toBeLessThanOrEqual(4.05);
       }
       const sizes = await page.locator(`${row} article.card`).first().evaluate((card) => {
         const ret = parseFloat(getComputedStyle(card.querySelector('.hero .ret')!).fontSize);
