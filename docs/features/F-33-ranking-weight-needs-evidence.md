@@ -1,9 +1,10 @@
 # F-33 · Ranking weight needs evidence, not just a narrow range
 
-Status: blocked
-Blocked: waits for the owner's answer to cycle-5 owner question Q3 (amends protected DESIGN TR-9 and replaces the owner's 2026-11-01 ranking floor of 10 bets), OD 2.32 (the "Too early to tell" wording and the range rule) and OD 2.33 (the ranking method it works inside); also builds after F-16/F-17 (#100) and F-25 (#102) merge, since both edit `lib/feed.ts`
-Start conditions: the owner answers cycle-5 Q3 (`docs/direction/cycle5-2026-11-01.md` §8) together with OD 2.32, OD
-2.33 and OD 2.34 in one sitting, and #100 and #102 merge. It is its own build slot (the ranking slot).
+Status: building
+Unblocked 2026-11-02: the owner answered cycle-5 Q3 (yes: the moderate tier, a 1-point spread floor), OD 2.32 (one
+arithmetic range rule, "Too early to tell" for a zero-width range, "average per trade so far, likely between X and Y") and
+OD 2.33 (method (c), near-edge distance from 0, on /how). OD 2.34 stays open. #100 and #102 were still open at the start:
+this branch merges main whenever they land.
 
 ## Why
 The error term shrinks to zero when returns are identical (`lib/bets.ts:47`, the interval at `:48-49`), and the feed
