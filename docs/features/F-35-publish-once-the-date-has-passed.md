@@ -1,7 +1,6 @@
 # F-35 · A trade is published once its date has passed
 
-Status: blocked
-Blocked: waits for F-24 (PR #84, `claude/f24-late-postings`) to merge, since it edits `lib/sync.ts` and the future-count query this feature changes
+Status: building
 Start conditions: #84 merges. It is its own build slot (the sync slot). If the watermark needs a column, it rebases on
 whichever of #84 or F-31 (#98) touches `db/schema.sql` first.
 
