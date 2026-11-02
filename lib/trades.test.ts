@@ -18,7 +18,8 @@ test('FIFO across two lots, fees on both legs', () => {
   assert.equal(excluded, 0);
   assert.equal(trades.length, 1);
   // cost = 10*100 + 5*120 = 1600; entry fees = 1 + 0.5; exit = 15*130 = 1950; exit fee 1.5
-  assert.ok(Math.abs(trades[0].returnPct - (1950 - 1600 - 1.5 - 1.5) / 1600) < 1e-12);
+  // F-36: entry fee in the denominator
+  assert.ok(Math.abs(trades[0].returnPct - (1950 - 1600 - 1.5 - 1.5) / (1600 + 1.5)) < 1e-12);
   assert.equal(trades[0].holdingDays, 9);
 });
 
