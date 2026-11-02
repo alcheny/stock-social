@@ -8,6 +8,7 @@ import { sql } from './db.ts';
 import { MATCHER_VERSION } from './trades.ts';
 import { USER_LOCK } from './sync.ts';
 import { rebuildRecord } from './options-sync.ts';
+import { addMoves, noCounts, reasonCounts, type ReasonCounts } from './matcher-report.ts';
 import type { Shard } from './sync-limits.ts';
 
 // Chores cycle 5 (C5-43 part b): records left over at the deploy's time budget no longer wait for the next deploy. The
@@ -16,7 +17,8 @@ import type { Shard } from './sync-limits.ts';
 // matcher after it is marked; its next sync on the new code fixes it — fix: key closed_trades rows by matcher version.
 // ponytail: a trader whose published closes the rebuild turns into counts is not told (their /me/record shows the count
 // only; lib/session.ts is protected) — fix: a one-time owner-facing notice listing records whose shown count dropped.
-export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: number[], budgetMs = Number(process.env.MATCHER_REBUILD_MS) || 600_000): Promise<{ rebuilt: number; failed: number; left: number } | null> {
+// `moves` (F-32 Part A): filled with the run's per-reason changes (tests read it; the run logs it either way).
+export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: number[], budgetMs = Number(process.env.MATCHER_REBUILD_MS) || 600_000, moves: ReasonCounts = noCounts()): Promise<{ rebuilt: number; failed: number; left: number } | null> {
   const [done] = await sql`select 1 from matcher_runs where version = ${version}`;
   if (done && !ids) return null;
   const users = await sql`select u.id from users u
@@ -24,9 +26,10 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
       not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version >= ${version})
       and (exists (select 1 from activities a where a.user_id = u.id) or exists (select 1 from corporate_actions c where c.user_id = u.id))
     order by u.id`;
-  const { rebuilt, failed, newer } = await rebuildEach(users.map((u) => u.id as number), version, budgetMs, false);
+  const { rebuilt, failed, newer } = await rebuildEach(users.map((u) => u.id as number), version, budgetMs, false, Date.now, undefined, moves);
   const left = users.length - rebuilt - newer;
   if (failed) console.error('matcher rebuild: records failed, the version stays open', JSON.stringify({ count: failed }));
+  if (rebuilt) logMoves(version, moves);
   if (!left && !ids) await sql`insert into matcher_runs (version) values (${version}) on conflict (version) do nothing`;
   return { rebuilt, failed, left };
 }
@@ -37,7 +40,9 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
 // is read again: a record rebuilt for this version or a newer one since the batch was selected is left alone (`newer`),
 // and the marker never moves down, so older code can never rebuild a record back after a newer version reached it
 // (parent review of #107: the batch is selected before the locks are taken).
-async function rebuildEach(ids: number[], version: number, budgetMs: number, skipLocked: boolean, now = Date.now, beforeRecord?: (id: number) => Promise<void>) {
+// F-32 Part A (decision "Version bumps"): each rebuilt record's counts are read before and after in its transaction, and
+// the change is added to `moves` once the transaction commits. Counts per reason only, never an id.
+async function rebuildEach(ids: number[], version: number, budgetMs: number, skipLocked: boolean, now = Date.now, beforeRecord?: (id: number) => Promise<void>, moves: ReasonCounts = noCounts()) {
   const start = now();
   let rebuilt = 0, failed = 0, busy = 0, newer = 0;
   for (const id of ids) {
@@ -51,16 +56,22 @@ async function rebuildEach(ids: number[], version: number, budgetMs: number, ski
         } else await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${id})`;
         const [mark] = await tx`select version from matcher_rebuilt where user_id = ${id}`;
         if (mark && (mark.version as number) >= version) return 'newer' as const;
+        const before = await reasonCounts(tx, id);
         await rebuildRecord(id, tx);
+        const after = await reasonCounts(tx, id);
         await tx`insert into matcher_rebuilt (user_id, version) values (${id}, ${version})
           on conflict (user_id) do update set version = excluded.version where matcher_rebuilt.version < excluded.version`;
-        return 'rebuilt' as const;
+        return { before, after };
       });
-      if (outcome === 'rebuilt') rebuilt++; else if (outcome === 'busy') busy++; else newer++;
+      if (typeof outcome === 'object') { rebuilt++; addMoves(moves, outcome.before, outcome.after); } else if (outcome === 'busy') busy++; else newer++;
     } catch { failed++; }
   }
   return { rebuilt, failed, busy, newer };
 }
+
+// The one report line per run: the version and the net change per reason (counts only; lib/privacy-logs.test.ts).
+const logMoves = (version: number, m: ReasonCounts) =>
+  console.log('matcher rebuild: moves per reason', JSON.stringify({ version, shown: m.shown, excluded: m.excluded, corporate: m.corporate, transfer: m.transfer, held: m.held }));
 
 // A record the matcher has to rebuild for `version`: it has stored rows and no matcher_rebuilt row for that version or a
 // newer one (a record a newer deploy already rebuilt is never rebuilt back by older code).
@@ -83,7 +94,7 @@ export const MATCHER_CATCHUP_BATCH = 200;
  *  `ids` limits the population to those records (tests); with `ids` the version is marked done only for that population
  *  being empty, which only a test's private version number may rely on. */
 // `beforeRecord` is a test hook (it runs before each record's transaction), used to interleave another rebuild.
-export async function catchUpMatcher(o: { shard: Shard; budgetMs?: number; version?: number; ids?: number[]; batch?: number; now?: () => number; beforeRecord?: (id: number) => Promise<void> }): Promise<CatchUp | null> {
+export async function catchUpMatcher(o: { shard: Shard; budgetMs?: number; version?: number; ids?: number[]; batch?: number; now?: () => number; beforeRecord?: (id: number) => Promise<void>; moves?: ReasonCounts }): Promise<CatchUp | null> {
   const version = o.version ?? MATCHER_VERSION;
   // A newer version done (or a record rebuilt for a newer version, in `pending`) counts as done: code still serving the
   // cron while the next deploy rebuilds must never rebuild a record back with the older matcher (independent review).
@@ -91,8 +102,10 @@ export async function catchUpMatcher(o: { shard: Shard; budgetMs?: number; versi
   if (done) return null;
   const batch = o.batch ?? MATCHER_CATCHUP_BATCH;
   const users = await sql`select u.id from users u where ${pending(version, o.ids, o.shard)} order by u.id limit ${batch}`;
-  const r = await rebuildEach(users.map((u) => u.id as number), version, o.budgetMs ?? MATCHER_CATCHUP_MS, true, o.now, o.beforeRecord);
+  const moves = o.moves ?? noCounts();
+  const r = await rebuildEach(users.map((u) => u.id as number), version, o.budgetMs ?? MATCHER_CATCHUP_MS, true, o.now, o.beforeRecord, moves);
   if (r.failed) console.error('matcher catch-up: records failed, the version stays open', JSON.stringify({ count: r.failed }));
+  if (r.rebuilt) logMoves(version, moves);
   // ponytail: a record that fails every time is retried first on every tick of its shard (ids in order), so more than `batch`
   // such records in one shard would starve the rest — fix: a matcher_rebuilt attempt count, failed records ordered last.
   // ponytail: `left` counts this shard's records up to one batch past the ones rebuilt (a cheap bound, not the backlog)

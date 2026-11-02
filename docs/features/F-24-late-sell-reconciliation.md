@@ -110,6 +110,11 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
 - 2026-11-01: The give-ups (`busy`, two failed widened reads, a multi-page widened read) stay held, not dropped. Why: decided by the committee under the owner's instruction of 2026-11-01; no
   read decided them, so a genuine fill, possibly a loss, may be among them (the orchestrator's recommended option). A
   flag on the row (`activity_reissues.undecided`) lets the matcher tell them apart from decided duplicates.
+- 2026-11-02: The owner's final wording for the public held count is "N sells excluded while a possible duplicate is
+  checked." (the existing singular form for one sell), replacing the committee's interim text in `lib/copy.ts`. The
+  count stays public whenever it is above 0. Built as fixes-list item F6-1
+  (`docs/direction/owner-decisions-2026-11-02-worklist.md`). Why: the owner's decision of 2026-11-02 (held-sells line;
+  OD 2.29 accepted with this wording).
 
 ## Acceptance criteria
 - [ ] Fake-vendor e2e: a SELL dated 10 days before the newest stored trade appears in `closed_trades` after

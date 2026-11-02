@@ -260,7 +260,7 @@ function CardBody({ c }: { c: Card }) {
           <div className="rt-wide"><dt>{R.evidence}</dt><dd>{c.figures.evidence}</dd></div>
           <div><dt>{R.drawdown}</dt><dd className="down">{c.figures.drawdown}</dd></div>
         </dl>
-      ) : c.state !== 'importing' && <p className="muted small">{RECORD_TOOLS.noTrades}</p>}
+      ) : c.state !== 'importing' && <p className="muted small">{c.notice ?? RECORD_TOOLS.noTrades}</p>}
       {c.excluded.map((line) => <p key={line} className="muted small">{line}</p>)}
     </>
   );

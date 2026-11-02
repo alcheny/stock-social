@@ -3,7 +3,7 @@
 Status: building
 Unblocked 2026-11-02: the owner answered cycle-5 Q3 (yes: the moderate tier, a 1-point spread floor), OD 2.32 (one
 arithmetic range rule, "Too early to tell" for a zero-width range, "average per trade so far, likely between X and Y") and
-OD 2.33 (method (c), near-edge distance from 0, on /how). OD 2.34 stays open. #100 and #102 were still open at the start:
+OD 2.33 (method (c), near-edge distance from 0, on /how). OD 2.34 was answered yes the same day (built as its own feature after this one). #100 and #102 were still open at the start:
 this branch merges main whenever they land.
 
 ## Why
@@ -47,6 +47,21 @@ second-vote mean 4.00, final vote 15/15, all approving, 14 of them with conditio
   above 0. /how states the floor in plain words once Q3 and OD 2.32 are answered, and says why a record below the tier
   carries no ranking weight yet, so new traders do not read it as a penalty. No "proven", "top" or "skill" words. Why:
   approved by the approval council (cycle 5); BL, TR, LC (F1/F3b).
+- 2026-11-02: The owner answered cycle-5 Q3 yes: ranking weight starts at the moderate evidence tier (30 independent
+  trades over 90 days), with a 1-point floor on the spread, replacing the owner's 2026-11-01 floor of 10. Why: the
+  owner's decision of 2026-11-02 (ranking).
+- 2026-11-02: The owner answered OD 2.33 with (c): rank by the near-edge distance from 0 of the range (the edge nearer
+  to 0, so a record whose range crosses 0 has weight 0, and gains and losses of the same size weigh the same),
+  documented on /how. /how and all copy describe it without "edge" as a label (POLICY F3b), for example "the end of
+  the likely range nearer to 0". The property-test AC above uses this method. The TR-9 and CLAUDE.md:92 text edits
+  (brief 3.6, 3.20) go to the protected-files session, never in the build PR. Why: the owner's decision of 2026-11-02
+  (ranking; OD 2.33).
+- 2026-11-02: The owner accepted OD 2.32: one range rule everywhere, the arithmetic mean of simple returns; "Too early
+  to tell" for a zero-width range; the wording "average per trade so far, likely between X and Y". This feature owns
+  the printed range and its one producer, so it carries 2.32's wording. OD 2.34 (open positions in the range) is
+  accepted and is F-46, built after this one in the ranking slot
+  (`docs/direction/owner-decisions-2026-11-02-worklist.md`); the hold-losers AC stays a `todo` naming it until then.
+  Why: the owner's decisions of 2026-11-02 (OD 2.32, 2.34, accepted en bloc).
 
 - 2026-11-02 (owner): cycle-5 Q3 answered yes: ranking weight starts at the moderate tier (30 bets over 90 days) with a
   1-point floor on the spread, replacing the 10-bet floor. OD 2.33: method (c), the near-edge distance from 0, documented
@@ -84,7 +99,8 @@ second-vote mean 4.00, final vote 15/15, all approving, 14 of them with conditio
 - The fixes-lane step that prints "Too early to tell" now.
 
 ## Open questions
-- Answered 2026-11-02: cycle-5 Q3, OD 2.32, OD 2.33 (see Decisions). Still open: OD 2.34 (open positions in the range).
+- Resolved 2026-11-02: cycle-5 Q3 yes; OD 2.32 yes; OD 2.33 (c) near-edge distance from 0; OD 2.34 yes, built as its own
+  feature after this one (Decisions).
 - Owner: a record of 30+ bets whose returns all round to the same value prints "Too early to tell" yet carries ranking
   weight through the 1-point floor (measured: 40 × exactly +1%, 1-day holds over 120 days, weight 0.2041, below the
   200-bet record's 0.2985 and above every record under the tier). Both rules are yours (OD 2.32 prints, Q3 weighs);

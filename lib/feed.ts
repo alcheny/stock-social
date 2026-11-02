@@ -4,7 +4,7 @@ import { recordStates, type RecordStatus } from './connections.ts';
 import { statusRowsOrEmpty, withStates } from './record-status-load.ts'; // FIXES-LABELS: status
 import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
 import { feedReadySql, filerVisibleSql } from './public-gate.ts';
-import { visibleUser } from './visible-users.ts'; // F-33: countRanked
+import { visibleUser, visibleUserAsOf, visibleUserIds } from './visible-users.ts'; // F-33: visibleUser also in countRanked
 import { groupByUser } from './pane.ts';
 import { rankTraders, type ConfidenceInput } from './trades.ts';
 import { RANK_FORMULA, rankWeight } from './rank-weight.ts'; // F-33
@@ -196,7 +196,6 @@ type Q = TransactionSql<{}> | typeof sql; // the pool or one transaction
 type Frag = PendingQuery<Row[]>;
 const scoreAt = (clock: Frag) =>
   sql`ln(1 + abs(t.return_pct) * 100) * exp(-greatest(0::float8, least(date_part('epoch', ${clock} - t.closed_at) / 3600 / ${RECENCY_HOURS}::float8, ${MAX_DECAY}::float8)))`;
-const aliveAt = (asOf?: Date) => asOf ? sql`(u.deleted_at is null or u.deleted_at > ${asOf})` : sql`u.deleted_at is null`;
 const importingAt = (asOf?: Date) => asOf
   ? sql`k.consent_at <= ${asOf} and (k.state = 'importing' or (k.state = 'connected' and k.connected_at > ${asOf}) or (k.state = 'failed' and k.failed_at > ${asOf}))`
   : sql`k.state = 'importing'`;
@@ -220,10 +219,13 @@ async function candidateQuery(q: Q, { ids, asOf, day }: CandOpts, win: number | 
         ${asOf ? sql`and t.closed_at <= ${asOf} and ${importedBy(sql`t.sell_imported_at`, asOf)}` : sql``}
         ${ids ? sql`and t.user_id in ${sql(ids.length ? ids : [0])}` : sql``}
     ), elig as materialized (
+      -- F-16 (plan v2 E5): visible as of asOf (visibleUserAsOf), so a trader deleted or hidden after asOf keeps their
+      -- place in the kept list; the page's card and people reads (loadFeedPage) use the current-time form, so their
+      -- cards are a gap and later pages never shift.
       -- ≥ 5 closes at asOf (c's own count first, fix round 3), not deleted (by asOf), no import running (at asOf). F-1 fix
       -- round 3 (TR-3): a record with an import still running is not in the feed until it is whole.
       select d.user_id, d.n from (select user_id, count(*) as n from c group by user_id) d join users u on u.id = d.user_id
-      where ${aliveAt(asOf)} and ${filerVisibleSql('u')}
+      where ${visibleUserAsOf('u', asOf ?? null)} and ${filerVisibleSql('u')}
         and (d.n >= 5 or (select count(*) from (select 1 from closed_trades x where x.user_id = d.user_id and ${ready('x', asOf)}
              ${asOf ? sql`and x.closed_at <= ${asOf} and ${importedBy(sql`x.sell_imported_at`, asOf)}` : sql``} limit 5) five) = 5)
         and not exists (select 1 from connections k where k.user_id = d.user_id and k.consent_at is not null and ${importingAt(asOf)})
@@ -274,7 +276,7 @@ async function pickQuery(q: Q, { ids, asOf, day }: CandOpts, top: number[]): Pro
   return (await q`
     with pick as materialized (
       -- offset 0 keeps the probes after the md5 sort, so the walk stops at the EXPLORE_EXTRA-th eligible trader.
-      select s.id as user_id from (select u.id from users u where ${aliveAt(asOf)} and ${filerVisibleSql('u')} ${ids ? sql`and u.id in ${sql(ids.length ? ids : [0])}` : sql``}
+      select s.id as user_id from (select u.id from users u where ${visibleUserAsOf('u', asOf ?? null)} and ${filerVisibleSql('u')} ${ids ? sql`and u.id in ${sql(ids.length ? ids : [0])}` : sql``}
         order by md5(${day!} || u.id::text) offset 0) s
       where s.id <> all(${top}::int[])
         and (select count(*) from (select 1 from closed_trades x where x.user_id = s.id ${counted('x')} limit 5) five) = 5
@@ -340,7 +342,7 @@ async function records1(userIds: number[]): Promise<PaneRow[]> {
       -- "Last 5 trades" links, as "id:key" pairs; a column of this statement, so the feed issues no new one (closed_trades_user index).
       (select string_agg(k.id || ':' || k.trade_key, ',' order by k.closed_at desc, k.id desc) from (select c5.trade_key, c5.closed_at, c5.id
         from closed_trades c5 where c5.user_id = closed_trades.user_id order by c5.closed_at desc, c5.id desc limit 5) k) as keys
-    from closed_trades where user_id = any(${userIds}) group by user_id`;
+    from closed_trades where user_id = any(${userIds}) and user_id in (${visibleUserIds()}) group by user_id`;
   // F-10: opened_at is the 8th field, and the rows come in the profile's list order (closed_at desc, id desc), so the
   // strip's average and range are summed in the profile's order: the same floats, not just the same text.
   // ponytail: every page trader's whole record now also ships opened_at (~15–30 ms more parse on a page of heavy records,
@@ -397,7 +399,8 @@ async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<numb
       select user_id, bool_and(verified) as v, '[' || string_agg(concat_ws(',', to_json(symbol)::text, return_pct, holding_days,
         date_part('epoch', opened_at) * 1000, date_part('epoch', closed_at) * 1000), ',') || ']' as j
       from closed_trades where user_id = any(${miss}) and closed_at <= ${asOf} and ${ready('closed_trades', asOf)}
-        and ${importedBy(sql`sell_imported_at`, asOf)} group by user_id`;
+        and ${importedBy(sql`sell_imported_at`, asOf)}
+        and user_id in (select u.id from users u where ${visibleUserAsOf('u', asOf)}) group by user_id`; // F-16: elig's snapshot rule
     const byTrader = new Map<number, ConfidenceInput[]>(miss.map((id) => [id, []]));
     const verified = new Map(rows.map((r) => [r.user_id as number, r.v as boolean]));
     for (const r of rows) byTrader.get(r.user_id as number)!.push(...weightRows(r.j as string));
@@ -566,7 +569,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const sliced = pageOf(slots, c);
   const page = { ...sliced, items: displayFilter(sliced.items, hidden) };
   // The page's cards as they are now (a thesis held since page 1 is not shown; a corrected return shows corrected). A
-  // card whose trader was deleted since asOf, or whose close is gone, is a gap. The three reads run side by side.
+  // card whose trader was deleted or hidden (F-16) since asOf, or whose close is gone, is a gap. The three reads run side by side.
   const traders = [...new Set(page.items.map((s) => s.trader))];
   // F-2 PR-3: the section's candidates (the same for every viewer; signed in, minus the viewer, follows and exclusions).
   // The first 3 records are read with the page's; the spares only when a row turns out importing or deleted.
@@ -590,14 +593,14 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
         -- and every note state (0 matches no user when signed out).
         (t.user_id = ${own} and t.thesis_status = 'held' and t.thesis <> '') as own_held,
         case when t.user_id = ${own} and t.thesis_status = 'held' and t.thesis <> '' then t.thesis_hold_rule end as own_hold_rule
-      from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null and ${filerVisibleSql('u')}
+      from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')} and ${filerVisibleSql('u')}
       where t.sell_id = any(${page.items.map((s) => s.key)})` : [],
     // Fix round 4 (TR-3): a failed import stays in the feed (never hidden) but its card and pane say it may be
     // incomplete. Fix round 1: a trader whose import started after asOf is left out until it is whole (a gap).
     recordStates(withSection ? [...new Set([...traders, ...candIds])] : traders),
     records(withSection ? [...new Set([...traders, ...likely])] : traders),
     opts.viewer ? followingAmong(opts.viewer, traders) : null,
-    withSection ? sql`select id, handle, display_name from users where id = any(${candIds}) and deleted_at is null and ${filerVisibleSql('users')}` : [],
+    withSection ? sql`select id, handle, display_name from users where id = any(${candIds}) and ${visibleUser('users')} and ${filerVisibleSql('users')}` : [],
     opts.viewer ? rejectedAmong(opts.viewer, page.items.map((s) => s.key)) : null,
     // F-6: the same trader set as the record states (it holds every section trader the page can pick).
     openPositions(withSection ? [...new Set([...traders, ...candIds])] : traders),
@@ -654,7 +657,7 @@ function traderShapes(kept: Kept): Map<number, TraderShape> {
 type OpenRow = { user_id: number; unrealized_pct: number; fetched_at: Date };
 async function openPositions(userIds: number[]): Promise<OpenRow[]> {
   if (!userIds.length) return [];
-  return (await sql`select user_id, unrealized_pct, fetched_at from open_positions where user_id = any(${userIds})`) as unknown as OpenRow[];
+  return (await sql`select user_id, unrealized_pct, fetched_at from open_positions where user_id = any(${userIds}) and user_id in (${visibleUserIds()})`) as unknown as OpenRow[];
 }
 function openOf(rows: OpenRow[], onPage: Set<number>, states: Map<number, RecordStatus>): { open: Map<number, number[]>; openAsOf: Map<number, Date> } {
   const open = new Map<number, number[]>(), openAsOf = new Map<number, Date>();

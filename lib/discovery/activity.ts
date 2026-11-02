@@ -10,6 +10,7 @@
 import { sql } from '../db.ts';
 import { BATCH_MAX_PER_WINDOW, BATCH_WINDOW_MS, EVENT_TYPES, SURFACES, type RawEvent } from './events.ts';
 import { forgetViewer } from './personal-cache.ts';
+import { visibleUser } from '../visible-users.ts';
 
 export const READ_DAYS = 90;
 // ponytail: ordering reads only the newest READ_MAX events in the 90-day window — a per-viewer aggregate table would cover
@@ -60,8 +61,8 @@ export async function recordEvents(viewer: number, events: readonly RawEvent[]):
     if (!events.length) return 0;
     const tradeIds = [...new Set(events.flatMap((e) => (e.target.kind === 'trade' ? [e.target.id] : [])))];
     const handles = [...new Set(events.flatMap((e) => (e.target.kind === 'trader' ? [e.target.handle] : [])))];
-    const trades = tradeIds.length ? await tx`select t.id::text as id, t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.id = any(${tradeIds}::bigint[])` : [];
-    const traders = handles.length ? await tx`select id, handle from users where handle = any(${handles}) and deleted_at is null` : [];
+    const trades = tradeIds.length ? await tx`select t.id::text as id, t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')} where t.id = any(${tradeIds}::bigint[])` : []; // F-16: never a hidden trader's
+    const traders = handles.length ? await tx`select id, handle from users u where handle = any(${handles}) and ${visibleUser('u')}` : [];
     const byTrade = new Map(trades.map((r) => [r.id as string, { key: r.trade_key as string, user: r.user_id as number }]));
     const byHandle = new Map(traders.map((r) => [r.handle as string, r.id as number]));
     const rows: { s: number; t: number; k: string; u: number | null; key: string | null; sym: string | null }[] = [];
