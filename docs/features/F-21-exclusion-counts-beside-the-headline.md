@@ -136,3 +136,9 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 ## Rework notes
 
 ## Build log
+- 2026-11-02: Built on `claude/f21-exclusion-counts` in four layers (counters and guard; the option count lines moved to
+  `#excluded`; pane, strip and profile surfaces; e2e), applying the AI legal committee's conditions R1-R6. Owner steps:
+  run `scripts/rebuild-records.ts` once after deploy so frozen records fill `excluded_future_sells` and
+  `excluded_shared` (Q5); owner flag, must-fix before real users (R4/E6): an option-pair sell the share matcher counted
+  as corporate or held is counted again under options (pinned in `lib/f21-exclusions.db.test.ts`). The pane line's
+  vertical margins were compacted (Q6) to keep the disclaimer within 740 px with all three slot lines.
