@@ -44,7 +44,7 @@ dbTest('F5-8: 2,500 share activities with microsecond times over 3 rebuild pages
   const t0 = Date.UTC(2025, 0, 2, 15);
   // Two symbols, alternating buys and sells with varied units, so a re-read or skipped row changes the FIFO result.
   const acts = Array.from({ length: 2500 }, (_, i) => {
-    const symbol = i < 1300 ? 'AAA' : 'BBB';
+    const symbol = i < 1299 ? 'AAA' : 'BBB'; // each symbol starts on a buy, so no sell is oversold
     const side: 'BUY' | 'SELL' = i % 3 === 2 ? 'SELL' : 'BUY';
     return { externalId: `${t.tag}-${String(i).padStart(5, '0')}`, accountId: acc, symbol, side, units: side === 'SELL' ? 2 : 1, price: 50 + Math.floor(rnd() * 100), fee: 0,
       executedAt: new Date(t0 + i * MIN), verified: true, raw: {} };
@@ -65,7 +65,8 @@ dbTest('F5-8: 2,500 share activities with microsecond times over 3 rebuild pages
     const stored = await t.sql`select sell_id, symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${t.id} order by sell_id`;
     const want = [...m.trades].sort((a, b) => (a.sellId < b.sellId ? -1 : 1)).map((x) => ({ sell_id: x.sellId, symbol: x.symbol, opened_at: x.openedAt.toISOString(),
       closed_at: x.closedAt.toISOString(), return_pct: x.returnPct, holding_days: x.holdingDays }));
-    assert.ok(want.length > 700);
+    assert.equal(want.length, 833); // every sell closes (none excluded): a re-read or skipped row would change this
+    assert.equal(m.excluded, 0);
     assert.equal(r.trades, want.length);
     assert.equal(r.excluded, m.excluded);
     assert.deepEqual(stored.map((x) => ({ ...x, opened_at: (x.opened_at as Date).toISOString(), closed_at: (x.closed_at as Date).toISOString() })), want);
@@ -170,11 +171,15 @@ for (const cadence of [false, true]) {
       const [trade] = await s.sql`select id from closed_trades where user_id = ${s.id}`;
       assert.ok(trade, 'one closed trade');
       // The second sync: activities read again (cadence: the vendor marks reset so every read is due), positions gated.
-      if (cadence) await s.sql`update broker_accounts set activities_read_at = null, positions_read_at = null where user_id = ${s.id}`;
+      if (cadence) {
+        await s.sql`update broker_accounts set activities_read_at = null, positions_read_at = null where user_id = ${s.id}`;
+        await s.sql`delete from sync_read_marks where user_id = ${s.id}`; // the G2 marks too (the 6 h attempt floor)
+      }
       gate.on = true;
       const before = g.calls();
       const sync = syncUser(s.user, g.broker as never, undefined, undefined, opts);
-      await g.reached; // the positions call is now pending, inside the sync's transaction
+      // The positions call is now pending, inside the sync's transaction (a sync that ends without one fails the test).
+      await Promise.race([g.reached, sync.then(() => { throw new Error('the sync ended without a positions call'); })]);
       // Another connection can lock the trader's closed trades at once (NOWAIT fails at once if a lock is held).
       await s.sql.begin(async (tx) => { await tx`select id from closed_trades where user_id = ${s.id} for update nowait`; });
       // A note save completes before the vendor call is released (it would wait on the rebuild's row locks otherwise).
