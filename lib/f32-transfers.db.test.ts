@@ -84,3 +84,24 @@ dbTest('loadCorporateActions flags exactly the three transfer types: not an ADJU
     assert.deepEqual(flagged, { t: true, i: true, o: true, a: false, sp: false, u: false });
   } finally { await s.cleanup(); }
 });
+
+dbTest('the version rebuild reports per-reason moves, counts only: a p5 record counted under the old matcher moves corporate −1, transfer +1, nothing else', async () => {
+  // The deploy path with ids (it neither reads nor writes matcher_runs, so it never collides with another file's private
+  // versions). The sync-tick catch-up adds its moves in the same shared rebuildEach (lib/matcher-rebuild.ts).
+  const s = await setup();
+  try {
+    const { rebuildAllForMatcher } = await import('./matcher-rebuild.ts');
+    const { noCounts } = await import('./matcher-report.ts');
+    await s.insert([s.act('wb', 'BUY', 100, 100, 0), s.act('ws', 'SELL', 100, 40, 9), s.act('yb', 'BUY', 100, 100, 0, 'YX'), s.act('ys', 'SELL', 100, 140, 9, 'YX')]);
+    await s.insertCa(s.vendor('t', 'TRANSFER', 21, 1));
+    await s.rebuild();
+    // The record as the old matcher left it (Part A only relabels: corporate held the transfer's sell). Test fixture.
+    await s.sql`update users set excluded_corporate = excluded_corporate + excluded_transfer, excluded_transfer = 0 where id = ${s.u.id}`;
+    const moves = noCounts();
+    assert.deepEqual(await rebuildAllForMatcher(9000 + Math.floor(Math.random() * 900), [s.u.id], undefined, moves), { rebuilt: 1, failed: 0, left: 0 });
+    assert.deepEqual(moves, { shown: 0, excluded: 0, corporate: -1, transfer: 1, held: 0 });
+  } finally {
+    await s.sql`delete from matcher_rebuilt where user_id = ${s.u.id}`;
+    await s.cleanup();
+  }
+});
