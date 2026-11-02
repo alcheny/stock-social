@@ -8,7 +8,7 @@ import { rowBadge } from '@/lib/pane.ts';
 import { decodeSymbolParam, isIndexableTicker, selectTheses, tickerDescription, trustKind } from '@/lib/ticker.ts';
 import { relatedSymbolsSql, tickerHeadline, tickerPageWithBaseline, type TickerBaseline, type TickerPage } from '../ticker-sql.ts';
 // FIXES-LABELS (D-03): the page names one state, Demo, and never calls Demo trades verified.
-import { FIXES_LABELS as FL } from '@/lib/copy.ts';
+import { FC5, FIXES_LABELS as FL } from '@/lib/copy.ts';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
 import { dateText } from '@/lib/date-text.ts';
@@ -52,7 +52,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   if (!symbol) notFound(); // A11Y-FIXES #21: an invalid symbol is a real 404
   const head = await tickerHeadline(symbol);
   const s = head.summary;
-  const title = FL.tickerTitle[trustKind(s)](symbol);
+  // FIXES-CYCLE5 (F5-13, C5-23): an empty stock page's title says it is empty (no "verified" claim); 200 and noindex stay.
+  const title = s.n === 0 ? `${FC5.tickerEmptyTitle(symbol)} · Stock Social` : FL.tickerTitle[trustKind(s)](symbol);
   if (!s.n) return { title, description: `No verified closed trades in ${symbol} yet.`, robots: { index: false } };
   const thin = !isIndexableTicker({ verifiedTrades: head.verifiedTrades, verifiedTraders: head.verifiedTraders });
   return {

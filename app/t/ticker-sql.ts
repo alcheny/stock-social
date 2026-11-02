@@ -8,10 +8,11 @@
 import type postgres from 'postgres';
 import { sql as defaultSql } from '../../lib/db.ts';
 import { logSafe } from '../../lib/privacy-log.ts';
-import { visibleUser, visibleUserIds } from '../../lib/visible-users.ts';
+import { visibleUser } from '../../lib/visible-users.ts';
 import { confidenceFromClusters, confidenceFromSums, type Cluster, type Confidence } from '../../lib/trades.ts';
+import { othersSums, relatedRows, symbolTotals, totalsCacheOn, varianceSums, type SymbolTotal } from './ticker-sums.ts'; // FIXES-CYCLE5 (F5-4)
 import {
-  MIN_HOLD_BUCKET, MIN_REST, normalizeSymbol,
+  filterTickerIndex, tickerIndex, MIN_HOLD_BUCKET, MIN_REST,
   type Concentration, type HoldBucket, type HoldBuckets, type MonthBucket, type RelatedSymbol, type Spread, type SpreadBin,
   type Timeline, type TickerIndexRow, type TickerSort, type TickerSummary,
 } from '../../lib/ticker.ts';
@@ -212,20 +213,13 @@ async function tickerPageIn(sql: Db, symbol: string, today: Date, cap: number): 
   };
 }
 
-// relatedSymbols() in SQL: other symbols closed by anyone who closed this one, hidden unless at least 2 such traders
+// relatedSymbols(): other symbols closed by anyone who closed this one, hidden unless at least 2 such traders
 // have other symbols, most shared traders first, ties by symbol (code-point order, as JS `<`), 8 at most.
+// FIXES-LABELS (code review): visible users only, as tradesOf (a deleted user's trades are on no page); no F-7 filings.
+// FIXES-CYCLE5 (F5-4): read from ticker_trader_sums (app/t/ticker-sums.ts#relatedRows), not from every close of
+// every other symbol.
 export async function relatedSymbolsSql(symbol: string, sql: Db = defaultSql): Promise<RelatedSymbol[]> {
-  const rows = (await sql`
-    with o as (
-      -- FIXES-LABELS (code review): visible users only, as tradesOf (a deleted user's trades are on no page); no F-7 filings.
-      select t.symbol, t.user_id, t.verified from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
-      where t.symbol <> ${symbol} and t.filing_url is null
-        and t.user_id in (select distinct user_id from closed_trades where symbol = ${symbol} and filing_url is null))
-    select symbol, count(distinct user_id)::int as traders, count(*)::int as trades, not bool_or(verified) as demo_only
-    from o where (select count(distinct user_id) from o) >= 2
-    group by symbol
-    order by traders desc, symbol collate "C"
-    limit 8`) as unknown as { symbol: string; traders: number; trades: number; demo_only: boolean }[];
+  const rows = await relatedRows(sql, symbol);
   return rows.map((r) => ({ symbol: r.symbol, traders: r.traders, trades: r.trades, demoOnly: r.demo_only }));
 }
 
@@ -234,49 +228,32 @@ export type TickerIndexPage = { total: number; kind: 'all' | 'exact' | 'prefix' 
 // LIKE's own wildcards and its escape character, escaped. A normalized symbol never holds them; this is the second guard.
 export const likePrefix = (s: string) => `${s.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
-// tickerIndex() + filterTickerIndex() + the page's slice, in SQL. `total` is every symbol (the page's empty state and
-// "Showing X of Y"), `matched` the rows the search matched before the cap. Sort is one of two fixed fragments.
-// ponytail: the group by still reads every closed trade per request; at ~10^6 rows keep a per-symbol summary table.
+// tickerIndex() + filterTickerIndex() + the page's slice. `total` is every symbol (the page's empty state and
+// "Showing X of Y"), `matched` the rows the search matched before the cap.
 // Visible users only (lib/visible-users.ts, as the index's reads on main) and no F-7 public-filing trades.
+// FIXES-CYCLE5 (F5-4): the per-symbol figures come from ticker_trader_sums (app/t/ticker-sums.ts#symbolTotals: one row
+// per symbol, cached per minute on the deployed pool), and the search, sorts and cap run on them through the same JS
+// helpers the page used before the SQL version, so the order and the matches are theirs.
+// ponytail: one row per symbol reaches the server per build (about 10^4 at today's scale) — at 10^6 symbols, page the
+// sorted totals in SQL instead.
 export async function tickerIndexPage(q: unknown, sort: TickerSort, cap = TICKER_INDEX_CAP, sql: Db = defaultSql): Promise<TickerIndexPage> {
-  return snapshot(sql, (tx) => tickerIndexIn(tx, q, sort, cap));
-}
-
-async function tickerIndexIn(sql: Db, q: unknown, sort: TickerSort, cap: number): Promise<TickerIndexPage> {
-  const [{ total }] = (await sql`select count(distinct symbol)::int as total from closed_trades where filing_url is null and user_id in (${visibleUserIds()})`) as unknown as { total: number }[];
-  let kind: TickerIndexPage['kind'] = 'all';
-  let symbol: string | undefined;
-  if (typeof q === 'string' && q.trim()) {
-    const s = normalizeSymbol(q);
-    if (!s) return { total, kind: 'invalid', matched: 0, rows: [] };
-    symbol = s;
-    kind = 'prefix';
-  }
-  const order = sort === 'az' ? sql`symbol collate "C"` : sql`date_trunc('milliseconds', max(closed_at)) desc, symbol collate "C"`;
-  const prefix = symbol ? sql`and symbol like ${likePrefix(symbol)}` : sql``;
-  const rows = (await sql`
-    select symbol, count(*)::int as trades, count(distinct user_id)::int as traders, max(closed_at) as last_closed_at,
-           count(*) filter (where verified)::int as verified_trades, count(*) over ()::int as matched,
-           bool_or(symbol = ${symbol ?? ''}) as exact
-    from closed_trades where filing_url is null and user_id in (${visibleUserIds()}) ${prefix}
-    group by symbol
-    order by bool_or(symbol = ${symbol ?? ''}) desc, ${order}
-    limit ${cap}`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number; matched: number; exact: boolean }[];
-  const out = (r: (typeof rows)[number]): TickerIndexRow => ({ symbol: r.symbol, trades: r.trades, traders: r.traders, lastClosedAt: r.last_closed_at, demoOnly: r.verified_trades === 0 });
-  if (symbol) {
-    if (rows[0]?.exact) return { total, kind: 'exact', symbol, matched: 1, rows: [out(rows[0])] };
-    if (!rows.length) return { total, kind: 'none', matched: 0, rows: [] };
-  }
-  return { total, kind, ...(symbol ? { symbol } : {}), matched: rows[0]?.matched ?? 0, rows: rows.map(out) };
+  const totals = await symbolTotals(sql);
+  const all = tickerIndex(totals.map((t) => ({ symbol: t.symbol, trades: t.trades, traders: t.traders, lastClosedAt: t.lastClosedAt, verifiedTrades: t.verifiedTrades })), sort);
+  const total = all.length;
+  const f = filterTickerIndex(all, q);
+  if (f.kind === 'invalid') return { total, kind: 'invalid', matched: 0, rows: [] };
+  if (f.kind === 'none') return { total, kind: 'none', matched: 0, rows: [] };
+  if (f.kind === 'exact') return { total, kind: 'exact', symbol: f.symbol, matched: 1, rows: f.rows };
+  return { total, kind: f.kind, ...(f.symbol ? { symbol: f.symbol } : {}), matched: f.rows.length, rows: f.rows.slice(0, cap) };
 }
 
 // ---- FIXES-LABELS ---- (round 3, engineer): the baseline's "other stocks recorded here" range, from the same
 // confidence() path as this stock's: trades in every symbol but this one, verified (or Demo) rows only, live users only.
 // One bet = one trader's overlapping holds in one stock (gaps and islands per (user_id, symbol), boundary inclusive, as
-// confidence() clusters). Returns ONE row of clustering sums, never one row per bet; m and R come from a CTE.
-// ponytail: per-request full scan — every uncached /t/SYMBOL render runs two window sorts over all other symbols' closed
-// trades (verified or Demo); fix: cache the result per (symbol, verified), or keep a per-symbol summary table of the
-// clustering sums and subtract this symbol's row
+// confidence() clusters).
+// FIXES-CYCLE5: other symbols from ticker_trader_sums — the per-request full scan of every other symbol's closes is
+// gone: the 'others' side sums the summary's per-symbol totals (app/t/ticker-sums.ts), cached per minute on the
+// deployed pool and read in the caller's snapshot otherwise.
 export async function othersConfidence(symbol: string, verified: boolean, sql: Db = defaultSql): Promise<{ n: number; winRate: number | null; conf: Confidence }> {
   const { n, winRate, conf } = await sideConfidence(sql, symbol, 'others', verified);
   return { n, winRate, conf };
@@ -285,8 +262,25 @@ export async function othersConfidence(symbol: string, verified: boolean, sql: D
 // FIXES-LABELS (code review): one side of the baseline, clustered as confidence() does: 'others' = every other symbol,
 // 'this' = this symbol only (one bet = one trader's overlapping holds, as on the page). Live users only.
 type Side = { n: number; winRate: number | null; conf: Confidence; traders: number };
-async function sideConfidence(sql: Db, symbol: string, side: 'others' | 'this', verified: boolean): Promise<Side> {
-  const where = side === 'this' ? sql`t.symbol = ${symbol}` : sql`t.symbol <> ${symbol}`;
+// FIXES-CYCLE5 (F5-4): 'others' carries no trader count (the baseline never shows one, and a distinct count over every
+// other symbol is not a sum of per-symbol rows). `totals`: the minute's cached totals, fetched by a default-pool caller
+// BEFORE it opens its snapshot (a pool connection asked for from inside a transaction could wait on the pool its own
+// concurrent page loads hold); without them the summary is read through `sql`, in the caller's snapshot.
+type OthersSide = Omit<Side, 'traders'>;
+async function sideConfidence(sql: Db, symbol: string, side: 'others', verified: boolean, totals?: SymbolTotal[] | null): Promise<OthersSide>;
+async function sideConfidence(sql: Db, symbol: string, side: 'this', verified: boolean): Promise<Side>;
+async function sideConfidence(sql: Db, symbol: string, side: 'others' | 'this', verified: boolean, totals?: SymbolTotal[] | null): Promise<Side | OthersSide> {
+  if (side === 'others') {
+    const o = othersSums(totals ?? (await symbolTotals(sql)), symbol, verified);
+    const spanDays = o.firstOpen && o.lastClose ? (o.lastClose.getTime() - o.firstOpen.getTime()) / DAY : 0;
+    const { ssM, ssR } = varianceSums(o);
+    return {
+      n: o.n,
+      winRate: o.n ? o.wins / o.n : null,
+      conf: confidenceFromSums({ n: o.n, k: o.k, spanDays, sumX: o.sx, sumD: o.sd, ssM, ssR }),
+    };
+  }
+  const where = sql`t.symbol = ${symbol}`;
   const [r] = (await sql`
     with s as (
       select t.id, t.user_id, t.symbol, t.return_pct as rp, ln(greatest(1 + t.return_pct, 1e-9)) as x, greatest(t.holding_days, 1) as dd,
@@ -324,12 +318,14 @@ async function sideConfidence(sql: Db, symbol: string, side: 'others' | 'this', 
 // baseline read leaves the section out (`baseline: null`), never the page.
 export type TickerBaseline = { others: { n: number; winRate: number | null; conf: Confidence }; self: Side | null };
 export async function tickerPageWithBaseline(symbol: string, today: Date, cap = TICKER_ROWS_CAP, sql: Db = defaultSql): Promise<TickerPage & { baseline: TickerBaseline | null }> {
+  // FIXES-CYCLE5 (F5-4): the deployed pool's cached totals, taken before the snapshot opens (see sideConfidence).
+  const cached = sql === defaultSql && totalsCacheOn() ? await symbolTotals() : null;
   return snapshot(sql, async (tx) => {
     const page = await tickerPageIn(tx, symbol, today, cap);
     const s = page.summary;
     const read = async (q: Db): Promise<TickerBaseline> => {
       const [o, self] = await Promise.all([
-        sideConfidence(q, symbol, 'others', !s.demoOnly),
+        sideConfidence(q, symbol, 'others', !s.demoOnly, cached),
         s.mixed ? sideConfidence(q, symbol, 'this', true) : Promise.resolve(null),
       ]);
       return { others: { n: o.n, winRate: o.winRate, conf: o.conf }, self };

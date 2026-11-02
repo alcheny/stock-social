@@ -114,8 +114,11 @@ create table if not exists closed_trades (
 );
 select schema_add_index('closed_trades_user', 'create index closed_trades_user on closed_trades (user_id, closed_at desc)');
 select schema_add_index('closed_trades_recent', 'create index closed_trades_recent on closed_trades (closed_at desc)');
--- /t/SYMBOL (lib/ticker-sql.ts): the summary aggregates and the capped newest-first trade list read one symbol's rows.
-select schema_add_index('closed_trades_symbol', 'create index closed_trades_symbol on closed_trades (symbol, closed_at desc, id desc)');
+-- /t/SYMBOL (app/t/ticker-sql.ts): the summary aggregates and the capped newest-first trade list read one symbol's rows.
+-- FIXES-CYCLE5 (F5-27, C5-44): one definition, under its own name. The old name was also given to a two-column index
+-- further down, so a database that got that one first never got these three columns (schema_add_index skips by name).
+-- Removing the old `closed_trades_symbol` on upgraded databases is an owner step (this file never drops).
+select schema_add_index('closed_trades_symbol_recent', 'create index closed_trades_symbol_recent on closed_trades (symbol, closed_at desc, id desc)');
 
 -- TR-6: a broker account belongs to one profile, ever. Claimed on first sync, never released.
 create table if not exists broker_accounts (
@@ -418,6 +421,123 @@ select schema_add_index('users_referred_by', 'create index users_referred_by on 
 -- Equal to node:crypto's sha256 hex (lib/likes.ts#tradeKey, lib/likes.test.ts).
 select schema_add_column('closed_trades', 'trade_key', $$text generated always as (encode(sha256(replace(sell_id, chr(92), chr(92) || chr(92))::bytea), 'hex')) stored$$);
 select schema_add_index('closed_trades_trade_key', 'create index closed_trades_trade_key on closed_trades (trade_key)');
+-- FIXES-CYCLE5 (F5-4, C5-6): ticker pages read a per-trader, per-symbol summary instead of every closed trade.
+-- One row per (symbol, trader, verified): closed count, wins, and the clustering sums sideConfidence's range needs
+-- (app/t/ticker-sql.ts): one bet = one trader's overlapping holds in one stock among rows of the same trust, ordered by
+-- (entry, id), boundary inclusive. Per bet b: x = Σ ln(max(1 + r, 1e-9)), d = Σ max(hold days, 1), m = trades. The
+-- variance sums Σ(x − n·m)² and Σ(x − R·d)² are rebuilt from sxx, sxn, snn, sxd, sdd (app/t/ticker-sums.ts). Percent
+-- returns and dates only: no prices, quantities or amounts. Public filings (filing_url) are left out here; hidden and
+-- deleted users are left out at read time (lib/visible-users.ts). A pair whose closes are all gone keeps a zeroed row
+-- (this file never removes rows); reads use n > 0. Removed with the user (cascade).
+create table if not exists ticker_trader_sums (
+  symbol text not null,
+  user_id int not null references users on delete cascade,
+  verified boolean not null,
+  n int not null, wins int not null, k int not null,
+  sx double precision not null, sd double precision not null,
+  sxx double precision not null, sxn double precision not null, snn double precision not null,
+  sxd double precision not null, sdd double precision not null,
+  first_open timestamptz, last_close timestamptz, last_closed_at timestamptz,
+  constraint ticker_trader_sums_pkey primary key (symbol, user_id, verified)
+);
+select schema_add_index('ticker_trader_sums_user', 'create index ticker_trader_sums_user on ticker_trader_sums (user_id)');
+-- The source of every row. A filter on user_id (and symbol) is pushed through the windows and groups, which partition
+-- by them, so `where user_id = $1` reads that trader's closes through closed_trades_user and nothing else.
+create or replace view ticker_trader_sums_src as
+with s as (
+  select user_id, symbol, verified, id, closed_at, return_pct as rp, ln(greatest(1 + return_pct, 1e-9)) as x,
+         greatest(holding_days, 1) as dd, date_trunc('milliseconds', opened_at) as o, date_trunc('milliseconds', closed_at) as c
+  from closed_trades where filing_url is null),
+w as (select s.*, max(c) over (partition by user_id, symbol, verified order by o, id rows between unbounded preceding and 1 preceding) as pa from s),
+f as (select w.*, sum(case when pa is null or o > pa then 1 else 0 end) over (partition by user_id, symbol, verified order by o, id rows unbounded preceding) as kb from w),
+b as (
+  select user_id, symbol, verified, sum(x) as x, sum(dd) as d, count(*)::int as n,
+         (count(*) filter (where rp > 0 and rp <> 'NaN'))::int as wins, min(o) as o, max(c) as c, max(closed_at) as lc
+  from f group by user_id, symbol, verified, kb)
+select symbol, user_id, verified, sum(n)::int as n, sum(wins)::int as wins, count(*)::int as k,
+       sum(x) as sx, sum(d) as sd, sum(x * x) as sxx, sum(x * n) as sxn, sum(n::double precision * n) as snn,
+       sum(x * d) as sxd, sum(d * d) as sdd, min(o) as first_open, max(c) as last_close, max(lc) as last_closed_at
+from b group by symbol, user_id, verified;
+-- ponytail: a trigger write recomputes each touched pair from all of that trader's closes in that symbol, so one
+-- changed close of a trader with 10^5 closes in one symbol re-reads them all — a per-row delta of the sums would avoid
+-- it (bets make deltas non-local: one close can merge or split two bets).
+-- Recompute the given (trader, symbol) pairs. Each trader's pairs are written under a per-trader transaction lock taken
+-- before the recompute's statement starts, so two writers of one trader's closes (read committed) can't leave a stale
+-- row; traders never share a lock, so rebuilds of two traders who share a symbol never wait on each other.
+create or replace function ticker_sums_apply(uids int[], syms text[]) returns void language plpgsql as $f$
+begin
+  perform pg_advisory_xact_lock(hashtext('ticker_trader_sums'), l.u) from (select distinct u from unnest(uids) u order by u) l;
+  with p as (select distinct q.user_id, q.symbol from unnest(uids, syms) as q(user_id, symbol)),
+  -- The two `= any` filters reach closed_trades (each trader's touched symbols, read once); the pair filter then keeps
+  -- only the pairs that changed.
+  v as (select v.* from ticker_trader_sums_src v where v.user_id = any(uids) and v.symbol = any(syms)
+        and (v.user_id, v.symbol) in (select p.user_id, p.symbol from p)),
+  up as (
+    insert into ticker_trader_sums select * from v
+    on conflict (symbol, user_id, verified) do update set n = excluded.n, wins = excluded.wins, k = excluded.k, sx = excluded.sx,
+      sd = excluded.sd, sxx = excluded.sxx, sxn = excluded.sxn, snn = excluded.snn, sxd = excluded.sxd, sdd = excluded.sdd,
+      first_open = excluded.first_open, last_close = excluded.last_close, last_closed_at = excluded.last_closed_at
+    returning 1)
+  update ticker_trader_sums t set n = 0, wins = 0, k = 0, sx = 0, sd = 0, sxx = 0, sxn = 0, snn = 0, sxd = 0, sdd = 0,
+    first_open = null, last_close = null, last_closed_at = null
+  from p where t.user_id = p.user_id and t.symbol = p.symbol and t.n <> 0
+    and not exists (select 1 from v where v.user_id = t.user_id and v.symbol = t.symbol and v.verified = t.verified);
+end $f$;
+-- Statement-level triggers with transition tables (one per event: a transition table can't serve several events or take
+-- an `update of` column list). While a rebuild has `app.tts_defer` on (lib/sync.ts#rebuildTrades) they return at once,
+-- and the rebuild recomputes the trader's pairs once at its end (finishTickerSums). Every other writer (options sync,
+-- public filings, the seed, thesis edits, fixtures) is kept in step here.
+-- ponytail: a deferred rebuild still pays Postgres's capture of its inserted rows into the transition table (memory, no
+-- reads of closed_trades) — a per-trader "dirty" flag set once per statement without a transition table would avoid it.
+create or replace function ticker_sums_on_insert() returns trigger language plpgsql as $f$
+declare u int[]; s text[];
+begin
+  if current_setting('app.tts_defer', true) = 'on' then return null; end if;
+  select array_agg(p.user_id), array_agg(p.symbol) into u, s from (select distinct user_id, symbol from tts_new where filing_url is null) p;
+  if u is not null then perform ticker_sums_apply(u, s); end if;
+  return null;
+end $f$;
+create or replace function ticker_sums_on_delete() returns trigger language plpgsql as $f$
+declare u int[]; s text[];
+begin
+  if current_setting('app.tts_defer', true) = 'on' then return null; end if;
+  select array_agg(p.user_id), array_agg(p.symbol) into u, s from (select distinct user_id, symbol from tts_old where filing_url is null) p;
+  if u is not null then perform ticker_sums_apply(u, s); end if;
+  return null;
+end $f$;
+-- An update recomputes only the pairs of rows whose summed columns changed (old and new matched by id), so a thesis
+-- edit or an import-time stamp returns here.
+create or replace function ticker_sums_on_update() returns trigger language plpgsql as $f$
+declare u int[]; s text[];
+begin
+  if current_setting('app.tts_defer', true) = 'on' then return null; end if;
+  select array_agg(p.user_id), array_agg(p.symbol) into u, s from (
+    select distinct x.user_id, x.symbol from tts_old o join tts_new n on n.id = o.id
+    cross join lateral (values (o.user_id, o.symbol), (n.user_id, n.symbol)) x(user_id, symbol)
+    where (o.user_id, o.symbol, o.return_pct, o.holding_days, o.opened_at, o.closed_at, o.verified, o.filing_url)
+      is distinct from (n.user_id, n.symbol, n.return_pct, n.holding_days, n.opened_at, n.closed_at, n.verified, n.filing_url)) p;
+  if u is not null then perform ticker_sums_apply(u, s); end if;
+  return null;
+end $f$;
+-- Triggers first, then the one-off backfill (only while the table is empty), in one block. The backfill locks out
+-- writes to closed_trades while it reads them, so no close lands between its read and the triggers.
+do $tts$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'ticker_sums_insert' and not tgisinternal) then
+    create trigger ticker_sums_insert after insert on closed_trades referencing new table as tts_new for each statement execute function ticker_sums_on_insert();
+  end if;
+  if not exists (select 1 from pg_trigger where tgname = 'ticker_sums_delete' and not tgisinternal) then
+    create trigger ticker_sums_delete after delete on closed_trades referencing old table as tts_old for each statement execute function ticker_sums_on_delete();
+  end if;
+  if not exists (select 1 from pg_trigger where tgname = 'ticker_sums_update' and not tgisinternal) then
+    create trigger ticker_sums_update after update on closed_trades referencing old table as tts_old new table as tts_new for each statement execute function ticker_sums_on_update();
+  end if;
+  if not exists (select 1 from ticker_trader_sums) then
+    lock table closed_trades in share row exclusive mode;
+    insert into ticker_trader_sums select * from ticker_trader_sums_src on conflict do nothing;
+  end if;
+end $tts$;
+-- end FIXES-CYCLE5
 -- Private likes (double tap, +3): one row per viewer and close, never counted or shown to anyone else. No foreign key on
 -- trade_key: a rebuild deletes closed_trades rows; a like whose close is gone is kept and ignored on read.
 create table if not exists trade_likes (
@@ -791,8 +911,6 @@ create table if not exists rate_limits (
   n int not null,
   primary key (key, window_start)
 );
--- The ticker page, its card, compare, browse and the sitemap read closed_trades by symbol.
-select schema_add_index('closed_trades_symbol', 'create index closed_trades_symbol on closed_trades (symbol, closed_at desc)');
 -- Security hardening review (2026-11-01): the prune in lib/rate-limit.ts reads old windows by start time.
 select schema_add_index('rate_limits_window', 'create index rate_limits_window on rate_limits (window_start)');
 -- The last time per key (the import poll: one step per trader per second, lib/rate-limit.ts#intervalAllowed), shared by
