@@ -4,6 +4,7 @@ import { recordStates, type RecordStatus } from './connections.ts';
 import { statusRowsOrEmpty, withStates } from './record-status-load.ts'; // FIXES-LABELS: status
 import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
 import { feedReadySql, filerVisibleSql } from './public-gate.ts';
+import { visibleUser } from './visible-users.ts'; // F-33: countRanked
 import { groupByUser } from './pane.ts';
 import { rankTraders, type ConfidenceInput } from './trades.ts';
 import { RANK_FORMULA, rankWeight } from './rank-weight.ts'; // F-33
@@ -98,12 +99,11 @@ export type FeedCandidate = {
 // with the same vendor id from the other source imported later does not make it late (the old filter did); not
 // reachable while demo ids carry their own prefix — if demo ids ever share a namespace with real ones, set
 // sell_imported_at in lib/sync.ts#rebuildTrades (the derived table's one writer), never from the import path.
-// F-33: exported for scripts/f15-readout.ts#loadRanked, so the readout counts the rows the feed's weight reads.
-export const importedBy = (col: ReturnType<typeof sql>, asOf: Date) => sql`(${col} is null or ${col} <= ${asOf})`;
+const importedBy = (col: ReturnType<typeof sql>, asOf: Date) => sql`(${col} is null or ${col} <= ${asOf})`;
 // ---- F-7 (plan Round 5 item 7): the 30-day feed floor on every feed-side read of closed_trades (candidates, both
 // eligibility branches, the weight and its fingerprint, exploration, the section pool), pinned to asOf when there is one
 // so a close crossing its floor between two pages never shifts a list; filers pass the switch / hide gate in `elig`.
-export const ready = (t: string, asOf?: Date) => (asOf ? sql`(${sql(`${t}.feed_after`)} is null or ${sql(`${t}.feed_after`)} <= ${asOf})` : feedReadySql(t));
+const ready = (t: string, asOf?: Date) => (asOf ? sql`(${sql(`${t}.feed_after`)} is null or ${sql(`${t}.feed_after`)} <= ${asOf})` : feedReadySql(t));
 
 // `ids` is a test hook (rank only these traders); the feed passes none.
 // F-2 PR-1: `asOf` freezes the ranking clock for a feed session (lib/discovery/pager.ts): the score's age, the
@@ -391,13 +391,7 @@ async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<numb
         and ${importedBy(sql`sell_imported_at`, asOf)} group by user_id`;
     const byTrader = new Map<number, ConfidenceInput[]>(miss.map((id) => [id, []]));
     const verified = new Map(rows.map((r) => [r.user_id as number, r.v as boolean]));
-    for (const r of rows) {
-      const a = JSON.parse(r.j as string) as (string | number)[], ts = byTrader.get(r.user_id as number)!;
-      for (let k = 0; k < a.length; k += 5) ts.push({
-        symbol: a[k] as string, returnPct: a[k + 1] as number, holdingDays: a[k + 2] as number,
-        openedAt: new Date(a[k + 3] as number), closedAt: new Date(a[k + 4] as number),
-      });
-    }
+    for (const r of rows) byTrader.get(r.user_id as number)!.push(...weightRows(r.j as string));
     for (const [id, ts] of byTrader) {
       const w: TraderFacts = { weight: rankWeight(ts), hold: median(ts.map((t) => t.holdingDays)), n: ts.length, verified: verified.get(id) ?? false };
       out.set(id, w);
@@ -406,6 +400,42 @@ async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<numb
     }
   }
   return out;
+}
+
+// One trader's closes from the JSON text weights() and countRanked() select (symbol, return, hold days, opened, closed).
+function weightRows(j: string): ConfidenceInput[] {
+  const a = JSON.parse(j) as (string | number)[], ts: ConfidenceInput[] = [];
+  for (let k = 0; k < a.length; k += 5) ts.push({
+    symbol: a[k] as string, returnPct: a[k + 1] as number, holdingDays: a[k + 2] as number,
+    openedAt: new Date(a[k + 3] as number), closedAt: new Date(a[k + 4] as number),
+  });
+  return ts;
+}
+
+// F-33 (AC10): how many visible records carry ranking weight above 0 at asOf, for the owner's F-15 readout
+// (scripts/f15-readout.ts#loadRanked). One statement: the visible users first (lib/visible-users.ts, filerVisibleSql, and
+// the caller's `exclude`, the readout's Demo predicate), then their closes with weights()'s own row filters, grouped by
+// user as weights() groups them; rankWeight per user in JS. Only the count leaves this module (the readout selects no
+// per-user row: F-31 AC7). onlyUsers narrows the users (db tests on a shared database read only their own rows).
+// Wrapped in { q }: a query is a thenable, and the db test EXPLAINs it.
+// ponytail: reads every visible record's closes once a run — fix: read the cached TraderFacts or a per-user summary when
+// records grow.
+export function rankedQuery(asOf: Date, exclude: PendingQuery<Row[]> | null, onlyUsers?: number[]): { q: PendingQuery<Row[]> } {
+  return { q: sql`
+    with v as (
+      select u.id from users u
+      where ${visibleUser('u')} and ${filerVisibleSql('u')} ${exclude ? sql`and not ${exclude}` : sql``}
+        ${onlyUsers ? sql`and u.id = any(${onlyUsers}::int[])` : sql``})
+    select '[' || string_agg(concat_ws(',', to_json(t.symbol)::text, t.return_pct, t.holding_days,
+      date_part('epoch', t.opened_at) * 1000, date_part('epoch', t.closed_at) * 1000), ',') || ']' as j
+    from closed_trades t join v on v.id = t.user_id
+    where t.closed_at <= ${asOf} and ${ready('t', asOf)} and ${importedBy(sql`t.sell_imported_at`, asOf)}
+    group by t.user_id` };
+}
+export async function countRanked(asOf: Date, exclude: PendingQuery<Row[]> | null, onlyUsers?: number[]): Promise<number> {
+  let n = 0;
+  for (const r of await rankedQuery(asOf, exclude, onlyUsers).q) if (rankWeight(weightRows(r.j as string)) > 0) n++;
+  return n;
 }
 
 // `ranked`: the list before the mix (F-2 PR-2: a viewer's exclusions are taken out of it, then it is mixed again).

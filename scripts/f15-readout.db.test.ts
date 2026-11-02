@@ -118,7 +118,8 @@ const rowsRead = (n: PlanNode) => (n['Actual Rows'] + (n['Rows Removed by Filter
 
 dbTest('F-33 AC10: loadRanked counts visible, non-Demo records with ranking weight above 0 in one statement that reads each close once (EXPLAIN)', async () => {
   const { sql } = await import('../lib/db.ts');
-  const { loadRanked, rankedQuery } = await import('./f15-readout.ts');
+  const { loadRanked } = await import('./f15-readout.ts');
+  const { rankedQuery } = await import('../lib/feed.ts');
   const ids: number[] = [];
   const DAY = 86_400_000, now = Date.now();
   const user = async () => {
@@ -146,7 +147,7 @@ dbTest('F-33 AC10: loadRanked counts visible, non-Demo records with ranking weig
     // Closes after asOf are not counted: at a time before every close, nothing weighs.
     assert.equal(await loadRanked(sql, new Date(now - 200 * DAY), ids), 0);
     // One statement; closed_trades is read once per close of the users it keeps, never per user per close.
-    const [r] = await sql`explain (analyze, format json) ${(await rankedQuery(sql, new Date(), ids)).q}`;
+    const [r] = await sql`explain (analyze, format json) ${rankedQuery(new Date(), sql`exists (select 1 from activities a where a.user_id = u.id and a.source = 'demo')`, ids).q}`;
     const nodes = planNodes((r['QUERY PLAN'] as { Plan: PlanNode }[])[0].Plan);
     // On a small table the planner reads it in one pass; with the user filter selective it reads only those users' closes
     // through the user index. Either way at most one read per close in the table: never once per user per close.

@@ -583,39 +583,11 @@ export async function loadG2(sql: Sql, to: string, retentionDays: number, onlyUs
   return { traders: traders.map((t) => ({ card: t.card, story: t.story, record: t.record, sheet: t.sheet, copy: t.copy, down: t.down, internal: t.internal === true })), firstDay: null, retentionDays };
 }
 
-// F-33: the records the feed would weigh, counted. One statement: the visible, non-Demo users first (the predicates the
-// feed and G1 use: lib/visible-users.ts, lib/public-gate.ts#filerVisibleSql, demoUser below), then their closed trades
-// with the feed weight's own row filters (lib/feed.ts#ready, #importedBy, closed by asOf), grouped by user as
-// lib/feed.ts#weights() groups them; rankWeight runs per user in JS. Returns the count only. onlyUsers narrows the users
-// (db tests on a shared database read only their own rows).
-// ponytail: reads every visible record's closes once a run — fix: read the feed's cached TraderFacts or a per-user
-// summary when records grow.
-// Wrapped in { q } because a query is a thenable: awaiting this function must not run it (the db test EXPLAINs it).
-export async function rankedQuery(sql: Sql, asOf: Date, onlyUsers?: number[]): Promise<{ q: PendingQuery<Row[]> }> {
-  const { ready, importedBy } = await import('../lib/feed.ts');
-  const { visibleUser } = await import('../lib/visible-users.ts');
-  const { filerVisibleSql } = await import('../lib/public-gate.ts');
-  return { q: sql`
-    with v as (
-      select u.id from users u
-      where ${visibleUser('u')} and ${filerVisibleSql('u')} and not ${demoUser(sql, sql`u.id`)}
-        ${onlyUsers ? sql`and u.id = any(${onlyUsers}::int[])` : sql``})
-    select t.user_id, '[' || string_agg(concat_ws(',', to_json(t.symbol)::text, t.return_pct, t.holding_days,
-      date_part('epoch', t.opened_at) * 1000, date_part('epoch', t.closed_at) * 1000), ',') || ']' as j
-    from closed_trades t join v on v.id = t.user_id
-    where t.closed_at <= ${asOf} and ${ready('t', asOf)} and ${importedBy(sql`t.sell_imported_at`, asOf)}
-    group by t.user_id` };
-}
+// F-33: the records the feed would weigh, counted (lib/feed.ts#countRanked: one statement on the feed's own predicates
+// and row filters, plus this file's Demo predicate). Only a number comes back; this file selects no per-user row.
 export async function loadRanked(sql: Sql, asOf: Date, onlyUsers?: number[]): Promise<number> {
-  const { rankWeight } = await import('../lib/rank-weight.ts');
-  let n = 0;
-  for (const r of await (await rankedQuery(sql, asOf, onlyUsers)).q) {
-    const a = JSON.parse(r.j as string) as (string | number)[], ts = [];
-    for (let k = 0; k < a.length; k += 5) ts.push({ symbol: a[k] as string, returnPct: a[k + 1] as number, holdingDays: a[k + 2] as number,
-      openedAt: new Date(a[k + 3] as number), closedAt: new Date(a[k + 4] as number) });
-    if (rankWeight(ts) > 0) n++;
-  }
-  return n;
+  const { countRanked } = await import('../lib/feed.ts');
+  return countRanked(asOf, demoUser(sql, sql`u.id`), onlyUsers);
 }
 
 // Demo target (cycle 4 F4-11, C4-4): a user with a demo activity (lib/demo.ts) or a fictional fixture filer
