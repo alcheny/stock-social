@@ -56,7 +56,7 @@ dbTest('F5-17: one record that throws lets the others be rebuilt and marked; the
       if (id === bad) throw new TypeError(`fixture failure for ${us[1].handle}`);
       return rebuildRecord(id, tx);
     };
-    const { out, lines } = await capture(() => rebuildAllForMatcher(version, us.map((u) => u.id), 600_000, rebuild));
+    const { out, lines } = await capture(() => rebuildAllForMatcher(version, us.map((u) => u.id), 600_000, undefined, rebuild));
     assert.deepEqual(out, { rebuilt: 2, failed: 1, left: 1 });
     const marked = await t.sql`select user_id from matcher_rebuilt where user_id in ${t.sql(us.map((u) => u.id))} and version = ${version} order by user_id`;
     assert.deepEqual(marked.map((r) => r.user_id), [us[0].id, us[2].id]);

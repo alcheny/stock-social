@@ -28,7 +28,7 @@ export default async function MyRecord({ searchParams }: { searchParams?: Promis
   const sp = (await searchParams) ?? {};
   const done = isRuleKind(sp.rule) && (sp.did === 'set' || sp.did === 'clear') ? { kind: sp.rule, did: sp.did } : null;
 
-  const rows = await sql`select sell_id, symbol, return_pct, holding_days, closed_at, verified from closed_trades where user_id = ${me.id}`;
+  const rows = await sql`select sell_id, trade_key, symbol, return_pct, holding_days, closed_at, verified from closed_trades where user_id = ${me.id}`;
   const [v] = await sql`select record_first_viewed_at as first, record_last_viewed_at as last, record_prev_viewed_at as prev from users where id = ${me.id}`;
   const { roll, baseline } = visitDecision(new Date(), v.last as Date | null, v.prev as Date | null, v.first as Date | null);
   // The guard on record_last_viewed_at stops two simultaneous tabs from counting one visit twice.
@@ -39,7 +39,7 @@ export default async function MyRecord({ searchParams }: { searchParams?: Promis
   // Tags for sell_ids with no current trade are kept in the DB on purpose and simply never matched here.
   const tags = await sql`select sell_id, reason from trade_reflections where user_id = ${me.id}`;
   const reasonOf = new Map(tags.map((t) => [t.sell_id as string, t.reason as Reason]));
-  const trades = rows.map((t) => ({ sellId: t.sell_id as string, symbol: t.symbol as string, returnPct: t.return_pct as number, holdingDays: t.holding_days as number, closedAt: t.closed_at as Date }));
+  const trades = rows.map((t) => ({ sellId: t.sell_id as string, tradeKey: t.trade_key as string, symbol: t.symbol as string, returnPct: t.return_pct as number, holdingDays: t.holding_days as number, closedAt: t.closed_at as Date }));
   const ruleRows = await sql`select kind, days from trade_rules where user_id = ${me.id}`;
   const rules = ruleRows.map((x) => ({ kind: x.kind as RuleKind, days: x.days as number }));
   const adherence = ruleAdherence(trades, rules);
@@ -53,9 +53,9 @@ export default async function MyRecord({ searchParams }: { searchParams?: Promis
     const when = t.closedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const cur = reasonOf.get(t.sellId);
     return (
-      <li key={t.sellId}>
+      <li key={t.tradeKey}>
         <form action={setReflection} aria-label={`Why I took it: ${t.symbol}, closed ${when}`}>
-          <input type="hidden" name="sellId" value={t.sellId} />
+          <input type="hidden" name="tradeKey" value={t.tradeKey} />{/* F-25: the trade_key, never the vendor id */}
           <div className="rec-since"><b>{t.symbol}</b><span className={sign(t.returnPct)}>{pct(t.returnPct)}</span><span className="muted small">{when}</span></div>
           <div className="rec-chips">
             {REASONS.map((x) => (

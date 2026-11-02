@@ -15,6 +15,7 @@ import { writeDisplayLog, type DisplayLogReport } from '@/lib/display-log.ts';
 import { gateReport } from '@/lib/launch-gate.ts';
 import { publicTradersOn } from '@/lib/public-gate.ts';
 import { importPublicFilings, type ImportReport } from '@/lib/public-import.ts';
+import { catchUpMatcher, MATCHER_CATCHUP_MS, type CatchUp } from '@/lib/matcher-rebuild.ts';
 
 const PRIVACY_SLOT_MS = 5_000;
 const PRIVACY_STAGE_MS = 10_000;
@@ -92,6 +93,14 @@ export async function POST(req: NextRequest) {
   // Only traders with a connected (consented) connection and no import in progress, each claimed once per round
   // (lib/sync.ts), in this shard, by bounded concurrent workers under the shard's lease (lib/sync-shard.ts).
   const run = syncs ? await runShard({ shard, deadline, routeEnd: syncRouteEnd(startedAt) }) : null;
+  // ---- chores cycle 5 (C5-43 part b): matcher catch-up ----
+  // Every shard call (never the housekeeping-only call) rebuilds some of its own records not yet rebuilt for the current
+  // MATCHER_VERSION, after its sync and within MATCHER_CATCHUP_MS of the time left, so a matcher change reaches every
+  // record (frozen ones too) within ticks instead of waiting for later deploys. One primary-key read once the version is
+  // done. Never a branch: whatever it returns or throws, the response below is the same.
+  let matcher: CatchUp | null = null;
+  try { if (syncs && left() > 0) matcher = await catchUpMatcher({ shard, budgetMs: Math.min(MATCHER_CATCHUP_MS, left()) }); } catch (e) { console.error('matcher catch-up failed', logSafe(e)); }
+  // ---- end chores cycle 5 (C5-43 part b) ----
   // F-7: public filings, one bounded stage after the broker sync, once per cron mark (≤ 20 s, its own try/catch), switch on only.
   let publicImport: ImportReport | null = null;
   try { if (zero && publicTradersOn() && left() > 0) publicImport = await importPublicFilings({ boxMs: Math.min(20_000, left()) }); } catch (e) { console.error('public import failed', logSafe(e)); }
@@ -108,7 +117,7 @@ export async function POST(req: NextRequest) {
   const { failedIds = [], ...counters } = run ?? {};
   return NextResponse.json({
     ok: run?.done ?? 0, skipped: run?.skipped ?? 0, failed: failedIds, unclaimed: run?.remaining ?? null, stoppedAtDeadline: run?.stoppedAtDeadline ?? false,
-    run: run ? counters : null, coverage: cover, ...housekeeping, ...(zero ? { privacy, displayLog, publicImport, launch, ms } : {}),
+    run: run ? counters : null, matcher, coverage: cover, ...housekeeping, ...(zero ? { privacy, displayLog, publicImport, launch, ms } : {}),
   });
 }
 

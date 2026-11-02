@@ -170,6 +170,10 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
   page's canonical and Share link come from one helper over the stored sell id; og:url is not set. Why: decided by the
   committee under the owner's instruction of 2026-11-01; a shared ?via= copy is never indexed as its own page; og:url
   would make some previews drop the source class.
+- 2026-11-02: The owner accepted OD 2.15 en bloc: the 120-day bound; a cap of 20 `share_action` rows a trader a day;
+  counts stay with the account id on rename; no trader-visible reach counts for now; the day-7 marker only if the
+  privacy committee agrees and the Privacy Policy lists it. Pinned by fixes-list item F6-15. With OD 2.41, the bounce
+  measure is dropped and pane-open rate kept (F6-6). Why: the owner's decisions of 2026-11-02 (accepted en bloc).
 
 ## Acceptance criteria
 - [x] A db test inserts rollup rows for a profile, calls `deleteProfile` and finds no row naming that user or handle.

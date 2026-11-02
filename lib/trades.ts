@@ -31,7 +31,9 @@ export type ClosedTrade = {
   verified: boolean;
 };
 
-type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean; tainted?: boolean };
+// `cause: 'transfer'` (F-32 Part A): the lot is tainted, and every taint on it came from a transfer row. A taint by any
+// other action clears it (a transfer never relabels a real corporate-action exclusion).
+type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean; tainted?: boolean; cause?: 'transfer' };
 
 const EPS = 1e-9;
 const DAY = 86_400_000;
@@ -41,11 +43,18 @@ const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale
 
 // `excludedHeld` (F-24 RT-2): sells counted because of a held possible re-issue, present only when nonzero. They have
 // their own count, never `excluded` (whose public reason is "no recorded entry").
-export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number };
+// `excludedTransfer` (F-32 Part A, council cycle 5 C5-1): sells a transfer row excludes (its backward window, its day, or a
+// draw on a lot only a transfer tainted), present only when nonzero. Their own count, never `excludedCorporate`: when a
+// split, stock dividend or other action excludes the sell too, that action's reason wins.
+export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number; excludedTransfer?: number };
+// Every `excluded*` key of MatchResult, and their one sum (F-21's shared sum reads this; lib/f32-transfers.test.ts fails,
+// in tsc too, when a new `excluded*` key is not listed here).
+export const EXCLUDED_KEYS = ['excluded', 'excludedCorporate', 'excludedHeld', 'excludedTransfer'] as const satisfies readonly (keyof MatchResult)[];
+export const exclusionSum = (r: MatchResult): number => EXCLUDED_KEYS.reduce((s, k) => s + (r[k] ?? 0), 0);
 export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 
-// FIFO, long only. One closed trade per SELL, or one count: every SELL is a shown trade, `excluded` or
-// `excludedCorporate`, never dropped silently.
+// FIFO, long only. One closed trade per SELL, or one count: every SELL is a shown trade, `excluded`, `excludedCorporate`,
+// `excludedTransfer` or `excludedHeld` (held rows: see below), never dropped silently.
 // - `excluded` (no recorded entry): a sell needing more units than the ledger holds, excluded whole (its matched part
 //   is not shown either): the history is missing an inflow (a buy before the imported history, a transfer in, an
 //   unrecorded split), so its basis is unknown (POLICY F3c). Sells shown earlier were priced from recorded lots and stay
@@ -78,6 +87,13 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 //   ponytail: a thesis on a later sell that a hold counts goes to kept_theses (lib/sync.ts#rebuildTrades) and comes back
 //   when the sell is shown again, but the kept copy stays behind (a kept row is only removed when the trader edits or
 //   clears that thesis) — fix: remove the kept row when its trade is shown again, in the same rebuild.
+// - Transfers (F-32 Part A; council cycle 5 C5-1): a vendor transfer row is an unpriceable action like any other (the
+//   window, the same-day rule and forward taints are unchanged), but the sells it alone excludes are counted in
+//   `excludedTransfer`, so the profile names them. When another action excludes the sell too (in its window, on its day,
+//   or by tainting a lot it draws), the sell keeps that action's reason. Part A changes no shown figure.
+//   ponytail: a transfer still excludes sells up to LATE_POSTING_DAYS before it and, dated before a sell, taints every open
+//   lot of the pair (probe p4), so a trader can remove a chosen loss, now counted under its own reason — fix: F-22's
+//   basis rule (owner OD 2.28) and F-32 Part B (the vendor's MRC2-10 answer).
 // - Same instant (F3-5): symbol changes, then other corporate actions, then buys, then sells, then the vendor id. In a
 //   long-only ledger a sell is filled from shares held, so a same-instant buy before it is the only order that can be
 //   true when the sell needs it; when older lots cover the sell, FIFO draws them first and the order changes nothing. A
@@ -91,12 +107,18 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 // change moves the lots, FIFO order kept by date; an unpriceable action taints them. At the same instant, actions apply
 // before trades (trade dates are often day-only and an action is dated on its effective day).
 // Bumped when a change to the matcher can change a published figure: a deploy then rebuilds every record once
-// (lib/matcher-rebuild.ts). 2: fixes cycle 4 (C4-1 ties, C4-2 the gap).
-export const MATCHER_VERSION = 2;
+// (lib/matcher-rebuild.ts). 2: fixes cycle 4 (C4-1 ties, C4-2 the gap). 3: F-32 Part A (the transfer count; ships only
+// after chore C5-43(b), never in the same deploy as F-36's bump).
+export const MATCHER_VERSION = 3;
 
 // `orderKnown` (independent review, finding 1): the input order is the true order at a tie (public filings pass rows in
 // filing order, lib/public-trades.ts), so ties fall back to it instead of the vendor id.
-export type MatchOptions = { orderKnown?: boolean };
+// `reasons` (test hook, F-32 Part A engineer review): filled with each sell's outcome by its vendor id (an unusable sell
+// row's too), so a property test can check every sell's reason, not only the totals. A held sell that stands for its
+// counted twin is 'twin' (counted once, under its twin's reason).
+// Production callers never pass it.
+export type SellReason = 'shown' | 'excluded' | 'corporate' | 'transfer' | 'held' | 'twin';
+export type MatchOptions = { orderKnown?: boolean; reasons?: Map<string, SellReason> };
 export function matchTrades(activities: Activity[], actions: CorporateAction[] = [], opts: MatchOptions = {}): MatchResult {
   return replay(activities, actions, opts).result;
 }
@@ -115,6 +137,8 @@ type Book = { lots: Lot[]; gap?: number };
 type Event = { at: number; order: number; src: number; i: number; act?: Activity; ca?: CorporateAction };
 type TradeRow = Extract<CorporateAction, { reason: 'trade' }>;
 const isTradeRow = (ca: CorporateAction): ca is TradeRow => ca.kind === 'unpriceable' && ca.reason === 'trade';
+// F-32 Part A: a vendor transfer row (lib/corporate-actions.ts#withTransfer).
+const isTransfer = (ca: CorporateAction) => ca.kind === 'unpriceable' && ca.reason !== 'trade' && ca.transfer === true;
 
 function replay(activities: Activity[], actions: CorporateAction[], opts: MatchOptions = {}): { result: MatchResult; books: Map<string, Book> } {
   // Same-instant order (F3-5): renames, other actions, buys, sells; then actions before activities; then the vendor id, a
@@ -136,7 +160,8 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   const books = new Map<string, Book>();
   const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
   const trades: ClosedTrade[] = [];
-  let excluded = 0, excludedCorporate = 0, excludedHeld = 0;
+  let excluded = 0, excludedCorporate = 0, excludedHeld = 0, excludedTransfer = 0;
+  const note = (id: string, r: SellReason) => opts.reasons?.set(id, r);
   // F-24 RT-2 (final review R2): the pairs a held row has been reached in, in the canonical order. Every later sell of
   // such a pair is counted, so no shown figure depends on how the held row is decided: a sell before it in the order is
   // priced the same under both readings (held → genuine, held → dropped), and every sell after it is counted. A rename
@@ -149,15 +174,18 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
 
   // Repricing actions, for the late-posting window (a rename at 1:1 reprices nothing): their times per pair and, for
   // account-wide ones, per account, sorted once; each sell looks up the first time after it.
-  const times = new Map<string, number[]>();
+  // F-32 Part A: transfer rows' times are kept apart, so a sell in the window of (or on the day of) a transfer alone is
+  // counted as "transfer" and one that any other action reaches keeps that action's reason.
+  const times = new Map<string, number[]>(), transferTimes = new Map<string, number[]>();
   for (const ca of actions) {
     if (isTradeRow(ca)) continue; // an unusable trade row reprices nothing (F3-1)
     if (ca.kind === 'symbol-change' && Math.abs(ca.inUnits - ca.outUnits) <= RATIO_TOLERANCE * ca.outUnits) continue;
     const k = ca.kind === 'unpriceable' && ca.scope === 'account' ? `${ca.accountId}|` : `${ca.accountId}|${ca.symbol}`;
-    const list = times.get(k);
-    if (list) list.push(ca.executedAt.getTime()); else times.set(k, [ca.executedAt.getTime()]);
+    const into = isTransfer(ca) ? transferTimes : times;
+    const list = into.get(k);
+    if (list) list.push(ca.executedAt.getTime()); else into.set(k, [ca.executedAt.getTime()]);
   }
-  for (const list of times.values()) list.sort((x, y) => x - y);
+  for (const list of [...times.values(), ...transferTimes.values()]) list.sort((x, y) => x - y);
   const nextAfter = (list: number[] | undefined, t: number) => {
     if (!list) return Infinity;
     let lo = 0, hi = list.length;
@@ -165,15 +193,15 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     return lo < list.length ? list[lo] : Infinity;
   };
   // Same UTC day as a repricing action on the pair (or an account-wide one): the order within that day is unknown.
-  const days = new Map<string, Set<number>>();
-  for (const [k, list] of times) days.set(k, new Set(list.map((t) => Math.floor(t / DAY))));
-  const sameDayAction = (a: Activity) => {
+  const daysOf = (m: Map<string, number[]>) => new Map([...m].map(([k, list]) => [k, new Set(list.map((t) => Math.floor(t / DAY)))]));
+  const days = daysOf(times), transferDays = daysOf(transferTimes);
+  const sameDay = (ds: Map<string, Set<number>>, a: { accountId: string; symbol: string; executedAt: Date }) => {
     const d = Math.floor(a.executedAt.getTime() / DAY);
-    return !!(days.get(`${a.accountId}|${a.symbol}`)?.has(d) || days.get(`${a.accountId}|`)?.has(d));
+    return !!(ds.get(`${a.accountId}|${a.symbol}`)?.has(d) || ds.get(`${a.accountId}|`)?.has(d));
   };
-  const latePosted = (a: Activity) => {
+  const inWindow = (m: Map<string, number[]>, a: Activity) => {
     const t = a.executedAt.getTime();
-    const next = Math.min(nextAfter(times.get(`${a.accountId}|${a.symbol}`), t), nextAfter(times.get(`${a.accountId}|`), t));
+    const next = Math.min(nextAfter(m.get(`${a.accountId}|${a.symbol}`), t), nextAfter(m.get(`${a.accountId}|`), t));
     return next - t <= LATE_POSTING_DAYS * DAY;
   };
   // In-window checks (tester round 1, reviewer round 2): a lot opened within LATE_POSTING_DAYS before a split may
@@ -200,7 +228,12 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   // position (the positions read) for the pair.
   const unknownFrom = new Set<string>();
   const held = (lots: Lot[]) => lots.reduce((s, l) => s + l.units, 0);
-  const taint = (lots: Lot[]) => { for (const l of lots) l.tainted = true; };
+  const taint = (lots: Lot[]) => { for (const l of lots) { l.tainted = true; delete l.cause; } };
+  // F-32 Part A: a transfer's taint. It names the lot's cause only when nothing else tainted it.
+  const taintBy = (lots: Lot[], ca: CorporateAction) => {
+    if (!isTransfer(ca)) { taint(lots); return; }
+    for (const l of lots) if (!l.tainted) { l.tainted = true; l.cause = 'transfer'; }
+  };
   // Removes `units` from the oldest lots (a cash-in-lieu fraction, shares removed by an unpriceable action).
   const removeOldest = (lots: Lot[], units: number) => {
     let left = units;
@@ -222,7 +255,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       const moved = movedTo.get(key);
       if (isTradeRow(ca)) {
         // F3-1: an unusable vendor trade row (see the header). Counted when it is a sell, never priced.
-        if (ca.side === 'SELL') excludedCorporate++;
+        if (ca.side === 'SELL') { excludedCorporate++; note(ca.externalId, 'corporate'); }
         if (ca.units !== undefined && !ca.undated) {
           if (ca.side === 'SELL') addGap(b, removeOldest(b.lots, ca.units)); // C4-2: an unusable oversell leaves a gap too
           else b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
@@ -232,7 +265,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         }
         continue;
       }
-      if (!b.lots.length && moved?.at === e.at && ca.kind !== 'symbol-change') { taint(book(moved.to).lots); }
+      if (!b.lots.length && moved?.at === e.at && ca.kind !== 'symbol-change') { taintBy(book(moved.to).lots, ca); }
       if (ca.kind === 'split' || ca.kind === 'stock-dividend') {
         if (exchangedInto.get(key) === e.at) { taint(b.lots); continue; }
         if (!b.lots.length) {
@@ -279,12 +312,14 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       } else {
         if (ca.scope === 'account') {
           for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`)) taint(other.lots);
-        } else taint(b.lots);
+        } else taintBy(b.lots, ca);
         const u = ca.units ?? 0;
         // Independent review (finding 3): an unpriceable action on a pair the ledger holds none of (not shares it hands
         // over: a spin-off's received shares) says earlier shares exist: the gap.
         if (u <= 0 && ca.scope !== 'account' && !b.lots.length && moved?.at !== e.at) addGap(b, Math.abs(u) || 1);
-        else if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
+        // F-32 Part A (independent review): a transfer-in lot names the transfer as its cause only when no other action
+        // shares its day (as a buy that day), so the reason never depends on which vendor id sorts first at a tie.
+        else if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true, ...(isTransfer(ca) && !sameDay(days, ca) ? { cause: 'transfer' as const } : {}) });
         else if (u < 0) addGap(b, removeOldest(b.lots, -u));
       }
       continue;
@@ -300,7 +335,8 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     if (a.held) { heldKeys.add(key); if (a.side === 'SELL') heldSells.push(a); continue; }
     if (a.side === 'BUY') {
       // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
-      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknownFrom.has(key) ? { tainted: true } : {}) });
+      // F-32 Part A: a buy on a transfer's day alone carries the transfer as its cause.
+      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDay(days, a) || unknownFrom.has(key) ? { tainted: true } : sameDay(transferDays, a) ? { tainted: true, cause: 'transfer' as const } : {}) });
       continue;
     }
 
@@ -309,7 +345,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     // that is tiny at the oversell's own scale), so a large later sell can't slip past a small gap.
     const gapped = (b.gap ?? 0) > 0;
     if (heldKeys.has(key)) { // F-24 RT-2: the ledger may be missing (or doubling) a held row
-      excludedHeld++;
+      excludedHeld++; note(a.externalId, 'held');
       continue;
     }
     let remaining = a.units;
@@ -318,6 +354,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     let openedAt: Date | null = null;
     let verified = a.verified;
     let tainted = false;
+    let corporateTaint = false; // F-32 Part A: a drawn lot some non-transfer action tainted
     while (!tiny(remaining, a.units) && open.length) {
       const lot = open[0];
       const take = Math.min(lot.units, remaining);
@@ -326,6 +363,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       openedAt ??= lot.at;
       verified &&= lot.verified;
       tainted ||= !!lot.tainted;
+      corporateTaint ||= !!lot.tainted && lot.cause !== 'transfer';
       lot.units -= take;
       remaining -= take;
       if (tiny(lot.units, a.units)) open.shift();
@@ -334,12 +372,16 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     if (!tiny(remaining, a.units)) {
       // Oversold: this sell, and every later sell of the pair through the gap (C4-2). Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
       // An oversell in a pair whose ledger an unusable trade row made unknown (F3-1) is that cause, not missing history.
-      if (tainted || unknownFrom.has(key)) excludedCorporate++; else excluded++;
+      // F-32 Part A (engineer review): a non-transfer action whose window or day reaches the sell wins the reason here too.
+      if (corporateTaint || unknownFrom.has(key) || (tainted && (inWindow(times, a) || sameDay(days, a)))) { excludedCorporate++; note(a.externalId, 'corporate'); }
+      else if (tainted) { excludedTransfer++; note(a.externalId, 'transfer'); } // only transfer rows touched what it drew
+      else { excluded++; note(a.externalId, 'excluded'); }
       addGap(b, remaining); // C4-2: a short or earlier history
       continue;
     }
-    if (tainted || latePosted(a) || sameDayAction(a)) excludedCorporate++;
-    else if (gapped) excluded++; // C4-2: a short or earlier history: no buy can be matched for certain
+    if (corporateTaint || inWindow(times, a) || sameDay(days, a)) { excludedCorporate++; note(a.externalId, 'corporate'); }
+    else if (tainted || inWindow(transferTimes, a) || sameDay(transferDays, a)) { excludedTransfer++; note(a.externalId, 'transfer'); } // F-32 Part A
+    else if (gapped) { excluded++; note(a.externalId, 'excluded'); } // C4-2: a short or earlier history: no buy can be matched for certain
     else if (openedAt) {
       const exitFee = a.fee;
       const t: ClosedTrade = {
@@ -353,18 +395,19 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         verified,
       };
       trades.push(t);
+      note(a.externalId, 'shown');
     }
   }
-  // Every unheld sell not shown is counted (excludedHeld, excluded or excludedCorporate): each stands for one held twin
+  // Every unheld sell not shown is counted (excluded, excludedCorporate, excludedTransfer or excludedHeld): each stands for one held twin
   // (test author's fuzz: a twin counted as "no recorded entry" counted the same real sell twice).
   const shownIds = new Set(trades.map((t) => t.sellId));
   for (const a of activities) if (a.side === 'SELL' && !a.held && !shownIds.has(a.externalId)) countedTwins.set(sig(a), (countedTwins.get(sig(a)) ?? 0) + 1);
   for (const h of heldSells) {
     const n = countedTwins.get(sig(h)) ?? 0;
-    if (n > 0) countedTwins.set(sig(h), n - 1); // its twin is counted already
-    else excludedHeld++; // a possible further sell beyond a shown twin
+    if (n > 0) { countedTwins.set(sig(h), n - 1); note(h.externalId, 'twin'); } // its twin is counted already
+    else { excludedHeld++; note(h.externalId, 'held'); } // a possible further sell beyond a shown twin
   }
-  return { result: { trades, excluded, excludedCorporate, ...(excludedHeld ? { excludedHeld } : {}) }, books };
+  return { result: { trades, excluded, excludedCorporate, ...(excludedHeld ? { excludedHeld } : {}), ...(excludedTransfer ? { excludedTransfer } : {}) }, books };
 }
 
 export type Stats = {

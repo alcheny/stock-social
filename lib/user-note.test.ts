@@ -95,7 +95,7 @@ test('every thesis surface renders through UserNote and nowhere else prints thes
   assert.match(read('../app/u/[handle]/page.tsx'), /reportId=\{me && !isMe \?/);
   assert.match(read('../app/u/[handle]/trade/[sellId]/page.tsx'), /reportId=\{me && me\.handle !== t\.handle \?/);
   // F-7 merge: never on a public filer's card.
-  assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id && !isPublicRecord\(page\.records\.get\(t\.user_id\)\?\.state \?\? 'none'\) \? <ReportNote tradeId=\{tradeKey\(t\.sell_id\)\} symbol=\{t\.symbol\} \/> : undefined\}/);
+  assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id && !isPublicRecord\(page\.records\.get\(t\.user_id\)\?\.state \?\? 'none'\) \? <ReportNote tradeId=\{t\.trade_key!\} symbol=\{t\.symbol\} \/> : undefined\}/);
   // F-13 merge: the card's thesis slot is thesisLine(t, pub, report): a filer's line, else the UserNote.
   assert.match(read('../app/ui.tsx'), /pub \? <p className="thesis muted" data-public-card>/);
   // F-26: plus the author's own held line (ownHeld), the only other thing the slot can hold.
@@ -152,7 +152,7 @@ test('the Report control sits 4px below the caption; the /t row link holds no no
   assert.match(block, /\.user-note \.report-note \{[^}]*margin: 4px 0 0;/);
   const t = read('../app/t/[symbol]/Theses.tsx');
   // A11Y-FIXES #22 (main) moved the row link to the trade page; the note still sits outside it.
-  const from = t.indexOf('<Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}');
+  const from = t.indexOf('<Link href={tradePageHref({ handle: r.handle, tradeKey: r.tradeKey! })}'); // F-25: the trade_key form
   assert.ok(from >= 0, 'the row link');
   const link = t.slice(from, t.indexOf('</Link>'));
   assert.ok(link.length > 0);

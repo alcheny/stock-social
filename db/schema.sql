@@ -1264,6 +1264,40 @@ create table if not exists matcher_rebuilt (
   version smallint not null
 );
 
+-- ---- F-16 (docs/features/F-16-trust-and-safety-slice.md) and F-17 (F-17-handle-and-name-integrity.md) ----
+-- Plan: docs/features/logs/F-16-F-17/plan.md §3. Additive and idempotent; nothing here drops, truncates or deletes.
+-- Hidden by the owner's audited script (lib/trust-hide.ts). Never set by a report. The visible-user predicate
+-- (lib/visible-users.ts) skips it on every public read. Cleared by unhide. Nothing is deleted.
+-- Not public_filers.hidden_at (F-7's filer switch): this is the owner's trust-and-safety hide of any account.
+select schema_add_column('users', 'hidden_at', 'timestamptz');
+-- F-17: when this account last changed its handle (a counted rename), for the one-change-per-30-days rule.
+select schema_add_column('users', 'handle_renamed_at', 'timestamptz');
+-- F-17 (orchestrator review item 4): the trader_xxxxxxxx handle the system assigned at sign-up, null for a chosen one.
+-- Leaving exactly this handle doesn't start the rename clock (lib/auth/attempts.ts#changeHandle). No backfill: accounts
+-- from before it count their first rename (dev-auth stub, no real users yet).
+select schema_add_column('users', 'provisional_handle', 'text');
+-- One reports table (F-9's): a profile report is a row with target 'profile' and sell_id ''. The existing
+-- unique (reporter_id, trader_id, sell_id) then allows one report per reporter per profile, ever. target, category
+-- and resolution have no CHECK (widening a CHECK needs a drop, which CI forbids; precedent: the F-15 block):
+-- lib/reports.ts validates them against REPORT_TARGETS, REPORT_CATEGORIES (lib/report-copy.ts) and RESOLUTIONS.
+select schema_add_column('thesis_reports', 'target', $d$text not null default 'thesis'$d$);
+select schema_add_column('thesis_reports', 'category', 'text');          -- null on thesis reports
+select schema_add_column('thesis_reports', 'resolved_at', 'timestamptz'); -- set by the owner's digest script
+select schema_add_column('thesis_reports', 'resolution', 'text');         -- 'founded' | 'unfounded'
+-- v2 (E9): no new index; thesis_reports_note (trader_id, sell_id, created_at) and the unique key cover the queries.
+-- Every hide and unhide, written in the same transaction as the change. No thesis text, no reporter.
+create table if not exists trust_audit (
+  id bigint generated always as identity primary key,
+  kind text not null,                                   -- 'profile' | 'thesis' (lib/trust-hide-reasons.ts HIDE_KINDS)
+  user_id int not null references users on delete cascade,
+  sell_id text,                                         -- the thesis's closing sell; null for a profile
+  action text not null check (action in ('hide', 'unhide')),
+  reason text not null,                                 -- lib/trust-hide-reasons.ts HIDE_REASONS / UNHIDE_REASONS
+  actor text not null,                                  -- 'owner' (the only actor until real admin identity)
+  at timestamptz not null default now()
+);
+select schema_add_index('trust_audit_item', 'create index trust_audit_item on trust_audit (user_id, kind, sell_id, at desc)');
+-- end F-16 / F-17
 -- ---- F-24 (docs/features/F-24-late-sell-reconciliation.md; plan docs/features/logs/F-24/plan.md): late-posted trades ----
 -- A periodic full-history read per account (a "pass", one vendor page per due daily read in place of the week read)
 -- inserts the rows the week re-read missed; inserts stay `on conflict do nothing`, so no raw row is ever updated or
@@ -1321,3 +1355,6 @@ select schema_add_column('users', 'excluded_held', 'int not null default 0');
 -- duplicate: left out of the rebuild); one suspected by a give-up (a busy account, failed or multi-page widened reads)
 -- was never decided, so it stays held (its pair's later sells counted).
 select schema_add_column('activity_reissues', 'undecided', 'boolean not null default false');
+-- F-32 Part A (council cycle 5, C5-1): sells a vendor transfer row excludes (lib/trades.ts `excludedTransfer`), counted
+-- under their own reason, never excluded_corporate. A count only: no transfer units, date or account is stored.
+select schema_add_column('users', 'excluded_transfer', 'int not null default 0');

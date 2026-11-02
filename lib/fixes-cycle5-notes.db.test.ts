@@ -172,7 +172,7 @@ test('F5-2: every note form under app/ posts a trade key (the row id stays only 
     for (const m of s.matchAll(/<ReportNote tradeId=\{([^}]*)\}/g)) {
       if (f === 'app/user-note.tsx') { assert.equal(m[1], 'reportId', f); continue; } // passes the reportId checked above
       reports++;
-      assert.match(m[1], /^tradeKey\(/, `${f}: the Report control names a trade key`);
+      assert.match(m[1], /^(tradeKey\(|t\.trade_key!?$)/, `${f}: the Report control names a trade key`); // #100/F-25 pass t.trade_key
     }
   }
   assert.equal(forms, 1, 'the profile\'s note form');

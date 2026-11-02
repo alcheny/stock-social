@@ -101,7 +101,7 @@ export async function finishTickerSums<T>(tx: TransactionSql, userId: number, ou
   return out;
 }
 // end FIXES-CYCLE5
-export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number }> {
+export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number; excludedTransfer: number }> {
   const run = async (tx: TransactionSql) => {
     await tx`select set_config('app.tts_defer', 'on', true)`; // FIXES-CYCLE5 (F5-4): summary recomputed once, at the end
     // F-7: a public filer's trades come from its filings only (lib/public-trades.ts); this rebuild never touches them.
@@ -124,7 +124,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const kept = [...aside, ...live] as unknown as KeptThesis[];
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
-    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0;
+    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0, excludedTransfer = 0;
     // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
     // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
     const actions = await loadCorporateActions(tx, userId, notFuture(tx));
@@ -139,6 +139,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       excluded += m.excluded;
       excludedHeld += m.excludedHeld ?? 0; // F-24 RT-2
       excludedCorporate += m.excludedCorporate;
+      excludedTransfer += m.excludedTransfer ?? 0; // F-32 Part A
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
         await tx`insert into closed_trades ${tx(m.trades.slice(i, i + INSERT_CHUNK).map((t) => {
@@ -218,7 +219,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // F-24 RT-2: sells counted while a possible re-issue in their pair is held (owner-visible; shown nowhere yet).
     await tx`update users set excluded_held = ${excludedHeld} where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
-    return await finishTickerSums(tx, userId, { trades: written, excluded, future: future as number, maxHeld, excludedCorporate }); // FIXES-CYCLE5 (F5-4)
+    await tx`update users set excluded_transfer = ${excludedTransfer} where id = ${userId}`; // F-32 Part A: a count only
+    return await finishTickerSums(tx, userId, { trades: written, excluded, future: future as number, maxHeld, excludedCorporate, excludedTransfer }); // FIXES-CYCLE5 (F5-4)
   };
   return tx ? run(tx) : sql.begin(run);
 }

@@ -3,6 +3,7 @@
 // consented connected connections with their accounts' removal dates. It reads no cron setting, no schedule and no
 // render clock (F-11 AC2): "updated" is whatever the last completed rebuild wrote. The record state is the caller's
 // (lib/connections.ts#recordStates), so a page that already has it never computes it twice.
+import { visibleUserIds } from './visible-users.ts'; // F-16: a hidden trader's status is never computed for a public surface
 import { sql } from './db.ts';
 import { logSafe } from './privacy-log.ts';
 import type { RecordStatus, PublicState } from './connections.ts';
@@ -21,7 +22,7 @@ export async function statusRows(userIds: number[]): Promise<Map<number, StatusR
   if (!ids.length) return out;
   const rows = await sql`
     with closes as (
-      select user_id, min(opened_at) as first_entry, max(closed_at) as last_close from closed_trades where user_id = any(${ids}::int[]) group by user_id
+      select user_id, min(opened_at) as first_entry, max(closed_at) as last_close from closed_trades where user_id = any(${ids}::int[]) and user_id in (${visibleUserIds()}) group by user_id /* F-16 */
     ), accts as (
       select user_id, count(distinct account_id)::int as n from activities where user_id = any(${ids}::int[]) and source = 'snaptrade' group by user_id
     ), conns as (

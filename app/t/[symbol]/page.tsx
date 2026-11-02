@@ -21,6 +21,8 @@ import Timeline from './Timeline.tsx';
 import HoldTime from './HoldTime.tsx';
 import Concentration from './Concentration.tsx';
 import Theses from './Theses.tsx';
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
+import { signWord, TRADE_LINK } from '@/lib/copy.ts'; // F-25
 import Baseline from './Baseline.tsx';
 
 import Watch, { loadWatch, markSeen } from './Watch.tsx';
@@ -35,7 +37,6 @@ const EXPLAINER = 'Verified closed trades in this stock from connected accounts,
 // FIXES-LABELS (PR #85 review, nit 3): row dates in UTC, the year always (lib/date-text.ts), not the server's zone.
 const date = (d: Date) => dateText(d, d, { year: 'always' });
 const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
-const heldWords = (d: number) => (d < 1 ? 'less than a day' : `${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
 
 // The summary and charts are SQL aggregates over every trade (app/t/ticker-sql.ts); only the CAP newest rows are read.
 async function load(raw: string): Promise<{ symbol: string | null; d: (TickerPage & { baseline: TickerBaseline | null }) | null; rows: TickerPage['rows'] }> {
@@ -98,18 +99,18 @@ export default async function Ticker({ params, searchParams }: Params) {
   const spread = d.spread;
   // Held text is never selected: status is filtered in SQL, and selectTheses re-checks it.
   const thesisRows = (await sql`
-    select t.id, t.sell_id, t.user_id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.thesis_written_at, t.thesis_edited_at -- A11Y-FIXES #22
+    select t.id, t.trade_key, t.user_id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.thesis_written_at, t.thesis_edited_at -- A11Y-FIXES #22
     from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
     where t.symbol = ${symbol} and t.filing_url is null and t.thesis_status = 'published' and t.thesis is not null
     order by t.closed_at desc, t.id desc
-    limit 20`) as unknown as { id: number; sell_id: string; user_id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null; thesis_written_at: Date | null; thesis_edited_at: Date | null }[]; // A11Y-FIXES #22
+    limit 20`) as unknown as { id: number; trade_key: string; user_id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null; thesis_written_at: Date | null; thesis_edited_at: Date | null }[]; // A11Y-FIXES #22
   // Fix round 5 (TR-3): one batched read of the record state of every trader named on the page (listed rows and
   // theses); a failed record shows no Verified badge.
   const named = [...rows, ...thesisRows];
   const states = await recordStates([...new Set(named.map((r) => r.user_id))]);
   const stateByHandle = new Map<string, PublicState>(named.map((r) => [r.handle, states.get(r.user_id)?.state ?? 'connected']));
   const badgeFor = (verified: boolean, handle: string) => rowBadge(verified, stateByHandle.get(handle));
-  const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, sellId: r.sell_id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified, writtenAt: r.thesis_written_at, editedAt: r.thesis_edited_at }))); // A11Y-FIXES #22
+  const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, tradeKey: r.trade_key, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified, writtenAt: r.thesis_written_at, editedAt: r.thesis_edited_at }))); // A11Y-FIXES #22
   // Cohort follows the ticker: verified rows if it has any, otherwise the Demo rows, this symbol excluded; on a mixed
   // stock this stock's side is its verified rows too (app/t/ticker-sql.ts#tickerPageWithBaseline, same snapshot).
   const baseline = d.baseline;
@@ -171,14 +172,13 @@ export default async function Ticker({ params, searchParams }: Params) {
       <ul className="rows ticker-rows" aria-label={`Closed trades in ${symbol}, newest first`}>
         {shown.map((r) => (
           <li key={r.id}>
-            <Link
-              href={`/u/${r.handle}`}
-              className="trow"
-              aria-label={`@${r.handle}, ${symbol}, ${pct(r.return_pct)}, held ${heldWords(r.holding_days)}, closed ${date(r.closed_at)}`}
-            >
+            {/* F-25 Shape R: the whole row is the one link, to the trade page; named by its visible text (no aria-label),
+                the sign word before the figure and the visually hidden suffix. The profile is one tap further. */}
+            <Link href={tradePageHref({ handle: r.handle, tradeKey: r.trade_key })} className="trow f25-row">
               <span className="who">@{r.handle} <RowBadge kind={badgeFor(r.verified, r.handle)} /></span>
-              <b className={toneClass(r.return_pct)}>{pct(r.return_pct)}</b>{/* A11Y-FIXES #23 */}
+              <b className={toneClass(r.return_pct)}><span className="sr-only">{`${signWord(r.return_pct)} `}</span>{pct(r.return_pct)}</b>{/* A11Y-FIXES #23 */}
               <span className="muted">held {held(r.holding_days)} · {date(r.closed_at)}</span>
+              <span className="sr-only">{TRADE_LINK.suffix(symbol)}</span>
             </Link>
           </li>
         ))}

@@ -36,6 +36,8 @@ export async function insertFiler(sql: postgres.Sql, f: F7Filer, now = Date.now(
 
 // The raw rows' price and share count: never on any surface (AC 17).
 export const RAW_AMOUNTS = ['4321', '4,321', '98.76'];
+// F-25: trade URLs carry a 64-hex trade_key, which can contain "4321" by chance; amounts are looked for outside the keys.
+export const withoutKeys = (html: string) => html.replace(/[0-9a-f]{64}/g, '');
 
 export async function deleteFilers(sql: postgres.Sql, handles: string[]): Promise<void> {
   if (!handles.length) return;

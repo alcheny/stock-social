@@ -16,6 +16,8 @@ import { recordStrip } from '@/lib/record-strip.ts';
 import { RecordStrip } from '@/app/record-strip.tsx';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
+import { TRADE_LINK } from '@/lib/copy.ts'; // F-25
 import { count } from '@/lib/format.ts';
 // FIXES-LABELS (D-24): numbers and a range only in "This month" (F-12's month figures); "One of N months on record" under the h1.
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
@@ -24,6 +26,7 @@ const FL_DEMO = FL.demoNote; // FIXES-LABELS (DS-20): one Demo name
 import { dateText } from '@/lib/date-text.ts';
 import { recordRows, segments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
+import { generateMetadata as notFoundMetadata } from '../../not-found.tsx';
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
@@ -39,7 +42,9 @@ const day = (d: Date) => dateText(d, new Date()); // FIXES-LABELS (D-05): the ye
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const r = await load(params);
-  if (!r) return {};
+  // F-16/F-17: the 404 head comes from ../../not-found.tsx (hidden / retired / generic). Orchestrator review item 2:
+  // returned here, never notFound() in generateMetadata (which can leave two <title>s); the body calls notFound().
+  if (!r) return notFoundMetadata({ params });
   // F-12: the strip's words. Reviewer fix (TR-3): the record part follows the profile's record-state rule, as on the
   // trade page. The image's alt text is declared here because it depends on the record (F-4 pattern).
   const whole = recordStrip(recordStripInput(r), 'image');
@@ -63,13 +68,14 @@ export default async function RecapPage({ params }: Params) {
   // The month's figures (average with its range, or Too early) under the same record-state rule: none while an import runs.
   const month = recordStrip(monthStripInput(r), 'figures');
   const picks = pickTitles(m); // FIXES-CYCLE5 (F5-10)
-  const link = (id: string) => `/u/${handle}/trade/${encodeURIComponent(id)}`;
+  const link = (key: string) => tradePageHref({ handle, tradeKey: key }); // F-25: the one builder
   const Pick = ({ title, t }: { title: string; t: typeof m.best }) => (
     <section className="trade-card" aria-label={title}>
       <h2>{title}</h2>
-      <Link href={link(t.sellId)} style={{ display: 'block', minHeight: 44, padding: '4px 0' }}>
+      <Link href={link(t.tradeKey!)} className="f25-row" style={{ display: 'block', minHeight: 44, padding: '4px 0' }}>
         <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
         <span className="muted small">{held(t.holdingDays)}</span>
+        <span className="sr-only">{TRADE_LINK.suffix(t.symbol)}</span>{/* F-25 Shape R */}
       </Link>
     </section>
   );
@@ -120,12 +126,13 @@ export default async function RecapPage({ params }: Params) {
       <h2>{FC4.monthHeading /* FIXES-CYCLE4-PART2 (F4-4; business lead, POLICY F3a): every record, the F-7 form */}</h2>
       <ol className="small" style={{ listStyle: 'none', padding: 0 }}>
         {m.trades.map((t) => (
-          <li key={t.sellId}>
-            <Link href={link(t.sellId)} style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, minHeight: 44, alignItems: 'center' }}>
+          <li key={t.tradeKey}>
+            <Link href={link(t.tradeKey!)} className="f25-row" style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, minHeight: 44, alignItems: 'center' }}>
               <span className="muted">{day(t.closedAt)}</span>
               <b>{t.symbol}</b>
               <span><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
               <span className="muted">{held(t.holdingDays)}</span>
+              <span className="sr-only">{TRADE_LINK.suffix(t.symbol)}</span>{/* F-25 Shape R */}
             </Link>
           </li>
         ))}

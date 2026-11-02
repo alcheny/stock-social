@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
@@ -35,7 +36,7 @@ export default async function HiddenTrades({ searchParams }: { searchParams?: Pr
                 <span className="who-col">
                   <Link href={`/u/${r.handle}`}><WhoName name={r.name} handle={r.handle} /></Link>
                   <span className="small"><span className="closed"><RowBadge kind={r.filer ?? (r.verified ? null : 'demo')} />{HIDDEN_TRADES.closed(r.symbol, day)}</span>
-                    <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}>{HIDDEN_TRADES.trade}</Link></span>
+                    <Link href={tradePageHref({ handle: r.handle, tradeKey: r.key })}>{HIDDEN_TRADES.trade}</Link></span>
                 </span>
                 <form action={showTradeAgainForm.bind(null, r.key, sp.after)}>
                   <button className="secondary" aria-label={HIDDEN_TRADES.showAgainFor(r.handle, r.symbol, day)}>{HIDDEN_TRADES.showAgain}</button>

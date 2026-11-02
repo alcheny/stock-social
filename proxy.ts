@@ -12,6 +12,9 @@ export function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('Content-Security-Policy', csp);
+  // F-16/F-17 (plan §11): the request path for app/u/[handle]/not-found.tsx, which gets no props. Set, so a client's
+  // own x-ss-path is overwritten.
+  requestHeaders.set('x-ss-path', request.nextUrl.pathname);
   // FIXES-CYCLE5 (F5-7; legal committee 2026-11-02 A5): the kept 18+ tick is read only by the render the sign-in
   // action's own bounce makes. Next serves that render in the action's response by fetching the redirect target from
   // this server, with the action's response headers merged in (x-action-redirect) and its new cookie. Any other

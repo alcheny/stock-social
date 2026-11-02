@@ -35,6 +35,14 @@ account divided between realized and unrealized gains and losses.
 - 2026-11-01: The feed pane leads with the figures (realized, unrealized, combined) when the trader has open positions, then the chart. Why: decided by the committee under the owner's instruction of 2026-11-01; the pane is where most viewers meet a record (SW-1).
 - 2026-11-01: The evidence line is scoped first ("Closed trades: …"), and the unrealized row is dated ("as of" the oldest read). Why: decided by the committee under the owner's instruction of 2026-11-01; no contradiction under a negative combined figure, and a stale read never reads as current.
 - 2026-11-01: The share card images reflect open positions in the F-4 build, which reuses lib/open-split.ts; the F-6 PR covers every other surface. Why: decided by the committee under the owner's instruction of 2026-11-01; the F-4 session owns the card.
+- 2026-11-02: OD 2.25 is overridden by the owner: real users' unrealized values keep showing publicly on every surface
+  this feature shows them today. There is no "Open positions exist and aren't shown yet" line, no market-data gate and
+  no dated TR-4 exception. The owner accepts the market-data risk; the question goes into the vendor letter (Appendix
+  A, OD 2.24). One "Open" line across surfaces is F-34; withholding symbols on thinly traded names is deferred. Why:
+  the owner's decision of 2026-11-02 (OD 2.25).
+- 2026-11-02: The owner accepted OD 2.31 (a disconnected account's last positions shown, labelled "Last known ‹date›";
+  F-41) and OD 2.34 (open positions in the TR-9 range; F-46). These resolve the follow-up and idea-board questions
+  below. Why: the owner's decisions of 2026-11-02 (accepted en bloc).
 
 ## Acceptance criteria
 - [ ] Every surface that shows a trader's performance (profile headline and stats, chart, feed card and pane,

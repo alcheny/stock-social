@@ -164,7 +164,7 @@ async function spread(sql: Db, symbol: string): Promise<{ spread: Spread; return
   return { spread: { n, bins, median, up, down, flat: n - up - down, min, max }, returns: n < 10 ? mid.map((m) => m.v) : [] };
 }
 
-export type TickerRowOut = { id: number; user_id: number; handle: string; display_name: string; symbol: string; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean };
+export type TickerRowOut = { id: number; trade_key: string /* F-25 */; user_id: number; handle: string; display_name: string; symbol: string; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean };
 export type TickerPage = TickerHeadline & {
   rows: TickerRowOut[]; spread: Spread; returns: number[]; timeline: Timeline; holds: HoldBuckets; concentration: Concentration | null;
 };
@@ -178,7 +178,7 @@ async function tickerPageIn(sql: Db, symbol: string, today: Date, cap: number): 
   const [s, b, tl, sp, rows] = await Promise.all([
     scopes(sql, symbol, true), bets(sql, symbol, true), timeline(sql, symbol, today), spread(sql, symbol),
     sql`
-      select t.id, t.user_id, u.handle, u.display_name, t.symbol, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified
+      select t.id, t.trade_key, t.user_id, u.handle, u.display_name, t.symbol, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified
       from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
       where t.symbol = ${symbol} and t.filing_url is null
       order by t.closed_at desc, t.id desc
