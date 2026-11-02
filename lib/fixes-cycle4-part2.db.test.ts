@@ -164,6 +164,13 @@ dbTest('F4-16: the pane rows carry a published note\'s written and edited UTC da
   // The route maps the day fields under their own keys, never as epoch ms.
   const { readFileSync } = await import('node:fs');
   const route = readFileSync(new URL('../app/u/[handle]/pane/route.ts', import.meta.url), 'utf8');
-  assert.match(route, /writtenDay: r\.writtenDay \?\? null, editedDay: r\.editedDay \?\? null/);
+  // F-23: the route sends no rows; its chart is built from these rows (feedPaneChart → chartPoints, which carries the
+  // day numbers under their own keys via noteDaysOf), and the wire keeps them as days.
+  assert.match(route, /const chart = feedPaneChart\(rows, now\);/);
   assert.doesNotMatch(route, /writtenAt|editedAt/);
+  const { feedPaneChart, unpackChart } = await import('./chart-series.ts');
+  const wired = JSON.parse(JSON.stringify(feedPaneChart(rows, new Date())));
+  assert.doesNotMatch(JSON.stringify(wired), /\d{13}/);
+  const viaChart = unpackChart(wired).ALL.pts.map((x) => x.trade).find((x) => x?.id === closes[0].id)!;
+  assert.equal(noteDateLine(fromNoteDay(viaChart.writtenDay), fromNoteDay(viaChart.editedDay)), noteDateLine(W, E));
 });

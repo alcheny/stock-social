@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { paneSummary, paneTrust } from '@/lib/pane.ts';
 import type { PublicState } from '@/lib/connections.ts';
 import { isPublicRecord, PUBLIC, RECORD_BODY } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
@@ -9,7 +8,6 @@ import { PerformanceChart } from './u/[handle]/chart.tsx';
 import { Badge, PublicNotice, WhoName } from './ui.tsx';
 import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
-import { combined, openSummary } from '@/lib/open-split.ts';
 import { OPEN, OPTIONS } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from './open-rows.tsx';
 // FIXES-LABELS (D-09): the F3 line right after the figures, in both orders.
@@ -17,7 +15,8 @@ import { Disclaimer } from './disclaimer.tsx';
 import { FIXES_LABELS } from '@/lib/copy.ts';
 import type { Segment } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from './status-line.tsx'; // FIXES-LABELS: status
-import { paneEvidence } from '@/lib/pane-evidence.ts'; // FIXES-LABELS (code review): the profile's range and New record
+import { paneModel, type PaneModel } from '@/lib/pane-model.ts'; // F-23: every printed figure, from stored values
+import { numericDay, wireToday } from '@/lib/public-wire.ts'; // F-23
 // OPTIONS (docs/features/logs/options/plan.md D5, AC 24): the label and the count line (or the options line once open).
 import { PaneOptions, ShareTradesLabel } from './u/[handle]/options-block.tsx';
 import type { PaneOptionsView } from '@/lib/options-view.ts';
@@ -30,11 +29,12 @@ export type PaneTrade = {
 };
 
 // Fix round 2 (render cost): one formatter, not one per call (same text as toLocaleDateString with these options).
-const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-const day = (d: Date) => DAY.format(d);
+// F-23: in UTC, so the server and any browser zone print the same day.
+const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const day = (iso: string) => DAY.format(new Date(iso));
 
 // Feed profile pane (SW-1), variant C: leads with the chart and an honest one-line summary (length of
-// record, trade count, worst trade), then the headline stats. All-time numbers via paneSummary().
+// record, trade count, worst trade), then the headline stats. All-time numbers via the pane model (lib/pane-model.ts, F-23).
 // `chart`: the trader's chart drawn once per trader by the feed at screen resolution (at most FEED_CHART_POINTS points per
 // range, lib/chart-series.ts), shared by that trader's cards (PR-3 fix rounds 4 and 7). The profile keeps full resolution.
 // Fix round 8: on the feed it is `feedPaneChart` (a stand-in line for a long record) and the chart fetches the full one
@@ -43,19 +43,21 @@ const day = (d: Date) => DAY.format(d);
 // FIXES-LABELS: status: `status`, the pane's status segments (line 1 without "Record since", then line 2; static mode, as
 // the pane JSON is cached 60 s), before the recent trades.
 // ponytail: OD-9 open positions of a frozen record keep F-6's rule — owner decision pending
-export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf, disclaimer = true, status, options }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date; disclaimer?: boolean; status?: Segment[]; /* OPTIONS */ options?: PaneOptionsView }) {
-  const p = paneSummary(trades);
+// F-23: `model` (lib/pane-model.ts) is every figure the pane prints; the feed passes `trades` and the model is computed
+// here on the server from stored values; app/lazy-pane.tsx passes the model the /pane route computed the same way.
+export function ProfilePane({ handle, name, trades = [], model, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf, disclaimer = true, status, options }: { handle: string; name: string; trades?: PaneTrade[]; model?: PaneModel; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date; disclaimer?: boolean; status?: Segment[]; /* OPTIONS */ options?: PaneOptionsView }) {
   // F-6: the trader's open positions (connected or failed records only, lib/feed.ts); the combined figure from the whole
-  // record, as on the profile. Nothing new renders without open positions.
-  const open = openSummary(unrealized);
-  const both = open && combined(trades.map((t) => t.returnPct), unrealized);
-  const trust = paneTrust(trades, state);
-  const ev = paneEvidence(trades, now); // FIXES-LABELS (code review, TR-9 / TR-7)
+  // record, as on the profile. Nothing new renders without open positions. FIXES-LABELS (code review, TR-9 / TR-7): the
+  // range line and New record. F-23: all of it in the model.
+  const p = model ?? paneModel(trades, state, now, unrealized, openAsOf);
+  const open = p.open, both = p.both;
+  const trust = { badge: p.badge, incomplete: p.incomplete };
+  const ev = { rangeLine: p.rangeLine, newRecord: p.newRecord };
   const pub = isPublicRecord(state); // F-7: no Follow; the not-joined line right under the chart (it stays above the fold)
-  const newBadge = state !== 'importing' && !pub && trades.length > 0 && ev.newRecord && <span className="badge new">New record</span>;
+  const newBadge = state !== 'importing' && !pub && p.count > 0 && ev.newRecord && <span className="badge new">New record</span>;
   const chartBlock = <>
     {/* OPTIONS fix round 3 (UX B1): with the label, the caption says the chart excludes options too. */}
-    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} shareOnly={!!options?.label} noteBy={handle} />{/* F-9: UserNote in the chart sheet */}
+    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={wireToday(now)} linkBase={`/u/${handle}`} shareOnly={!!options?.label} noteBy={handle} />{/* F-9: UserNote in the chart sheet */}
     {open && <ChartNote o={open} />}
   </>;
   // QA round 2 (B1): F-7's not-joined line and its correction link follow the F3 line, which sits right after the chart
@@ -79,7 +81,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
         {ev.rangeLine && <small className="range">{ev.rangeLine}</small>}{/* FIXES-LABELS (code review, TR-9): as on the profile */}
       </div>
     </section>
-    {open && <OpenGrid o={open} asOf={openAsOf} long={long} />}
+    {open && <OpenGrid o={open} asOf={p.openAsOf ? new Date(p.openAsOf) : undefined} long={long} />}
     {both && <CombinedLine c={both} />}
     <PaneOptions v={options} />
   </>;
@@ -111,7 +113,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
       <ul className="rows">
         {p.recent.map((t) => (
           <li key={t.id} className={t.id === highlight ? 'line hl' : 'line'} aria-current={t.id === highlight ? 'true' : undefined}>
-            <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
+            <span><b>{t.symbol}</b> <span className="muted">{numericDay(t.day * 86_400_000) /* F-23: the UTC day */}</span></span>
             <b className={toneClass(t.returnPct)}>{pct(t.returnPct)}</b>
           </li>
         ))}
