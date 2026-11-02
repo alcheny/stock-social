@@ -51,3 +51,18 @@ as a scheduled hand-off with the owner's words; D4 the PR shows the 40 × +1% pr
 point for the owner (not built): id order favours the earliest sign-ups once most rows weigh 0; a fixed hash of the id
 would be seniority-neutral. **Engineer:** building on the round-1 rulings (its demands accepted), so it signs off by
 building to them. D1, D2, D4 sent to the engineer; D3 done in plan.md by the orchestrator. Plan agreed: round 2.
+
+## Build (engineer) — see [build.md](build.md)
+Built tests-first on the round-2 plan; build 1 (`06ee2a0`..`2bba836`), main merged (F-25, F-23 chart, chores C5-43b),
+build 2 (`d335d98`, review fixes). Skewed feed fixture: orchestrator ruling (b) after the engineer verified the six
+ordinary traders weighed > 0 on main; the all-zero case is a new test plus a `test.todo` and a ponytail (F-2 hand-off).
+
+## Independent code review (2026-11-02)
+Re-ran tsc and npm test (2,430, 0 fail); no protected path, dependency or schema change; symmetry verified on 2,000
+random records; floor, gates, cache key, section comparator and the single "Too early to tell" literal verified.
+- Blocking for the owner (not a code defect): with every weight 0 the F-2 bound "5 hyperactive traders hold at most 5
+  of any 10" fails in the tail (6 on 3 of 4 checked days). Kept as the F-2 hand-off; put to the owner in the PR.
+- Fixed in build 2: R4 section line false for a weighted Demo row (copy now says Demo records last); R5 ticker baseline
+  and tools card printed a blank instead of "Too early to tell"; R6 options line separator; R3 AC7 test title honest.
+- Accepted, to the owner: R2 zero-width weighted record (0.204); 40 × −100% closes weigh 29.9 (the simple-return pace is
+  unbounded and the near-edge weight linear; symmetric for gains); readout counts importing/failed records as visible.
