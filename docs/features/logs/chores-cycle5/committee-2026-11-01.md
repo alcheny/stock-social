@@ -78,3 +78,50 @@ code. Every probe record is fictional.
   this container's installed optional package, not from this branch (package.json and package-lock.json are unchanged
   from main).
 - `npm run build`: ok.
+
+## PR 2: the rest of the chore lane (`claude/chores-cycle5`)
+
+Three builder subagents (fresh context, own worktrees, own databases), each tests-first on a disjoint file set:
+backend (C5-43 a/c/d, C5-40), UI and accessibility (C5-39, C5-38, C5-36, C5-37), tests and readout (C5-42, F-30's
+readout row). The orchestrating session merged them, merged main (#102, #105, #107), resolved the F-25 conflicts, ran
+the gates and the 360 px check, and an independent reviewer (fresh context) reviewed the merged diff.
+
+### Decisions
+
+| # | Item | Question | Decision | Why |
+|---|---|---|---|---|
+| A1 | C5-43(a) | How to make the account count constant-time | Index `activities (user_id, source, account_id)` and a recursive walk reading one index row per distinct account; no stored count | The existing test inserts activities directly and expects the count without a sync; the walk gives exactly the old `count(distinct account_id)`. |
+| A2 | C5-43(a) | First entry and last close | Per-trader `min(opened_at)` through the new `closed_trades (user_id, opened_at)` index; `max(closed_at)` through the existing index | One index row each. |
+| A3 | C5-43(a) | Plain or partial indexes | Partial on an always-true `is not null`, named by the status read only | With plain indexes an unordered legacy read in `lib/display-log.batch.test.ts` changed row order; partial indexes leave every other plan as it was. |
+| A4 | C5-43(a) | Proof | EXPLAIN ANALYZE rows read: a 3,000-close trader reads at most 4 `closed_trades` and 12 `activities` rows, as a 3-close trader does | The council's rule: rows read, never wall-clock. |
+| C1 | C5-43(c) | What the stored sitemap holds | `sitemap_traders`: per (scope, symbol, trader) the verified close count and the UTC day of the newest close; requests group these rows through `visibleUserIds()` | A per-symbol table could not keep fix #4 (a deleted profile leaves every chunk at once, without a rebuild). |
+| C1b | C5-43(c) | A request with no stored row, or a stale one | A request never builds and never waits; with no row it serves an empty index (home and `/t`); the cron's housekeeping rebuilds under a try-lock at most once per `REBUILD_MS` | The brief: no GET aggregates `closed_trades`. |
+| C1c | C5-43(c) | Privacy classification | The new table in SCHEMA_MAP (personal, deleted with the account); its columns in `NOT_A_FIELD` as copies of the public fields "symbols" and "dates" | `PUBLIC_FIELDS` is pinned to the consent versions; the consent text is unchanged. |
+| D1 | C5-43(d) | Clock for freeze marks | The database's `now()` (plus the test shift); `syncUser`'s 4th parameter `pinned?` keeps existing tests' explicit times | Acceptance: with the app clock 2 h off, the freeze lands at exactly 24 h of database time (tested both directions). |
+| J1 | C5-40 | Flag format | `coverage().db.jit` 1/0 and the problem `'jit is on'` in `dbConfigCheck`; `docs/SYNC.md` adds `alter role … set jit = off` | Existing tests require numeric `db` values. Applying it in production is the owner's deploy setting. |
+| U1 | C5-39 | Change the copy constants or the render sites | Render sites, through `Arrowed` / `<span aria-hidden="true">` | Tests pin the constants' exact text; the drawn text is unchanged. F-25's footer links (#102) already hid theirs. |
+| U2 | C5-38 | Border colour | `currentColor`, 2 px border, padding reduced by 2 px | `lib/colour-literals.test.ts` forbids system colour keywords outside TOKENS; the outline is the focus ring. |
+| U3 | C5-36 | Which "Record tools" goes | The Settings h2; the link stays | One council ballot names "single Record tools link". "Thesis held" and the nav's "My record" untouched (council). |
+| U4 | C5-37 | The /tools landmark too | Yes: the shared `Disclaimer` no longer wraps its links in `<nav aria-label="Legal">`; /tools keeps the bold sentence, /account the muted variant (sentence and links, no box) | One component; the footer's Legal nav is on every page (F-3 R8 keeps the sentence and links). |
+| T1 | C5-42 | Which source-text tests to back | 13 whose behaviour runs through the code's own functions or injection points, each naming the test it backs; none removed | The council: "behavioural tests beside the text-presence assertions; the old assertions stay". |
+| T2 | C5-42 | The two race tests | An event-order assertion beside each, timing assertions kept | The brief. |
+| R1 | F-30 row | What counts | One (trader, account, symbol, instant) group holding a BUY and a SELL, over all stored vendor activity of non-deleted, non-demo traders; classes 00:00:00Z / other whole hours / intraday; each cell under 5 printed "<5", no total | F-30's decision 2026-11-01 (counts only, suppressed under 5); the cells are disjoint, so no complementary suppression is needed. |
+
+### Existing assertions changed (each maps to a council decision)
+
+- C5-36: `lib/chores-cycle3.test.ts:231` and `e2e/chores-cycle3.spec.ts:13` hold the new delete-notes wording;
+  `docs/features/logs/F-3/plan.md` §9 quotes it with a dated note.
+- C5-39: e2e accessible-name lookups drop the arrow and add `exact: true` (`e2e/signin.spec.ts`, `record-strip.spec.ts`,
+  `app.spec.ts`, `similar.spec.ts`, `section.spec.ts`). `record-strip.spec.ts:166` also filters on the drawn "←", so it
+  still targets the back link (the strip's own link now shares its name).
+- C5-43(c): four `lib/sitemaps.test.ts` tests encoded "a request rebuilds", which the council's item removes; each is
+  rewritten to the cron-only rule with its completeness and once-each assertions kept, and a comment names the test it
+  replaced. The count is unchanged.
+
+### Process notes
+
+- Two builders could not create a database role in the shared cluster (the worktree guard refused `su`). One created
+  a separate trust-auth cluster on port 5447, which the orchestrator dropped after merging; the other used `setpriv`.
+  The UI builder ran no e2e; the orchestrator ran its specs on the merged branch (one lookup fixed, above).
+- `demoUser()` alias: the readout builder found its new query compared the helper's inner alias with itself; fixed in
+  the loader. The other callers pass `u.id` or `r.user_id` and are not affected (checked).
