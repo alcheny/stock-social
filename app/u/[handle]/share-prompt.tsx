@@ -36,7 +36,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew, preview
         <p className="muted">Preview unavailable. Your link still works.</p>
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
-        <img className="preview" src={`/u/${handle}/opengraph-image`} width={1200} height={630} loading="eager" onError={() => setImgFailed(true)}
+        <img className="preview" src={withGate(`/u/${handle}/opengraph-image`)} width={1200} height={630} loading="eager" onError={() => setImgFailed(true)}
           alt={previewAlt} />
       )}
       <p style={{ margin: 0 }}>{PUBLIC_SHORT.sharePrompt(PUBLIC_FIELDS.map((f) => f.words))}</p>

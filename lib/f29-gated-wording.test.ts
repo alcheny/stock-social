@@ -79,6 +79,8 @@ test('AC6: every URL-keyed public cache reference goes through withGate, and the
     assert.match(s, /withGate\(`\/u\/\$\{handle\}\/story\?format=square`\)/, f);
     assert.doesNotMatch(s, /image=\{`\/u\/\$\{handle\}\/story/, f);
   }
+  // Code review N1: the share prompt's preview of the unfurl image carries the key too.
+  assert.match(read('app/u/[handle]/share-prompt.tsx'), /src=\{withGate\(`\/u\/\$\{handle\}\/opengraph-image`\)\}/);
   assert.match(read('app/u/[handle]/page.tsx'), /url: withGate\(`\/u\/\$\{user\.handle\}\/opengraph-image`\)/);
   assert.match(read('app/u/[handle]/month/[ym]/page.tsx'), /url: withGate\(`\/u\/\$\{r\.handle\}\/month\/\$\{r\.recap\.ym\}\/opengraph-image`\)/);
   assert.match(read('app/u/[handle]/trade/[sellId]/page.tsx'), /const url = withGate\(`\/u\/\$\{t\.handle\}\/trade\/\$\{encodeURIComponent\(sellId\)\}\/opengraph-image`\)/);
@@ -129,6 +131,10 @@ test('AC2: cardOptionsLine is the gated count text with the gate closed, and not
   const open = paneView({ gate: 'open', counts: C({ shown: 2 }), summary: { n: 2, winRate: 0.5, avg: 0.01, range: null, bets: 2 } });
   assert.ok(open.line, 'the open view has an options line');
   assert.equal(cardOptionsLine(open), undefined);
+  // Code review B1: an open record with short options only (no summary) gets a non-figures line; the card still has none.
+  const shortOnly = paneView({ gate: 'open', counts: C({ short: 3, openShort: 1 }), summary: null });
+  assert.ok(shortOnly.line, 'the open short-only view has a line');
+  assert.equal(cardOptionsLine(shortOnly), undefined);
   assert.equal(cardOptionsLine(paneView({ gate: 'closed', counts: C() })), undefined);
   assert.equal(cardOptionsLine(undefined), undefined);
 });

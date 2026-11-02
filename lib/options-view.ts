@@ -64,4 +64,4 @@ export function optionDisplayText(m: OptionHeadline): string | null {
 
 /** F-29 (plan D6, round 3): the feed card's count line: the gated count text only (never option figures), so the card
  *  has no line once the gate opens, at zero counts or without a view. */
-export const cardOptionsLine = (v: PaneOptionsView | undefined): string | undefined => (v?.line && !isOptionsLine(v.line) ? v.line : undefined);
+export const cardOptionsLine = (v: PaneOptionsView | undefined): string | undefined => (v && !v.open && v.line && !isOptionsLine(v.line) ? v.line : undefined) /* code review B1: never once the gate is open (a short-only record's open line is no options line) */;
