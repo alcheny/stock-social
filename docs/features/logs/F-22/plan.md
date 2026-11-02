@@ -176,3 +176,34 @@ unit-less `_OUT` counted; `COUNTED_KEYS`/`countedSum` named; a link target `#tra
 - Q3: agreed: no cause, no blame; `HOW.verified` is the Verified definition and changes in this PR; FIFO is "this record's
   own matching method, not the broker's"; POLICY F3's list is the protected-files session's.
 - Q4: agreed, with the exact updates in §7.2 (p4 renamed and flipped, fuzz (b) restated, C5-1 comment); none deleted.
+
+## Round 2 changes (orchestrating build session, after round 1)
+Business lead (CHANGES REQUIRED, 8) and engineer (CHANGES REQUIRED, 8). Both chose option (a) for Q5.
+- Q5 (BL 1, EN 1-3): moved-in units are drawn last (`Lot.movedIn`; recorded buys, also later ones, go before them; a
+  rename's merge keeps them last). A sell that draws recorded and moved-in units is shown, priced on its recorded units
+  (exit fee prorated by units, `verified` and `openedAt` from recorded lots), and counted in `sellsPartlyTransferred`
+  (`users.sells_partly_transferred`, a profile line linking to /how#transfers). A sell drawing only moved-in units is
+  counted "transfer"; an oversell keeps today's reason. The count is in no sum (the sell is shown): `NOT_SUMMED_KEYS`.
+- BL 2 (owner item 2 resolved by the committee): the "alike" test is price, fee, `verified`, taint state and moved-in;
+  not the opening date (which share left changes no return, only the holding period, which follows this record's FIFO;
+  /how says so). The UX lead's stricter clause is dropped.
+- BL 3: a `ponytail:` names the remaining move (mixed lots: one share out leaves the rest counted). The measurement
+  counter `transfer_out_then_counted` is not added: the per-reason rebuild report (#108) shows the transfer count's move
+  per deploy, and a new column for a diagnostic is not worth its privacy map; noted for the owner.
+- BL 4/5: copy as demanded ("1 transfer out of an account: not a closed trade, so no return is shown."; link "How
+  transfers out are counted"; /how item in three sentences, with the limit in plain words).
+- BL 6: `countedSum` returns `{ sells, transfersOut }`, never one number; guard test lists every numeric key.
+- BL 7, EN 7: merge hold in both directions (a split sent as a transfer in publishes a false loss; a reverse split sent as
+  a transfer out a false gain). Pinned tests for both rows. Owner item: the vendor's written MRC2-10 answer (preferred) or
+  the owner's written acceptance.
+- BL 8: the pre-deploy diagnostic (transfers whose units are a clean ratio of the holding) needs a ledger replay; it goes
+  to the owner's deploy checklist with the merge hold, not into this PR.
+- EN 5: a whole-position move clears every lot (no sliver below tolerance). EN 6: the loader direction rule is built
+  (`out` for _OUT; a sign that contradicts the type drops the units); the `touched` hook is replaced by direct
+  comparisons: against the same ledger without its transfers in, a sell shown in both is identical, a newly shown sell
+  is one the ledger alone had no recorded entry for, and a removed one is in a transfer's window or day (the sell's or a
+  buy's: Part B).
+- EN 8: `TRANSFER_HOW` says moved-in shares are matched after every recorded buy, and a sell using both is shown for its
+  recorded shares only.
+- Found by the property (seed 111), fixed: a moved-in lot no longer makes a split taint the recorded lots (one share moved
+  in before a split would have turned every later sell into a count).
