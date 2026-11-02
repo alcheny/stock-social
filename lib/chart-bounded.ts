@@ -9,10 +9,12 @@
 // every close stays reachable through the paged closed-trade list (lib/paging.ts#closesWindow).
 // Pure; returns the kept indices, ascending.
 
-// 4 points per slice: 499 slices, under 1 slice per viewBox unit of the 640-wide chart, so a slice spans at most about
-// 1.3 CSS px on a 360 px phone and about 1 CSS px at the chart's full width. A record of at most this many closes per
-// range is sent whole (the compact `sfx` form).
-export const PROFILE_CHART_POINTS = 2_000;
+// 4 points per slice: 1,249 slices, several per viewBox unit of the 640-wide chart, so a slice spans well under 1 CSS px
+// at any width. A record of at most this many closes per range is sent whole (the compact `sfx` form): the budget sits
+// above the dense profiles earlier decisions keep at full resolution (F-23's 4,700-close profile in its compact form,
+// fix round 4's 2,828 closes each reachable on the chart, fix round 8's > 4,000-point profile chart), so only a truly
+// heavy record (C5-12's 80,000 closes) is bounded. FIXES-CYCLE5 e2e run: raised from 2,000, which broke those three.
+export const PROFILE_CHART_POINTS = 5_000;
 
 export function boundedIndices(xs: number[], ys: number[], max: number): number[] {
   const n = ys.length;

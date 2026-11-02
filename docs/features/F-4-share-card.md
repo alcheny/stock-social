@@ -130,6 +130,13 @@ elements that catch the eye and travel, and leave detail for the profile.
   unrealized · …"; the text under the preview uses F-6's open-positions wording. Why: decided by the committee under
   the owner's instruction of 2026-11-01; the orchestrator's review showed a wrapped range clipping the open-positions
   row (a held loser must never be hidden), and the user test asked for "unrealized" in words on every size.
+- 2026-11-02: The owner accepted OD 2.36, 2.39 (option A) and 2.40: win rate stays in the profile headline until the
+  D23 result and leaves trade and month images; each link-preview description that carries a return ends with both
+  disclaimer sentences; the card date line reads "Last close ‹Mon D, YYYY›"; "Disconnected ‹date›" sits on its own
+  line under the Verified pill; one muted "‹n› excluded" line when n > 0; "independent trades" replaces "bets" and "a
+  clear pattern of gains/losses" replaces "consistent". Built as fixes-list items F6-5, F6-7 and F6-8
+  (`docs/direction/owner-decisions-2026-11-02-worklist.md`). Profit factor keeps the board's secondary-row placement;
+  its removal from DESIGN §2.5 is not decided. Why: the owner's decisions of 2026-11-02 (accepted en bloc).
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and

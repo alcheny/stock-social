@@ -102,7 +102,7 @@ test('without JavaScript a row links to that trade\'s page', async ({ browser })
   try {
     await openProfile(page, `${f.tag}_0`, f.tag);
     const href = await page.locator('.similar .sopen').first().getAttribute('href');
-    expect(href).toMatch(new RegExp(`^/u/${f.tag}_\\d+/trade/${f.tag}-\\d+-\\d+$`));
+    expect(href).toMatch(new RegExp(`^/u/${f.tag}_\\d+/trade/[0-9a-f]{64}$`));
     await page.locator('.similar').evaluate((e) => e.scrollIntoView({ block: 'center' }));
     await shoot(page, 'no-js-375');
     await page.locator('.similar .sopen').first().click();

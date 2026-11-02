@@ -122,7 +122,7 @@ dbTest('item 8: the page and its baseline run in one transaction (the baseline i
   const fn = src.slice(src.indexOf('export async function tickerPageWithBaseline'));
   assert.match(fn, /return snapshot\(sql, async \(tx\) =>/);
   assert.match(fn, /sideConfidence\(q, symbol, 'others'/);
-  assert.match(src.slice(0, src.indexOf('export async function othersConfidence')), /ponytail: per-request full scan[\s\S]*cache the result per \(symbol, verified\)/);
+  assert.match(src.slice(0, src.indexOf('export async function othersConfidence')), /FIXES-CYCLE5: other symbols from ticker_trader_sums/); // F5-4: the resolved ponytail's fix marker (plan-round2 §4)
   const page = readFileSync(new URL('../app/t/[symbol]/page.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(page, /othersConfidence\(|from closed_trades\s+where symbol <>/);
 });

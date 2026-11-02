@@ -17,6 +17,7 @@ import { TRADES_PROMPT_ACTIONS, type TradesPromptAction } from '@/lib/new-trades
 import { SHARE_ACTIONS, type ShareAction } from '@/lib/share-prompt.ts';
 import { canWatch, normalizeSymbol } from '@/lib/ticker.ts';
 import { checkReflection } from '@/lib/reflections.ts';
+import { ownSellIdForKey } from '@/lib/reflection-target.ts'; // F-25
 import { checkRule } from '@/lib/rules.ts';
 import { signUpOpen } from '@/lib/launch-gate.ts';
 import { LAUNCH } from '@/lib/copy.ts';
@@ -101,6 +102,12 @@ export async function saveThesis(form: FormData) {
     redirect(`/u/${user.handle}?note=changed${tradeKey ? `&n=${tradeKey}` : ''}${w}#note-changed`);
   }
   revalidatePath(`/u/${user.handle}`);
+  // FIXES-CYCLE5 (F5-2, code review 5): a save made from a page still showing "not saved" leaves that URL, so the alert
+  // never stands over a note that was saved. The closes window is kept.
+  if (form.get('leaveChanged') === '1') {
+    const closes = form.get('closes');
+    redirect(`/u/${user.handle}${typeof closes === 'string' && /^[1-9][0-9]{0,6}$/.test(closes) ? `?closes=${closes}` : ''}`);
+  }
 }
 
 // Share moment (issue #66). Best-effort measurement: session user only, never an id from the client.
@@ -182,8 +189,9 @@ export async function toggleWatch(symbol: string) {
 
 export async function setReflection(form: FormData) {
   const user = await currentUser();
-  const sellId = form.get('sellId');
-  const owned = !!user && typeof sellId === 'string' && (await sql`select 1 from closed_trades where user_id = ${user.id} and sell_id = ${sellId}`).length > 0;
+  // F-25: the form posts the trade_key; the stored reflection stays keyed by the sell id, looked up here for my own trade.
+  const sellId = await ownSellIdForKey(user?.id, form.get('tradeKey'));
+  const owned = sellId !== null;
   const c = checkReflection({ userId: user?.id ?? null, reason: form.get('reason'), sellId, owned });
   if (!user) redirect('/login');
   if (!c.ok) throw new Error('Not allowed');
@@ -208,6 +216,9 @@ export async function setRule(form: FormData) {
       on conflict (user_id, kind) do update set days = excluded.days, updated_at = now()`;
   }
   revalidatePath('/me/record');
+  // FIXES-CYCLE5 (F5-22, C5-25): back to the same rule card, which names what changed and takes focus. `c.kind` passed
+  // isRuleKind (checkRule), so the URL holds only a fixed kind and a fixed verb.
+  redirect(`/me/record?rule=${c.kind}&did=${c.days === null ? 'clear' : 'set'}#rule-${c.kind}`);
 }
 
 // fix-user-text B (F-9): report a published thesis (app/report-note.tsx). The session user only, never an id from the

@@ -169,12 +169,16 @@ test('C13: ranking is untouched: evidence weights are those confidence() gives, 
   const trades = readFileSync(new URL('./trades.ts', import.meta.url), 'utf8');
   assert.match(trades, ranking);
   for (const f of ['./feed.ts', './discovery/weights.ts']) assert.doesNotMatch(readFileSync(new URL(f, import.meta.url), 'utf8'), /zero-width|shownEvidence/, f);
-  // The diff against the part-2 base leaves the ranking code byte-unchanged (skipped outside a git checkout).
-  try {
-    const diff = execFileSync('git', ['diff', '5c082258', '--', 'lib/feed.ts', 'lib/discovery'], { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    assert.equal(diff, '');
-  } catch (e) {
-    if (e instanceof assert.AssertionError) throw e;
+  // The diff against part 1 (the branch part 2 stacks on, which carries F5-5's cache change to lib/feed.ts) leaves the
+  // ranking code byte-unchanged; skipped outside a git checkout that has part 1's branch.
+  const cwd = new URL('..', import.meta.url).pathname;
+  for (const base of ['origin/claude/fixes-cycle5', 'claude/fixes-cycle5']) {
+    try {
+      execFileSync('git', ['rev-parse', '--verify', '--quiet', base], { cwd, stdio: 'ignore' });
+    } catch { continue; }
+    const diff = execFileSync('git', ['diff', `${base}...HEAD`, '--', 'lib/feed.ts', 'lib/discovery'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    assert.equal(diff, '', `part 2 changes ranking code against ${base}`);
+    break;
   }
 });
 

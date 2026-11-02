@@ -75,7 +75,8 @@ under the owner's instruction of 2026-11-01; the reason follows the decision.
     - **WP2, sync and ops:** F5-8, F5-15, F5-16, F5-17, F5-18, F5-20.
     - **WP3, ticker:** F5-4, F5-27, F5-13.
     - **WP4, feed, focus and copy:** F5-5, F5-6, F5-7, F5-9, F5-10, F5-12, F5-19, F5-21, F5-22, F5-23.
-    - **Deferred:** F5-14, which builds on F-23's (#97) wire format after F-23's 80,000-close re-measure.
+    - **Deferred:** F5-14, which builds on F-23's (#97) wire format after F-23's 80,000-close re-measure. (Un-deferred
+      2026-11-02 as WP5 once #97 merged; see "Resumed" below.)
 
 ## Build, QA, user test and review
 
@@ -95,6 +96,59 @@ State at the pause:
   Its plan was not written yet.
 - To resume: re-fork WP1..WP4 from this branch with the briefs in the round-3 section (the builder brief is restated in
   the PR session's notes), then QA, the 360 px user test, the independent review, and one PR labelled `feature`.
+
+### Resumed 2026-11-02 (the owner lifted the pause)
+
+Main ca34767 (with #84 F-24, #97 F-23, #103, #104) was merged before the build, and later 1b0dbcc (#105). Owner
+decisions of 2026-11-02 taken into the build:
+- The F-24 held-sells line is now "N sells excluded while a possible duplicate is checked." (`PROFILE.excludedHeld`).
+  Built in WP4; the dated line is recorded in `docs/features/F-24-late-sell-reconciliation.md`.
+- Cycle-5 Q2 is accepted, subject to the legal committee: the 18+ tick survives an email error. The legal committee
+  confirmed it with conditions A1-A12 (`legal-committee-2026-11-02.md` item 1). It is built as a 30 s, path-`/login`,
+  httpOnly cookie, set only on the email-error redirect. It is not a consent record: the attestation is still read only
+  from the next submit's field. `proxy.ts` clears the cookie on every other `/login` request, and it has a
+  `COOKIE_TABLE` row.
+- F5-14 was un-deferred as WP5 because F-23 had merged. It was re-measured on F-23's wire format: an 80,000-close
+  fictional profile went from 458,297 to 94,833 bytes (gzip -9 HTML, production build), and the chart JSON alone from
+  414,302 to 77,491 bytes.
+- The legal committee re-signed the copy: the F5-6 connect line was reworded (except simulated accounts; "No trades are
+  imported until …"), and B16 (a true minus) applies to the F5-9 takeaway.
+  Why: decided by the committee under the owner's instruction of 2026-11-01; B16 is a binding legal condition. The
+  site-wide hyphen stays for the F-19 sweep, as a ponytail in `lib/insights.ts`.
+
+Build: five packages in parallel worktrees (WP1-WP5), each tests-first, each with its own database. All merged into
+`claude/fixes-cycle5`.
+- The only merge conflicts came from main: #105's `curvePct` beside `cut2`, and `wireCurve` beside the F5-14 import.
+  Both were resolved additively, and the chart tests pass.
+- Unit suite on the merged branch: 2,462 tests, 2,434 pass, 0 fail, 26 skipped (LOAD), 2 todo (owner items). Main had
+  2,249.
+- Deviations the builders made and the orchestrator accepted:
+  - F5-21: Dismiss is a 44 × 44 "✕" whose accessible name is "Dismiss". The word made the bar 88 px tall at 360 px and
+    broke the 94 px room test.
+  - F5-4: the "others" side no longer returns a trader count. The page never printed it, and a distinct count can't be
+    summed from per-symbol rows.
+  - F5-16: the proof test runs each suite in a private schema of its own.
+
+### Independent code review (part 1)
+
+A fresh reviewer read the whole diff (97 files). It found no blocking defect. Protected files are unchanged, the schema
+guard is clean, and every edited existing test is equal-strength or stronger.
+
+Should-fix findings, all fixed:
+1. F5-18: deletions used the whole call's deadline. They now get their own budget, `DELETION_BUDGET_MS` (two vendor
+   timeouts from the stage's start), so the sync stage keeps the rest of the call.
+   Test: "F5-18 review: 20 hanging deletions end within the deletion budget".
+2. F5-24: a held note's field lost its count from its description, because F4-17's spread overrode it. The combined
+   description now comes after the spread, which stays byte-identical. The pinning test is now stricter.
+3. The F5-14 records said "deferred": corrected here and in `docs/process/coordination.md`.
+4. This section was missing: it is now filled in.
+
+Nits:
+5. A later save from the "not saved" page left the alert standing. Fixed: it now redirects to the plain URL. Test added.
+6. A deletion cut at the deadline keeps running: ponytail in `lib/delete.ts`.
+7. The 60 s totals cache keeps a hidden profile in aggregate counts for at most one bucket. This is noted in
+   `app/t/ticker-sums.ts`, and the PR's privacy answer says so.
+8. The backfill re-scans when there is no countable row: ponytail in `db/schema.sql`.
 
 ## Part 2 (second PR): plan rounds
 

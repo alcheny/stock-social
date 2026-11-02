@@ -42,11 +42,25 @@ export function decodeCursor(raw: unknown, now: number, limit: number): Cursor |
 }
 
 // The page a `?after=` value asks for: a repeated param uses its first value; anything invalid is page 1.
-export function readCursor(param: unknown, now: number, limit: number): Cursor {
-  return decodeCursor(Array.isArray(param) ? param[0] : param, now, limit) ?? firstPage(now);
+// FIXES-CYCLE5 (F5-5): `first`, page 1's cursor when the caller floors it (lib/feed.ts#pageOneCursor); default today's.
+export function readCursor(param: unknown, now: number, limit: number, first?: () => Cursor): Cursor {
+  return decodeCursor(Array.isArray(param) ? param[0] : param, now, limit) ?? (first ? first() : firstPage(now));
 }
 
 export function pageOf<T>(list: readonly T[], c: Cursor): { items: T[]; next: Cursor | null } {
   const end = c.offset + PAGE_SIZE;
   return { items: list.slice(c.offset, end), next: end < list.length ? { ...c, offset: end } : null };
 }
+
+// FIXES-CYCLE5 (F5-5, C5-7): page 1's asOf floored to a bucket, so every visitor (and every server) in one bucket asks
+// for the same list. `appNow + dbOffset` is the database clock; an offset beyond SKEW_MS is not trusted (the app clock
+// is used). The floor is never later than the database time, and never more than one bucket earlier, so a floored
+// cursor still passes decodeCursor on its later pages (it is at most `bucket` old, far under CURSOR_MAX_AGE_MS).
+export const FEED_SKEW_MS = SKEW_MS;
+export const FEED_BUCKET_MAX_MS = 3_600_000;
+export function flooredFirstPage(appNow: number, dbOffset: number, bucket: number): Cursor {
+  if (!(bucket > 0)) return firstPage(appNow);
+  const at = appNow + (Math.abs(dbOffset) <= SKEW_MS ? dbOffset : 0);
+  return firstPage(Math.floor(at / bucket) * bucket);
+}
+// end FIXES-CYCLE5

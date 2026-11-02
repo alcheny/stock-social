@@ -20,6 +20,7 @@ import { CONNECT_COOKIE, CONNECT_COOKIE_SECONDS } from '@/lib/connections.ts';
 import { isDemoUser } from '@/lib/demo.ts';
 import { normalizeHandle, normalizeVia, resolveReferrer } from '@/lib/referral.ts';
 import { handleReserved, signUpOpen } from '@/lib/launch-gate.ts';
+import { ATTEST_KEEP_COOKIE, ATTEST_KEEP_PATH, ATTEST_KEEP_SECONDS, ATTEST_KEEP_VALUE } from '@/lib/auth/attest-keep.ts'; // FIXES-CYCLE5 (F5-7)
 
 async function referral(form: FormData) {
   const refHandle = normalizeHandle(form.get('ref'));
@@ -52,7 +53,20 @@ async function bindAttempt(attemptId: number) {
   (await cookies()).set(ATTEMPT_COOKIE, attemptCookieValue(attemptId, sessionSecret()), { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 3600, secure: (await origin()).startsWith('https://') });
 }
 
+// FIXES-CYCLE5 (F5-7; legal committee 2026-11-02 A1-A8): the trader's own 18+ tick, kept for the one /login render an
+// email-address error makes (lib/auth/attest-keep.ts). Set only on that redirect; every other startSignIn clears it. It
+// records nothing: the attestation is read only from this submit's `adult` field, below, and written only by
+// createAttempt. No log or database write here.
+async function keepTick(on: boolean) {
+  const https = (await origin()).startsWith('https://');
+  const jar = await cookies();
+  if (on) jar.set(ATTEST_KEEP_COOKIE, ATTEST_KEEP_VALUE, { httpOnly: true, sameSite: 'lax', path: ATTEST_KEEP_PATH, maxAge: ATTEST_KEEP_SECONDS, secure: https });
+  else if (jar.get(ATTEST_KEEP_COOKIE)) jar.set(ATTEST_KEEP_COOKIE, '', { httpOnly: true, sameSite: 'lax', path: ATTEST_KEEP_PATH, maxAge: 0, secure: https });
+}
+// end FIXES-CYCLE5
+
 export async function startSignIn(form: FormData) {
+  await keepTick(false); // FIXES-CYCLE5 (F5-7, A5): every submit clears a kept tick
   const method = form.get('method');
   const r = await referral(form);
   if (!isMethod(method) || method === 'dev') return back({ ref: r.ref, via: r.via });
@@ -67,7 +81,7 @@ export async function startSignIn(form: FormData) {
   if (method === 'email') {
     requireLinkOrigin(); // production refuses to send a link whose origin would come from the Host header
     const email = normalizeEmail(form.get('email'));
-    if (!email) { await keepEmail(form); return back({ ...keep, error: 'email' }); }
+    if (!email) { await keepEmail(form); await keepTick(true); return back({ ...keep, error: 'email' }); } // FIXES-CYCLE5 (F5-7): adult=on here
     if (!(await sendAllowed(email, ip))) { await keepEmail(form); return back({ ...keep, error: 'rate' }); }
     await keepEmail(form);
     const attemptId = await createAttempt(base);
@@ -125,6 +139,7 @@ export async function confirmEmailLink(form: FormData) {
 }
 
 export async function signOut() {
+  await keepTick(false); // FIXES-CYCLE5 (F5-7, A5)
   await endSession();
   redirect('/');
 }
@@ -146,7 +161,8 @@ export async function setHandle(form: FormData) {
     throw e;
   }
   revalidatePath('/', 'layout'); // the root-layout nav shows the handle; without this it keeps the old one (now a 404) until a reload
-  redirect(`/u/${h}`);
+  // F-17 fix round 2 (UX1): a real change lands on ?renamed=1, where a focused status line says the old links stopped working.
+  redirect(h === user.handle ? `/u/${h}` : `/u/${h}?renamed=1`);
 }
 
 // Deletion (POLICY P6). The two-step screen is PR-2a; this is its only deleting action, session user only.

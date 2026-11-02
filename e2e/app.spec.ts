@@ -492,7 +492,7 @@ test('new trade prompt: owner only, dismiss records, first visit stamps without 
   const { sql } = await import('../lib/db.ts');
   const handle = 'momentum_maya';
   const [u] = await sql`select id from users where handle = ${handle}`;
-  const [tr] = await sql`select sell_id from closed_trades where user_id = ${u.id} order by closed_at desc limit 1`;
+  const [tr] = await sql`select sell_id, trade_key from closed_trades where user_id = ${u.id} order by closed_at desc limit 1`;
   const arrange = () => sql`update users set trades_prompt_seen_at = now() - interval '10 days', trades_prompt_action = null, share_prompt_seen_at = now() where id = ${u.id}`;
   await arrange();
   await sql`update closed_trades set closed_at = now() where user_id = ${u.id} and sell_id = ${tr.sell_id}`;
@@ -519,7 +519,7 @@ test('new trade prompt: owner only, dismiss records, first visit stamps without 
   await arrange();
   await page.goto(`/u/${handle}`);
   await expect(heading(page)).toBeVisible();
-  await expect(page.locator('.new-trades').getByRole('link').first()).toHaveAttribute('href', `/u/${handle}/trade/${encodeURIComponent(tr.sell_id)}`);
+  await expect(page.locator('.new-trades').getByRole('link').first()).toHaveAttribute('href', `/u/${handle}/trade/${tr.trade_key}`);
   await page.getByRole('button', { name: 'Dismiss' }).click();
   await expect(heading(page)).toHaveCount(0);
   await expect.poll(async () => (await sql`select trades_prompt_action a from users where id = ${u.id}`)[0].a).toBe('dismissed');
@@ -551,7 +551,9 @@ test('share card: each share is one click, no embed code or downloads, owner onl
   const card = page.getByRole('region', { name: 'Share your record' });
   await expect(card).toBeVisible();
   for (const gone of ['Embed your badge', 'Copy Markdown', 'Copy HTML', 'Save story', 'Save square']) await expect(page.getByText(gone)).toHaveCount(0);
-  await expect(page.locator('textarea')).toHaveCount(0);
+  // FIXES-CYCLE5 (F5-24): the owner's note fields are textareas now; no other textarea (no embed code) is on the page.
+  await expect(page.locator('textarea:not([name="thesis"])')).toHaveCount(0);
+  await expect(card.locator('textarea')).toHaveCount(0);
   await card.getByRole('button', { name: 'Share my record' }).click();
   await expect(card.getByRole('button', { name: 'Link copied' })).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${baseURL}/u/${handle}?via=card`);

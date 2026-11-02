@@ -49,6 +49,10 @@ with conditions, narrowed by the red team's probe C).
   owner; and (2) a counts-only readout row of stamp patterns (suppressed under 5), which goes to the chore lane. A
   same-day short with no evidence still publishes, as this file accepted. The file and every decision above are kept
   word for word. Why: approval council cycle 5; lapse rule; RT, TE, EN, VW.
+- 2026-11-02: The owner accepted OD 2.26 as recommended. Council cycle 5 found it mostly on main through #89, so this
+  feature stays `draft`. The counts-only readout row of stamp patterns is in the chore lane (`claude/chores-cycle5`);
+  broker-position evidence (protected `lib/broker.ts`) is not decided. Why: the owner's decision of 2026-11-02 (OD
+  2.26, accepted en bloc); council cycle 5 lapse record.
 
 ## Acceptance criteria
 - [ ] Probe C: on 00:00:00Z stamps, a losing long bought and sold the same day with no other evidence stays published

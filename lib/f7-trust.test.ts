@@ -5,7 +5,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
 import { cardTrust, paneTrust, rowBadge } from './pane.ts';
-import { imageTrust, isPublicRecord, profileDescription, PUBLIC, publicExclusions, recordCountText, shareCardText, wholeRecordPreview, wholeRecordView, type RecordState } from './copy.ts';
+import { imageTrust, isPublicRecord, profileDescription, PUBLIC, publicExclusions, RECORD_LINK_ARROW, recordCountText, shareCardText, wholeRecordPreview, wholeRecordView, type RecordState } from './copy.ts';
 import { CARD_LAYOUT, cardAlt, recordCard } from './record-card.ts';
 import { monthCard } from './month-card.ts';
 import type { PublicState } from './connections.ts';
@@ -93,7 +93,8 @@ test('Round 4 item 1 and Round 5 items 3-5: the top block, card line and footer 
   assert.equal(PUBLIC.caveat, 'Filings can be late, amended or missing.');
   assert.equal(PUBLIC.stale, 'This record may be out of date.');
   assert.equal(PUBLIC.cardLine, 'Company insider · from a public filing');
-  assert.equal(PUBLIC.cardFooter, 'See their record, wins and losses →');
+  assert.equal(PUBLIC.cardFooter, RECORD_LINK_ARROW); // F-25: one constant with the connected card's footer (amends F-7 AC20)
+  assert.equal(RECORD_LINK_ARROW, 'Record, wins and losses →');
   assert.match(PUBLIC.badgeTitle, /Not Verified/);
   assert.match(PUBLIC.filingName('ZQXA', 'Mar 4, 2024'), /opens another site/);
 });

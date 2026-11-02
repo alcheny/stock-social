@@ -56,7 +56,7 @@ dbTest('F5-17: one record that throws lets the others be rebuilt and marked; the
       if (id === bad) throw new TypeError(`fixture failure for ${us[1].handle}`);
       return rebuildRecord(id, tx);
     };
-    const { out, lines } = await capture(() => rebuildAllForMatcher(version, us.map((u) => u.id), 600_000, rebuild));
+    const { out, lines } = await capture(() => rebuildAllForMatcher(version, us.map((u) => u.id), 600_000, undefined, rebuild));
     assert.deepEqual(out, { rebuilt: 2, failed: 1, left: 1 });
     const marked = await t.sql`select user_id from matcher_rebuilt where user_id in ${t.sql(us.map((u) => u.id))} and version = ${version} order by user_id`;
     assert.deepEqual(marked.map((r) => r.user_id), [us[0].id, us[2].id]);
@@ -118,7 +118,7 @@ dbTest('F5-18: 20 hanging deletions: at most 5 start, the call stops at the dead
     // The stages after it: the route awaits the deletions, then the discovery purge, then the shard run (its source).
     const route = readFileSync(new URL('../app/api/sync/route.ts', import.meta.url), 'utf8');
     const ix = (s: string) => route.indexOf(s);
-    assert.ok(ix('deletionSteps(deadline)') > 0 && ix('deletionSteps(deadline)') < ix('syncAll(pendingDeletes, steps.run)'));
+    assert.ok(ix('deletionSteps(deletionDeadline(Date.now(), deadline))') > 0 && ix('deletionSteps(deletionDeadline(Date.now(), deadline))') < ix('syncAll(pendingDeletes, steps.run)'));
     assert.ok(ix('syncAll(pendingDeletes, steps.run)') < ix('purgeDiscovery()') && ix('purgeDiscovery()') < ix('privacyStages(PRIVACY_SLOT_MS)') && ix('privacyStages(PRIVACY_SLOT_MS)') < ix('await runShard('));
 
     // (b) Each try takes a whole vendor timeout of the fake clock and fails: exactly 5 start with time to spare, and
@@ -186,4 +186,27 @@ dbTest('F5-18: a failed deletion goes later in line (backoff 1, 2, 4 minutes …
     const [{ n }] = await t.sql`select count(*)::int as n from users where id in ${t.sql(t.users)}`;
     assert.equal(n, 0, 'all 20 finished');
   } finally { await t.cleanup(); }
+});
+
+// FIXES-CYCLE5 (F5-18, code review 1): the deletions' own budget. However long the call's deadline, every deletion is
+// started and cut inside two vendor timeouts of the stage's start, so the sync stage after them keeps the rest.
+dbTest('F5-18 review: 20 hanging deletions end within the deletion budget, leaving the sync stage its time', async () => {
+  const { deletionDeadline, deletionSteps, DELETION_BUDGET_MS } = await import('./delete.ts');
+  const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  assert.equal(DELETION_BUDGET_MS, 2 * VENDOR_TIMEOUT_MS);
+  const t0 = Date.UTC(2030, 0, 1), callDeadline = t0 + 210_000;
+  assert.equal(deletionDeadline(t0, callDeadline), t0 + DELETION_BUDGET_MS);
+  assert.equal(deletionDeadline(t0, t0 + 10_000), t0 + 10_000, 'never later than the call deadline');
+  let now = t0;
+  const clock = {
+    now: () => now,
+    timer: (ms: number) => ({ done: Promise.resolve().then(() => { now += Math.max(0, ms); }), clear: () => {} }),
+  };
+  const steps = deletionSteps(deletionDeadline(t0, callDeadline), { clock, del: () => new Promise<void>(() => {}) });
+  const fake = (id: number) => ({ id: -id, handle: '', snaptrade_user_id: null, snaptrade_secret_enc: null });
+  for (let i = 1; i <= 20; i++) await steps.run(fake(i)).catch(() => {});
+  assert.ok(now <= t0 + DELETION_BUDGET_MS, `deletions stopped by ${now - t0} ms`);
+  assert.ok(callDeadline - now >= 210_000 - DELETION_BUDGET_MS, 'the sync stage keeps the rest of the call');
+  assert.equal(steps.report.started, 1);
+  assert.equal(steps.report.started + steps.report.deferred, 20, 'none dropped: each is started or deferred');
 });

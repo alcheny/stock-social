@@ -90,6 +90,10 @@ test that every later change must pass. Approved by the approval council
 - 2026-11-01: The no-JS bar's padding is not changed by F-20; the #71 comment is corrected (72 px, 6 px clear) and an
   e2e asserts the room still covers every bar; the padding change goes to the fixes list. Why: decided by the committee under the owner's instruction of 2026-11-01; a size change is outside
   the fixes plus the one stated focus change.
+- 2026-11-02: The owner accepted OD 2.42-2.45: dark share images keep the page inks (already in #77); a Flat tone at
+  least ΔE00 9 from both inks and the selected switch as the only non-focus outline exception (fixes-list item F6-9);
+  the contrast floors move into a protected file (brief 3.19, protected-files session); the card Demo hue becomes the
+  tuned plum if it meets A1 contrast. Why: the owner's decisions of 2026-11-02 (accepted en bloc).
 
 ## Acceptance criteria
 - [x] A node test pins every token's resolved value per scheme to the post-fix values; computed styles of sampled

@@ -47,7 +47,8 @@ const row = { id: '1', symbol: 'ACME', return_pct: -0.052, holding_days: 3.4, cl
   thesis: null, thesis_status: null, handle: 'strip_card', display_name: 'Strip Card', user_id: 1 };
 const stripOf = (trades: ConfidenceInput[]) => recordStrip({ ...stripFigures(trades, now), state: 'connected', demo: false, verified: true, handle: row.handle }, 'feed');
 const render = (strip?: ReturnType<typeof stripOf>) => renderToStaticMarkup(createElement(TradeCard, { t: row, state: 'connected', strip }));
-const figures = (p: string) => text(p.replace(/<span class="badge [^"]*"[^>]*>[^<]*<\/span> /, ''));
+// F-25: the Verified badge's glyph sits in its own aria-hidden span, so the badge holds one optional inner span.
+const figures = (p: string) => text(p.replace(/<span class="badge [^"]*"[^>]*>(<span aria-hidden="true">[^<]*<\/span>)?[^<]*<\/span> /, ''));
 // Tags stripped until nothing changes (CodeQL: a single pass can leave a tag formed by what it removed); &amp; decoded last.
 const stripTags = (s: string) => { let prev: string; do { prev = s; s = s.replace(/<[^>]*>/g, ''); } while (s !== prev); return s; };
 const text = (html: string) => stripTags(html).replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
@@ -82,7 +83,7 @@ test('DS-22 (PR #48): with a strip, the trust badge leads the record line in .he
   const header = html.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? '';
   assert.doesNotMatch(header, /class="badge/);
   const p = html.slice(html.indexOf('<p class="record-strip"'), html.indexOf('</p>', html.indexOf('<p class="record-strip"')));
-  assert.match(p, /^<p class="record-strip" data-strip(="[^"]*")?><span class="badge verified"[^>]*>✓ Verified<\/span> <span( data-part="count")?><span data-role="count">/);
+  assert.match(p, /^<p class="record-strip" data-strip(="[^"]*")?><span class="badge verified"[^>]*><span aria-hidden="true">✓ <\/span>Verified<\/span> <span( data-part="count")?><span data-role="count">/);
   // Demo records keep the .badge.demo class; a failed import shows no badge and no stray space.
   const demo = renderToStaticMarkup(createElement(TradeCard, { t: { ...row, verified: false }, state: 'connected', strip: stripOf(rec(3, () => 0.1)) }));
   assert.match(demo, /<p class="record-strip" data-strip(="[^"]*")?><span class="badge demo"/);

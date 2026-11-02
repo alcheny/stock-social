@@ -185,5 +185,5 @@ test('F5-24: after a rebuild, "Edit it on your profile" on a held note lands wit
   await expect(page).toHaveURL(/\?closes=50#note-[0-9a-f]{64}$/);
   await expect(field(page, 6)).toBeFocused();
   await expect(field(page, 6)).toBeInViewport();
-  await expect(field(page, 6)).toHaveAttribute('aria-describedby', /^held-\d+$/);
+  await expect(field(page, 6)).toHaveAttribute('aria-describedby', /^count-[0-9a-f]{64} held-\d+$/); // the count and the held reason (code review 2)
 });

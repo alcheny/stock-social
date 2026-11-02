@@ -12,7 +12,7 @@ export type RetentionClass = 'account' | 'session' | 'short' | 'reserved' | 'non
 export type TableEntry = { personal: boolean; retention: RetentionClass; holds: string };
 
 export const SCHEMA_MAP: Record<string, TableEntry> = {
-  users: { personal: true, retention: 'account', holds: 'handle, display name, 18+ attestation time, vendor user id and encrypted secret, referral' },
+  users: { personal: true, retention: 'account', holds: 'handle, display name, 18+ attestation time, vendor user id and encrypted secret, referral, hidden state (F-16), last handle change (F-17)' },
   activities: { personal: true, retention: 'account', holds: 'raw broker activities: symbols, quantities, prices, fees, account ids' },
   corporate_actions: { personal: true, retention: 'account', holds: 'raw broker corporate-action rows (splits, stock dividends, renames) and broker trade rows with no usable price, share count or date: symbols, share counts, prices, account ids; deleted with the profile' },
   // Fixes cycle 4: a deploy's one-time record rebuild per share-matcher version (lib/matcher-rebuild.ts).
@@ -36,7 +36,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   identities: { personal: true, retention: 'account', holds: 'sign-in provider subject and email address' },
   sessions: { personal: true, retention: 'session', holds: 'hashed session token and user id; purged at expiry' },
   login_links: { personal: true, retention: 'session', holds: 'email address of a sign-in link; purged when expired or its attempt finished' },
-  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 3 per account (a further rename ends the oldest hold); purged by the tick once the hold has ended' },
+  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 1 per account (F-17: a further rename ends the older hold); purged by the tick once the hold has ended' },
   funnel_events: { personal: false, retention: 'short', holds: 'sign-up step names and times per attempt; purged with an unfinished attempt' },
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot (with a keyed hash of each account\'s institution identity, never the identifier); a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
@@ -45,6 +45,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   unlisted_positions: { personal: true, retention: 'account', holds: 'private last-read open positions (symbol, unrealized percent, read time) of an account the broker no longer lists; deleted with the profile' },
   follows: { personal: true, retention: 'account', holds: 'private follows' },
   viewer_exclusions: { personal: true, retention: 'short', holds: 'private "not interested" and unfollow; rows the viewer ended and ended unfollows purged after a day; a "not interested" that ran its 90 days is kept until removed (F-2 PR-5)' },
+  // FIXES-CYCLE5 (F5-4): derived from closed_trades (percent returns and dates, no prices or quantities); public in aggregate only.
+  ticker_trader_sums: { personal: true, retention: 'account', holds: 'derived per-trader, per-symbol sums of the public record (closed count, wins, bets, sums of log returns and holding days, first and last dates; no prices or quantities), shown only summed per stock; deleted with the profile' },
   trade_likes: { personal: true, retention: 'account', holds: 'private likes (preference data, kept indefinitely); a like whose trade is gone for 30 days is purged' },
   trade_exclusions: { personal: true, retention: 'account', holds: 'private rejected trades (preference data, kept indefinitely); one whose trade is gone for 30 days is purged' },
   privacy_orphans: { personal: true, retention: 'short', holds: 'when a like or reject first had no trade; removed when the trade returns or the row is purged' },
@@ -72,7 +74,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   public_filer_log: { personal: true, retention: 'account', holds: 'corrections log: filer id, action, reason code and time; no requester details' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
   // fix-user-text B (F-9): who reported which note; both user links cascade, so a deleted profile leaves no reporter id.
-  thesis_reports: { personal: true, retention: 'account', holds: 'which signed-in reader reported which trader\'s note (by sell id) and when' },
+  thesis_reports: { personal: true, retention: 'account', holds: 'which signed-in reader reported which trader\'s note (by sell id) or profile (sell id empty), the fixed category, when, and the owner\'s resolution' },
   // OPTIONS (docs/features/logs/options/plan.md D1, L8): deleted with the account (the users cascade).
   option_activities: { personal: true, retention: 'account', holds: 'raw broker option activities: contract terms, strikes, quantities, prices, fees, cash, account ids' },
   option_trades: { personal: true, retention: 'account', holds: 'derived long option closes: underlying, call or put, expiry, dates, percent returns; public only through the consent gate' },
@@ -89,6 +91,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   view_rollup: { personal: true, retention: 'short', holds: 'daily view counts per surface, viewed trader id (record pages), referrer class, source class, signed-in and self-view flags; deleted with the trader\'s account; purged after 120 days (lib/views.ts VIEW_RETENTION_DAYS)' },
   share_action: { personal: true, retention: 'short', holds: 'one row per completed share of a trader\'s own record: trader id, UTC day, share class (card, story, trade, month), outcome (sheet or copy), the record\'s headline sign (up, down, flat, none); no time of day, destination, thesis or account id; deleted with the account; purged after 120 days (lib/share-actions.ts SHARE_RETENTION_DAYS)' },
   view_drops: { personal: false, retention: 'short', holds: 'daily counts of beacons the bot filter dropped, per surface and reason (no user id); purged after 120 days' },
+  // F-16 (docs/features/logs/F-16-F-17/plan.md §3): the owner's audited hides; deleted with the profile (cascade).
+  trust_audit: { personal: true, retention: 'account', holds: 'owner hides and unhides of a profile or thesis: kind, user id, sell id, action, reason code, actor, time; no thesis text or reporter; deleted with the profile (cascade)' },
   // F-31: the address-cap presence marks the owner's readout reads (lib/views.ts#markCapDay).
   view_cap_days: { personal: false, retention: 'short', holds: 'per UTC day, whether view beacons were checked with and/or without a trusted client address (a day and a flag; no address, user agent, user id or count); purged after 120 days' },
 };

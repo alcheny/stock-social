@@ -78,8 +78,32 @@ const thesisMeta = (k: KeptThesis | undefined) => ({
 // way and repeated rebuilds give byte-identical rows (defect 3: the read had no order at all). Returns what it wrote and
 // the most activity rows it held at once.
 type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string; held: boolean };
-export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number }> {
+// FIXES-CYCLE5 (F5-4, C5-6): the ticker summary (ticker_trader_sums, db/schema.sql). A rebuild turns the per-statement
+// triggers off for its own transaction (app.tts_defer) and recomputes this trader's pairs once at its end, in ONE grouped
+// statement that reads exactly the trader's closes (closed_trades_user). The flag goes off first, so writes later in the
+// same transaction (the options sync's deletes) fire the triggers again. The per-trader lock matches ticker_sums_apply's:
+// it serialises writers of one trader's sums and is never shared between traders.
+export const tickerSumsUserSql = (tx: TransactionSql, userId: number) => tx`
+  with v as (select * from ticker_trader_sums_src where user_id = ${userId}),
+  up as (
+    insert into ticker_trader_sums select * from v
+    on conflict (symbol, user_id, verified) do update set n = excluded.n, wins = excluded.wins, k = excluded.k, sx = excluded.sx,
+      sd = excluded.sd, sxx = excluded.sxx, sxn = excluded.sxn, snn = excluded.snn, sxd = excluded.sxd, sdd = excluded.sdd,
+      first_open = excluded.first_open, last_close = excluded.last_close, last_closed_at = excluded.last_closed_at
+    returning 1)
+  update ticker_trader_sums t set n = 0, wins = 0, k = 0, sx = 0, sd = 0, sxx = 0, sxn = 0, snn = 0, sxd = 0, sdd = 0,
+    first_open = null, last_close = null, last_closed_at = null
+  where t.user_id = ${userId} and t.n <> 0 and not exists (select 1 from v where v.symbol = t.symbol and v.verified = t.verified)`;
+export async function finishTickerSums<T>(tx: TransactionSql, userId: number, out: T): Promise<T> {
+  await tx`select set_config('app.tts_defer', 'off', true)`;
+  await tx`select pg_advisory_xact_lock(hashtext('ticker_trader_sums'), ${userId}::int)`;
+  await tickerSumsUserSql(tx, userId);
+  return out;
+}
+// end FIXES-CYCLE5
+export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number; excludedTransfer: number }> {
   const run = async (tx: TransactionSql) => {
+    await tx`select set_config('app.tts_defer', 'on', true)`; // FIXES-CYCLE5 (F5-4): summary recomputed once, at the end
     // F-7: a public filer's trades come from its filings only (lib/public-trades.ts); this rebuild never touches them.
     if ((await tx`select 1 from users where id = ${userId} and public_filer_id is not null`).length) throw new Error('public filer: not a broker record');
     // Reviewer fix round 2: a rebuild never deletes a thesis. One whose trade is not produced now (its account is flagged
@@ -90,14 +114,17 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const aside = await tx`select sell_id, thesis, thesis_status, thesis_written_at, thesis_edited_at, thesis_hold_rule, thesis_reviewed_at, thesis_reports_from, thesis_checked_version from kept_theses where user_id = ${userId}`;
     // Fix round 1: every closed_trades row of this trader is locked before the theses are read, so a report hold, a
     // release or a thesis save running at the same time either finishes first (and is read here) or waits for this
-    // rebuild (and then finds the rebuilt row). Without it a hold committed between this read and the delete below was
-    // written back as published. One row comes back, whatever the count (memory stays one page).
+    // rebuild. Without it a hold committed between this read and the delete below was written back as published.
+    // FIXES-CYCLE5 (F5-4, round 3 item 11): a writer that waited finds the row it locked deleted (rebuilt rows get new
+    // ids), so an update by id changes nothing; a note save that waited finds the rebuilt row again by its trade_key
+    // (lib/thesis-save.ts), and one whose trade the rebuild no longer produces is told so, never silently dropped.
+    // One row comes back, whatever the count (memory stays one page).
     await tx`with l as (select 1 from closed_trades where user_id = ${userId} for update) select count(*) from l`;
     const live = await tx`select sell_id, thesis, thesis_status, thesis_written_at, thesis_edited_at, thesis_hold_rule, thesis_reviewed_at, thesis_reports_from, thesis_checked_version from closed_trades where user_id = ${userId} and thesis is not null`;
     const kept = [...aside, ...live] as unknown as KeptThesis[];
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
-    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0;
+    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0, excludedTransfer = 0;
     // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
     // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
     const actions = await loadCorporateActions(tx, userId, notFuture(tx));
@@ -112,6 +139,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       excluded += m.excluded;
       excludedHeld += m.excludedHeld ?? 0; // F-24 RT-2
       excludedCorporate += m.excludedCorporate;
+      excludedTransfer += m.excludedTransfer ?? 0; // F-32 Part A
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
         await tx`insert into closed_trades ${tx(m.trades.slice(i, i + INSERT_CHUNK).map((t) => {
@@ -191,7 +219,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // F-24 RT-2: sells counted while a possible re-issue in their pair is held (owner-visible; shown nowhere yet).
     await tx`update users set excluded_held = ${excludedHeld} where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
-    return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate };
+    await tx`update users set excluded_transfer = ${excludedTransfer} where id = ${userId}`; // F-32 Part A: a count only
+    return await finishTickerSums(tx, userId, { trades: written, excluded, future: future as number, maxHeld, excludedCorporate, excludedTransfer }); // FIXES-CYCLE5 (F5-4)
   };
   return tx ? run(tx) : sql.begin(run);
 }

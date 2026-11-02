@@ -226,7 +226,7 @@ test('email link: attestation stored before any redirect, link signs in once wit
   await page.getByText('Change handle').click();
   await page.getByLabel('New handle').fill(chosen);
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page).toHaveURL(new RegExp(`/u/${chosen}$`));
+  await expect(page).toHaveURL(new RegExp(`/u/${chosen}\\?renamed=1$`)); // F-17 fix round 2 (UX1): the rename's status line rides on ?renamed=1
   // The root-layout nav follows without a reload (the action revalidates the layout before redirecting).
   await expect(page.locator('nav.top .me')).toHaveText(`@${chosen}`);
   await expect(page.locator('nav.top .me')).toHaveAttribute('href', `/u/${chosen}`);
@@ -245,7 +245,8 @@ test('S2 trust notice: four fixed lines, vendor and how links, before any portal
   const lines = page.locator('ul.notice li');
   await expect(lines).toHaveCount(4);
   await expect(lines.nth(0)).toHaveText('Read-only. Stock Social can never place trades or move money.');
-  await expect(lines.nth(3)).toContainText('Nothing is imported until you confirm on the next screen.');
+  // FIXES-CYCLE5 (F5-6; legal committee 2026-11-02 2a): the signed line, pinned whole (was a contains-check of its end).
+  await expect(lines.nth(3)).toHaveText('Every account under this login, except simulated ones, and the full trade history your broker provides are included. No trades are imported until you confirm on the next screen.');
   await expect(page.getByRole('link', { name: "SnapTrade's security page" })).toHaveAttribute('href', /^https:\/\//);
   await expect(page.locator('main').getByRole('link', { name: 'How records are calculated' })).toHaveAttribute('href', '/how');
   // The two links on their own 44px rows, no orphan separator at 375px.

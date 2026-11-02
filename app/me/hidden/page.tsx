@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
@@ -6,6 +7,7 @@ import { backHandle, ownHiddenTrades } from '@/lib/likes.ts';
 import { HIDDEN_TRADES } from '@/lib/copy.ts';
 import { showTradeAgainForm } from './actions.ts';
 import { RowBadge, WhoName } from '../../ui.tsx';
+import { FocusHeading } from '../../connect/result/focus-heading.tsx'; // FIXES-CYCLE5 (F5-21)
 
 export const metadata: Metadata = { title: `${HIDDEN_TRADES.title} · Stock Social`, robots: { index: false, follow: false } };
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
@@ -22,7 +24,9 @@ export default async function HiddenTrades({ searchParams }: { searchParams?: Pr
     <main className="page">
       <h1>{HIDDEN_TRADES.title}</h1>
       <p className="muted">{HIDDEN_TRADES.explain}</p>
-      <p role="status" className="follow-status">{back ? HIDDEN_TRADES.back(back) : ''}</p>
+      {/* FIXES-CYCLE5 (F5-21): after "Show again" the status line takes focus, so the reader hears which trader is back. */}
+      <p id="hidden-back" role="status" className="follow-status" tabIndex={back ? -1 : undefined}>{back ? HIDDEN_TRADES.back(back) : ''}</p>
+      {back && <FocusHeading id="hidden-back" />}
       {rows.length ? (
         <ul className="rows people hidden-trades">
           {rows.map((r) => {
@@ -32,7 +36,7 @@ export default async function HiddenTrades({ searchParams }: { searchParams?: Pr
                 <span className="who-col">
                   <Link href={`/u/${r.handle}`}><WhoName name={r.name} handle={r.handle} /></Link>
                   <span className="small"><span className="closed"><RowBadge kind={r.filer ?? (r.verified ? null : 'demo')} />{HIDDEN_TRADES.closed(r.symbol, day)}</span>
-                    <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}>{HIDDEN_TRADES.trade}</Link></span>
+                    <Link href={tradePageHref({ handle: r.handle, tradeKey: r.key })}>{HIDDEN_TRADES.trade}</Link></span>
                 </span>
                 <form action={showTradeAgainForm.bind(null, r.key, sp.after)}>
                   <button className="secondary" aria-label={HIDDEN_TRADES.showAgainFor(r.handle, r.symbol, day)}>{HIDDEN_TRADES.showAgain}</button>

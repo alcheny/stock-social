@@ -1,7 +1,6 @@
 # F-23 · Public payloads carry no more precision than the screens show
 
 Status: built
-Start conditions: fix F3-2 merges. Shares one build slot (the pane and payload slot) with F-21.
 
 ## Why
 The public pane JSON sends `closedAt` in milliseconds and full-precision returns under a public cache

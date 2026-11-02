@@ -21,7 +21,7 @@ const call = (f: (...a: unknown[]) => unknown): string[] => {
 const strings = (o: unknown): string[] => (typeof o === 'string' ? [o] : typeof o === 'function' ? call(o as (...a: unknown[]) => unknown) : o && typeof o === 'object' ? Object.values(o).flatMap(strings) : []);
 
 test('MK-P6 C1: the history sentence sits in "What is excluded, and counted", right after the transfers-in item', () => {
-  const i = HOW.excluded.findIndex((s) => s.startsWith('Transfers in, and sells with no recorded entry'));
+  const i = HOW.excluded.findIndex((s) => s.startsWith('Transfers in and out of an account.')); // F-32 Part A's one transfers item
   assert.ok(i >= 0);
   assert.equal(HOW.excluded[i + 1], HISTORY);
   assert.equal(HOW.excluded.filter((s) => s === HISTORY).length, 1);
