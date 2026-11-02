@@ -8,7 +8,7 @@ import { rowBadge } from '@/lib/pane.ts';
 import { decodeSymbolParam, isIndexableTicker, selectTheses, tickerDescription, trustKind } from '@/lib/ticker.ts';
 import { relatedSymbolsSql, tickerHeadline, tickerPageWithBaseline, type TickerBaseline, type TickerPage } from '../ticker-sql.ts';
 // FIXES-LABELS (D-03): the page names one state, Demo, and never calls Demo trades verified.
-import { FIXES_LABELS as FL } from '@/lib/copy.ts';
+import { FIXES_LABELS as FL, RECORD_STRIP } from '@/lib/copy.ts';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
 import { dateText } from '@/lib/date-text.ts';
@@ -125,7 +125,7 @@ export default async function Ticker({ params, searchParams }: Params) {
       <section className="stats ticker-stats" aria-label="Summary">{/* FIXES-LABELS (PR #85 review, nit 1): ticker-stats tightens at 320 */}
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={toneClass(s.avgReturn!)}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>{/* A11Y-FIXES #23 */}
-          <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
+          <small className="range">{range ? `${range} · 95% range` : RECORD_STRIP.earlyOf(c.k, MIN_BETS) /* F-33: one producer; a zero-width range too */}</small>
           <small className="median">median {pct(spread.median! / 100)}</small>
         </div>
       </section>
@@ -156,7 +156,7 @@ export default async function Ticker({ params, searchParams }: Params) {
       {spread.n > 0 && (
         <>
           <Spread spread={spread} returns={returns} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
-          {c.k < MIN_BETS && <p className="muted small">Too early to tell ({c.k} of {MIN_BETS} bets)</p>}
+          {c.k < MIN_BETS && <p className="muted small">{RECORD_STRIP.earlyOf(c.k, MIN_BETS)}</p>}
         </>
       )}
 

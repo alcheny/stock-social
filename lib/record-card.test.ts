@@ -211,7 +211,7 @@ const spanRecord = (days: number, k: number, r = 0.02) => {
   const start = now.getTime() - days * DAY;
   return Array.from({ length: k }, (_, i) => {
     const open = start + (i / (k - 1)) * (days - 0.5) * DAY;
-    return { symbol: `R${i}`, openedAt: new Date(open), closedAt: new Date(open + 0.5 * DAY), returnPct: r + (i % 2 ? 0.001 : -0.001), holdingDays: 0.5 };
+    return { symbol: `R${i}`, openedAt: new Date(open), closedAt: new Date(open + 0.5 * DAY), returnPct: r + (i % 2 ? 0.01 : -0.01), holdingDays: 0.5 }; // F-33: ±1 point (±0.1 printed a zero-width range: no duration)
   });
 };
 const durationOf = (trust: string | null) => trust?.match(/ over (.+?)\. /)?.[1] ?? null;

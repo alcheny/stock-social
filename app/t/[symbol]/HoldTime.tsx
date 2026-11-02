@@ -1,5 +1,5 @@
 import { holdCaption, MIN_HOLD_BUCKET, type HoldBuckets } from '@/lib/ticker.ts';
-import { FIXES_LABELS as FL } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo notes
+import { FIXES_LABELS as FL, RECORD_STRIP } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo notes
 import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
@@ -28,7 +28,7 @@ export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: Ho
                   <td>{Math.round(b.winRate! * 100)}%</td>
                   <td>
                     <span className={toneClass(b.avgReturn!)}>{pct(b.avgReturn!)}</span>
-                    <small className="muted range">{rangeText(b.conf!) ? `${rangeText(b.conf!)} · 95% range` : `Too early to tell (${b.conf!.k} of ${MIN_BETS} bets)`}</small>
+                    <small className="muted range">{rangeText(b.conf!) ? `${rangeText(b.conf!)} · 95% range` : RECORD_STRIP.earlyOf(b.conf!.k, MIN_BETS) /* F-33 */}</small>
                   </td>
                 </>
               ) : (

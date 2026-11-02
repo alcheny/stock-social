@@ -2,7 +2,8 @@
 // so a bug is fixed by recomputing (see docs/DESIGN.md §2.5).
 
 import { count, counted, pct } from './format.ts';
-import { MIN_BETS, tooWide } from './confidence.ts';
+import { MIN_BETS, tooWide, zeroWidth } from './confidence.ts';
+import { RECORD_STRIP } from './copy.ts'; // F-33: "Too early to tell" has one producer
 import { LATE_POSTING_DAYS, RATIO_TOLERANCE, renameRatio, resolveRatio, type CorporateAction, type Ratio } from './corporate-actions.ts';
 
 export type Activity = {
@@ -586,6 +587,8 @@ export function confidenceFromSums(s: BetSums): Confidence {
   // F-4: "too early" is a model state, not a count. A per-trade range wider than ±10 points keeps its interval (it is
   // shown, widening as the sample thins) but carries no verdict and no ranking weight.
   if (tooWide(perTrade)) return { ...base, tier: 'too-early', edge: null, perTrade, pace30 };
+  // F-33 (OD 2.32): a range that would print with no width ("+1.0% to +1.0%") says nothing either: kept, but no verdict.
+  if (zeroWidth(perTrade)) return { ...base, tier: 'too-early', edge: null, perTrade, pace30 };
   const edge: Edge = pace30.low > 0 ? 'positive' : pace30.high < 0 ? 'negative' : 'unclear';
   return { ...base, tier, edge, perTrade, pace30 };
 }
@@ -598,17 +601,22 @@ const plural = (n: number, w: string) => counted(n, w);
 // several accounts, has few independent bets however many trades: "2,828 trades in 9 overlapping positions".
 export function evidenceLine(c: Confidence): string {
   const grouped = c.n > c.k;
+  const early = RECORD_STRIP.early;
   if (c.tier === 'too-early' || !c.edge) {
-    if (c.perTrade) return `Too early to tell: the range is still too wide to say much (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''})`;
+    const bets = `${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}`;
+    // F-33 (OD 2.32): a zero-width range gives no "Past results" verdict and says why.
+    if (c.perTrade && zeroWidth(c.perTrade)) return `${early}: ${RECORD_STRIP.alike} (${bets})`;
+    if (c.perTrade) return `${early}: the range is still too wide to say much (${bets})`;
     return grouped
-      ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (${MIN_BETS} independent bets needed)`
-      : `Too early to tell (${count(c.k)} of ${MIN_BETS} bets)`;
+      ? `${early}: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (${MIN_BETS} independent bets needed)`
+      : RECORD_STRIP.earlyOf(c.k, MIN_BETS);
   }
   return `Past results: ${edgeText(c.edge)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
 }
 
+// F-33 (OD 2.32): null for a zero-width range; its printers say RECORD_STRIP.early instead.
 export const rangeText = (c: Confidence): string | null =>
-  c.perTrade ? `(${pct(c.perTrade.low)} to ${pct(c.perTrade.high)})` : null;
+  c.perTrade && !zeroWidth(c.perTrade) ? `(${pct(c.perTrade.low)} to ${pct(c.perTrade.high)})` : null;
 
 // TR-7: under 30 days of history or fewer than 10 closed trades.
 export function isNewRecord(trades: { openedAt: Date }[], closedCount: number, today: Date): boolean {

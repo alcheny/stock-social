@@ -13,7 +13,7 @@ import { Badge } from '../../ui.tsx';
 import { toneClass } from '../../open-rows.tsx';
 import Spread from '../[symbol]/Spread.tsx';
 // F-6: open positions per stock, one aggregate line per column.
-import { asOfDay, OPEN } from '@/lib/copy.ts';
+import { asOfDay, OPEN, RECORD_STRIP } from '@/lib/copy.ts';
 import { symbolOpen, type SymbolOpen } from '../open-positions.ts';
 
 type Props = { searchParams: Promise<{ a?: string | string[]; b?: string | string[] }> };
@@ -82,7 +82,7 @@ function Column({ symbol, side, id, shared, open, note = true }: { symbol: strin
       <div className="stats">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={toneClass(s.avgReturn!)}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
-          <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
+          <small className="range">{range ? `${range} · 95% range` : RECORD_STRIP.earlyOf(c.k, MIN_BETS) /* F-33 */}</small>
         </div>
       </div>
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>

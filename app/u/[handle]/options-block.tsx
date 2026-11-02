@@ -7,6 +7,8 @@ import type { ReactNode } from 'react';
 import { expiryText, OPTIONS } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { tone } from '@/lib/format.ts';
+import { optionRangeText } from '@/lib/options-view.ts'; // F-33
+import { RECORD_STRIP } from '@/lib/copy.ts';
 import { closesOf, hasOptions, openOf, shareLabel, type OpenOptionView, type OptionCounts, type OptionHeadline, type OptionTradeView, type PaneOptionsView, isOptionsLine } from '@/lib/options-view.ts';
 
 // Fix round 4 (N5): the colour follows the printed sign (lib/format.ts#tone): "0.0%" is never coloured.
@@ -43,7 +45,10 @@ export function OptionsGrid({ m, long }: { m: OptionHeadline & { gate: 'open' };
     <p className="row-label" aria-hidden="true">{OPTIONS.gridLabel(s.n)}</p>
     <div className="stat big"><b>{`${(s.winRate * 100).toFixed(0)}%`}</b><small>win rate</small></div>
     <div className="stat big"><b className={sign(s.avg)}>{pct(s.avg)}</b><small>avg return / trade</small>
-      {s.range && <small className="range"><span className="nowrap">{`(${pct(s.range.low)} to ${pct(s.range.high)})`}</span> · 95% range</small>}
+      {/* F-33 (OD 2.32): a zero-width range says "Too early to tell" in its place, visible and read alike. */}
+      {s.range && (optionRangeText(s.range) === RECORD_STRIP.early
+        ? <small className="range">{RECORD_STRIP.early}</small>
+        : <small className="range"><span className="nowrap">{optionRangeText(s.range)}</span> · 95% range</small>)}
     </div>
   </section>;
 }

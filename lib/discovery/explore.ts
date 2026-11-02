@@ -35,6 +35,8 @@ export const EXPLORE_EVERY = 5;
 // spread the ranked slots over every trader and left exploration with no new trader to show). A discount on the score
 // could not do this: at every k the order would still be weight × score. Reads the order and the trader ids, never a
 // return.
+// ponytail: with every weight 0 the tail of a skewed pool can reach 6 of 10 for hyperactive traders (measured 3 of 12
+// days, positions ~166-177; F-33, lib/feed.test.ts todo) — fix: the mixer caps by trader group in the tail (F-2 owners).
 export const CARD_DISCOUNT = 2;
 export function discounted<T extends { trader: number | string }>(ranked: readonly T[], d = CARD_DISCOUNT, top = EXPLORE_TOP): T[] {
   const head = new Set(ranked.slice(0, top).map((c) => c.trader)), held = new Map<T['trader'], number>();

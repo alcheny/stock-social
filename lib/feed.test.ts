@@ -305,9 +305,24 @@ dbTest('fix round 1: on a skewed fixture the 200 candidates span ≥ 33 traders,
         opened_at: new Date(closed - 86_400_000), closed_at: new Date(closed), return_pct: ret, holding_days: 1, verified: true };
     });
   });
+  // F-33 (orchestrator ruling, 2026-11-02): this fixture was written with evidence-weighted ordinary traders. Under main's
+  // 10-bet floor six of them weighed > 0 (measured: t5 1.304, t10 0.356, t13 0.462, t39 0.322, t42 0.858, t45 2.449);
+  // under F-33's moderate tier (30 bets over 90 days) all six weighed 0, so the premise was gone. The same six get two
+  // older copies of their own closes (same returns, shifted back 45 and 90 days), reaching 33 to 60 bets over 116 to 120
+  // days. The random stream, the hyperactive traders and the assertions are unchanged.
+  const EVIDENCED = [5, 10, 13, 39, 42, 45];
+  const history = rows.filter((x) => EVIDENCED.includes(ids.indexOf(x.user_id))).flatMap((x) => [45, 90].map((d) => ({
+    ...x, sell_id: `${x.sell_id}-h${d}`, opened_at: new Date(x.opened_at.getTime() - d * 86_400_000), closed_at: new Date(x.closed_at.getTime() - d * 86_400_000),
+  })));
+  rows.push(...history);
   for (let i = 0; i < rows.length; i += 1000) await sql`insert into closed_trades ${sql(rows.slice(i, i + 1000))}`;
   try {
     const asOf = new Date(now);
+    const { rankWeight } = await import('./rank-weight.ts');
+    for (const t of EVIDENCED) {
+      const own = rows.filter((x) => x.user_id === ids[t]).map((x) => ({ symbol: x.symbol, openedAt: x.opened_at, closedAt: x.closed_at, returnPct: x.return_pct, holdingDays: x.holding_days }));
+      assert.ok(rankWeight(own) > 0, `trader ${t} carries ranking weight (the fixture's premise)`);
+    }
     const cands = await feedCandidates({ asOf, ids });
     assert.equal(cands.length, 200);
     const per = new Map<number, number>();
@@ -339,6 +354,51 @@ dbTest('fix round 1: on a skewed fixture the 200 candidates span ≥ 33 traders,
     await sql`delete from users where id in ${sql(ids)}`;
   }
 });
+
+// F-33 (orchestrator ruling, 2026-11-02): the same skewed fixture with no history added, so every record weighs 0
+// (no one at 30 bets over 90 days) and the feed is the base order plus the mixer. What holds: every weight is 0, at most
+// 2 cards of one trader in any 10, the 5 hyperactive traders hold at most 27 of the first 60 (measured 10 to 11 over 12
+// day seeds, against 19 to 21 with weighted records). What does not hold on every day: the ≤ 5 of any 10 bound in the
+// list's tail (todo below; F-2 mixer hand-off).
+dbTest('F-33: with every weight 0 the skewed fixture keeps the trader cap and the first-minute bound', async () => {
+  const { feedList } = await import('./feed.ts');
+  const { rankWeight } = await import('./rank-weight.ts');
+  const { prng } = await import('./discovery/explore.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const { sql } = await import('./db.ts');
+  const tag = `z${Math.random().toString(36).slice(2, 8)}`;
+  const ids: number[] = [];
+  for (let t = 0; t < 60; t++) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${t}` })).id);
+  const r = prng(42), now = Date.now();
+  const rows = ids.flatMap((u, t) => {
+    const hyper = t < 5, n = hyper ? 60 : 6 + Math.floor(r() * 15);
+    return Array.from({ length: n }, (_, i) => {
+      const closed = now - (hyper ? r() * 20 * 3_600_000 : r() * 30 * 86_400_000) - 60_000;
+      const ret = (r() * 2 - 1) * (hyper ? 0.08 : 0.25) || 0.01;
+      return { user_id: u, sell_id: `${tag}-${t}-${i}`, account_id: 'a', symbol: `${tag.slice(1, 4).toUpperCase()}${Math.floor(r() * 45)}`,
+        opened_at: new Date(closed - 86_400_000), closed_at: new Date(closed), return_pct: ret, holding_days: 1, verified: true };
+    });
+  });
+  for (let i = 0; i < rows.length; i += 1000) await sql`insert into closed_trades ${sql(rows.slice(i, i + 1000))}`;
+  try {
+    for (const u of ids) {
+      const own = rows.filter((x) => x.user_id === u).map((x) => ({ symbol: x.symbol, openedAt: x.opened_at, closedAt: x.closed_at, returnPct: x.return_pct, holdingDays: x.holding_days }));
+      assert.equal(rankWeight(own), 0);
+    }
+    const asOf = new Date(now);
+    const { list } = await feedList({ asOf, day: asOf.toISOString().slice(0, 10), ids });
+    for (let s = 0; s + 10 <= list.length; s++) {
+      const n = new Map<number, number>();
+      for (const c of list.slice(s, s + 10)) n.set(c.user_id, (n.get(c.user_id) ?? 0) + 1);
+      assert.ok(Math.max(...n.values()) <= 2, `window ${s}: one trader holds more than 2 of 10`);
+    }
+    const first60 = list.slice(0, 60).filter((c) => ids.indexOf(c.user_id) < 5).length;
+    assert.ok(first60 <= 27, `the 5 hyperactive traders hold ${first60} of the first 60 cards`);
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});
+test.todo('F-33 hand-off (F-2 mixer owners): with every weight 0 the 5 hyperactive traders of the skewed fixture hold at most 5 of any 10 cards in the tail too (measured 6 on 3 of 12 day seeds, positions ~166-177 of 201)');
 
 // Load check: the candidates come from the last RECENT_HOURS first; that must be the same 200 the full pass gives.
 dbTest('fix round 1: the recent-window candidates equal the full pass (per-trader top 6, top 200 by score)', async () => {

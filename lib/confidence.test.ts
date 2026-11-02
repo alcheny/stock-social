@@ -50,14 +50,23 @@ test('zero spread collapses to the point estimate', () => {
   const c = confidence(spaced(10, () => 0.05), today);
   assert.ok(Math.abs(c.perTrade!.low - c.perTrade!.high) < 1e-12);
   assert.ok(Math.abs(c.pace30!.low - c.pace30!.high) < 1e-9);
-  assert.equal(c.edge, 'positive');
   assert.ok(Number.isFinite(c.pace30!.low));
+  // F-33 (OD 2.32, retargeted: was edge 'positive'): a range that prints with no width ("+5.0% to +5.0%") carries no
+  // verdict. The range is kept; it prints "Too early to tell" and says why.
+  assert.equal(c.edge, null);
+  assert.equal(c.tier, 'too-early');
+  assert.equal(rangeText(c), null);
+  assert.equal(evidenceLine(c), 'Too early to tell: the returns so far are too alike to give a range (10 bets)');
 });
 
 test('total loss does not produce NaN', () => {
   const c = confidence(spaced(10, () => -1), today);
   assert.ok(c.perTrade && Number.isFinite(c.perTrade.low));
-  assert.equal(c.edge, 'negative');
+  // F-33 (OD 2.32, retargeted: was edge 'negative'): ten exact −100% trades print a zero-width range: no verdict, losses
+  // exactly as gains. A total-loss record with any spread keeps its verdict.
+  assert.equal(c.edge, null);
+  assert.equal(evidenceLine(c), 'Too early to tell: the returns so far are too alike to give a range (10 bets)');
+  assert.equal(confidence(spaced(10, (i) => (i % 2 ? -1 : -0.9)), today).edge, 'negative');
 });
 
 test('tier boundaries', () => {
@@ -137,7 +146,9 @@ test('evidence line explains overlapping positions when trades outnumber bets; u
   assert.equal(evidenceLine(confidence(chain('A', 2), today)), 'Too early to tell: 2 trades in 1 overlapping position (5 independent bets needed)');
   assert.equal(evidenceLine(confidence(clusters(4, 50), today)), 'Too early to tell (4 of 5 bets)');
   // Past the threshold, the bets line names the trades behind them, with grouped counts.
-  const many = [...spaced(12, (i) => -0.05 + (i % 2 ? 0.001 : -0.001)), ...chain('Z', 4719)];
+  // F-33 (OD 2.32): ±0.1 point printed a zero-width range over 4,731 trades ("Too early to tell"); ±30 points keeps the
+  // line this test is about (a range that prints, with grouped counts).
+  const many = [...spaced(12, (i) => -0.05 + (i % 2 ? 0.3 : -0.3)), ...chain('Z', 4719)];
   const m = confidence(many, today);
   assert.equal(m.k, 13);
   assert.match(evidenceLine(m), /^Past results: .* · Evidence: thin \(13 bets from 4,731 trades, [\d,]+ days\)$/);
@@ -281,8 +292,9 @@ test('F-4 AC4: "consistent" only in the strong tier with the range entirely on o
         assert.equal(m, line.replace(/gains|losses/, (w) => (w === 'gains' ? 'losses' : 'gains')), `${tier} mirror`);
       }
   // Real records, mirrored: equal gains and losses both reach "consistent".
-  const gain = confidence(spaced(120, (i) => 0.05 + (i % 2 ? 0.001 : -0.001)), today);
-  const loss = confidence(spaced(120, (i) => 1 / (1.05 + (i % 2 ? 0.001 : -0.001)) - 1), today);
+  // F-33 (OD 2.32): jitter ±1 point (was ±0.1, whose range printed with no width and so now carries no verdict).
+  const gain = confidence(spaced(120, (i) => 0.05 + (i % 2 ? 0.01 : -0.01)), today);
+  const loss = confidence(spaced(120, (i) => 1 / (1.05 + (i % 2 ? 0.01 : -0.01)) - 1), today);
   assert.equal(gain.tier, 'strong');
   assert.equal(loss.tier, 'strong');
   assert.equal(trustLine(gain), 'Based on 120 bets over 3 years. A long record, with consistent gains.');

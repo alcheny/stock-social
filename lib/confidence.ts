@@ -3,7 +3,8 @@
 // are `confidence()` in lib/trades.ts, which reads the two thresholds below.
 // Imports only types from trades.ts (trades.ts imports these constants), so there is no runtime import cycle.
 import type { Confidence, Interval } from './trades.ts';
-import { count, counted } from './format.ts';
+import { count, counted, pct } from './format.ts';
+import { RECORD_STRIP } from './copy.ts'; // F-33: the one producer of "Too early to tell" (copy.ts imports neither file)
 
 // The owner's floor: below 5 independent bets the variance estimate is too unstable to mean anything, even with the
 // t multiplier (t at K = 5 is about 2.8), so there is no range at all.
@@ -33,6 +34,10 @@ export const RANK_FORMULA = 'f33.1';
 export const tierFor = (k: number, spanDays: number): Confidence['tier'] =>
   k < MIN_BETS ? 'too-early' : k >= STRONG.bets && spanDays >= STRONG.days ? 'strong' : k >= MODERATE.bets && spanDays >= MODERATE.days ? 'moderate' : 'thin';
 
+// F-33 (OD 2.32): a range has zero width when the strings it would print are equal (one decimal, lib/format.ts#pct):
+// "+1.0% to +1.0%" is the defect the reader sees, whatever the unrounded ends. Such a range prints "Too early to tell"
+// (RECORD_STRIP.early) and carries no verdict. trustSign reads the same printed values.
+export const zeroWidth = (iv: Pick<Interval, 'low' | 'high'>): boolean => pct(iv.low) === pct(iv.high);
 export const halfWidth = (iv: Pick<Interval, 'low' | 'high'>): number => (iv.high - iv.low) / 2;
 export const tooWide = (iv: Pick<Interval, 'low' | 'high'>): boolean => halfWidth(iv) > TOO_WIDE_HALF_WIDTH;
 
@@ -87,6 +92,7 @@ const ownSpan = (c: Pick<Confidence, 'spanDays'>): Span => spanBetween(new Date(
 export function trustLine(c: Pick<Confidence, 'n' | 'k' | 'tier' | 'perTrade' | 'spanDays'>, span: Span = ownSpan(c)): string | null {
   if (c.n === 0) return null;
   if (c.k < MIN_BETS) return `Based on ${counted(c.n, 'trade')}. Too few trades to say much yet.`;
+  if (c.tier === 'too-early' && c.perTrade && zeroWidth(c.perTrade)) return `Based on ${counted(c.n, 'trade')}. ${RECORD_STRIP.early}: ${RECORD_STRIP.alike}.`;
   if (c.tier === 'too-early') return `Based on ${counted(c.n, 'trade')}. The range is still too wide to say much.`;
   const sign = trustSign(c);
   const over = spanText(span, spanUnit(c.tier));

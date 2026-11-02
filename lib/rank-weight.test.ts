@@ -200,7 +200,8 @@ test('F-33 AC8: at or above the 1-point floor the floor changes nothing; no prin
       const rel = `${dir}${f}`;
       if (statSync(new URL(rel, import.meta.url)).isDirectory()) { if (f !== 'node_modules') walk(`${rel}/`); continue; }
       if (!/\.tsx?$/.test(f) || /\.test\.ts$/.test(f)) continue;
-      if (readFileSync(new URL(rel, import.meta.url), 'utf8').includes('SPREAD_FLOOR')) readers.push(rel);
+      const code = readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+      if (code.includes('SPREAD_FLOOR')) readers.push(rel); // code only: comments may name it
     }
   };
   walk('./'); walk('../app/');

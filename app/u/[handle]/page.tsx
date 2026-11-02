@@ -63,7 +63,7 @@ import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' da
 // OPTIONS (docs/features/logs/options/plan.md D5, D6): the one reader and its pure renders.
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
-import { OPTIONS } from '@/lib/copy.ts';
+import { OPTIONS, RECORD_STRIP } from '@/lib/copy.ts'; // F-33: RECORD_STRIP
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
@@ -210,7 +210,8 @@ export default async function Profile({ params, searchParams }: Params) {
   const isNew = !pub && isNewRecord(trades.map((t) => ({ openedAt: t.opened_at })), trades.length, new Date());
   // F-4 rework (committee user test 2026-11-01): the profile shows the same evidence as the card it was shared from (the
   // 95% range around the average it prints, the tier, the "Past results" verdict; lib/record-card.ts#cardEvidence), so
-  // a viewer arriving from a link sees one answer, not two. Ranking keeps confidence()'s own interval (`c`).
+  // a viewer arriving from a link sees one answer, not two. Ranking reads its own interval (lib/rank-weight.ts, F-33).
+  // F-33 (OD 2.32): a zero-width range gives `range` null here; the evidence line below says "Too early to tell".
   const shown = cardEvidence(trades.map((t) => ({ symbol: t.symbol as string, openedAt: t.opened_at as Date, closedAt: t.closed_at as Date,
     returnPct: Number(t.return_pct), holdingDays: Number(t.holding_days) })), new Date());
   const range = evidenceRangeText(shown);
@@ -245,7 +246,7 @@ export default async function Profile({ params, searchParams }: Params) {
   const shareAfterFigures = complete && trades.length > 0;
   const ownerPrompts = (<>
       {isMe && !claimed && shareable && sharePromptShowing && (
-        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={promptCard?.range ?? null} isNew={isNew}
+        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={promptCard?.range && promptCard.range !== RECORD_STRIP.early ? promptCard.range : null /* F-33: quote only a range */} isNew={isNew}
           previewAlt={`Preview of your share card. ${promptCard ? cardAlt(promptCard) : ''}`} />
       )}
       {isMe && !claimed && shareable && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (

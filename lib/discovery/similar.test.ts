@@ -27,8 +27,11 @@ test('rows: one trade per trader in candidate order, in the bucket; fewer than 3
   assert.equal(SIMILAR_ROWS, 3);
 });
 
-test('a loss counts like a gain: the rows read no return, only the lower bound, closes and id', () => {
+// F-33 (orchestrator ruling R1): equal weights order by id, never by closes counted (was: more closes first).
+test('a loss counts like a gain: the rows read no return, only the ranking weight and id (never closes counted)', () => {
   // Rows carry no return: the same candidates with any returns behind their weights give the same order.
   const a = similarCandidates([T(1, 3, 0.4), T(2, 3, 0.4, true, 12), T(3, 3, 0.6)], 0, 3, new Set());
-  assert.deepEqual(a.map((t) => t.trader), [3, 2, 1]);
+  assert.deepEqual(a.map((t) => t.trader), [3, 1, 2]);
+  // Trader 2's 12 closes do not lift it above trader 1 at equal weight, in either input order.
+  assert.deepEqual(similarCandidates([T(2, 3, 0.4, true, 12), T(1, 3, 0.4), T(3, 3, 0.6)], 0, 3, new Set()).map((t) => t.trader), [3, 1, 2]);
 });

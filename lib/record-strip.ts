@@ -4,6 +4,7 @@
 // Pure, except the bounded per-trader memo the feed uses (feedStrips).
 import { cardEvidence, evidenceRangeText } from './record-card.ts';
 import { headline, pct, type ConfidenceInput, type Tier } from './trades.ts';
+import { zeroWidth } from './confidence.ts'; // F-33
 import { imageLabel, isPublicRecord, PUBLIC, RECORD_BODY, RECORD_STRIP, SHARE_CARD, shareCardText, WHOLE_RECORD, type RecordState } from './copy.ts';
 import { OPTIONS } from './copy.ts'; // OPTIONS
 import { counted } from './format.ts';
@@ -90,7 +91,8 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
   const label = full && t.label ? { text: imageLabel(t.label)!, tone: (t.tone === 'warn' ? 'warn' : t.tone === 'ok' ? 'ok' : 'muted') as StripTone } : null;
   const importing = !i.demo && i.state === 'importing';
   const note = full && !i.demo && i.state === 'failed' ? RECORD_BODY.failed : surface === 'image' && isPublicRecord(i.state) ? PUBLIC.imageLine : null; // F-7: images carry the not-joined line
-  const tooEarly = i.evidence.tier === 'too-early' || !i.evidence.perTrade;
+  // F-33 (OD 2.32): a zero-width range is too early as well, whichever path built the evidence.
+  const tooEarly = i.evidence.tier === 'too-early' || !i.evidence.perTrade || zeroWidth(i.evidence.perTrade);
   const figures: StripPart[] = [];
   const altParts: string[] = [];
   if (!importing) {

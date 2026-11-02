@@ -9,10 +9,10 @@
 // link from the configured origin, and the alt text built from this model.
 import { HEAD_PILL_ROW, unfurlHeadRows } from './card-head.ts'; // FIXES-CYCLE4-PART2 (F4-15)
 import { counted } from './format.ts';
-import { imageTrust, isPublicRecord, OPTIONS, SHARE_CARD, type RecordState } from './copy.ts';
+import { imageTrust, isPublicRecord, OPTIONS, RECORD_STRIP, SHARE_CARD, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { confidence, headline, isNewRecord, pct, type Confidence, type ConfidenceInput, type Tier } from './trades.ts';
-import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, trustSign, type Span, type SpanUnit } from './confidence.ts';
+import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, trustSign, zeroWidth, type Span, type SpanUnit } from './confidence.ts';
 import { arithmeticRange } from './bets.ts';
 import { openSummary, tone, type Tone } from './open-split.ts';
 import { downsampleIndices } from './downsample.ts';
@@ -200,11 +200,12 @@ export function cardOpen(pcts: number[]): CardOpen | null {
 // The card's statistics (F-4, 2026-10-31): the range is the arithmetic one around the headline (lib/bets.ts); the
 // tier is confidence()'s thresholds with the "too wide" check on that same range; the trust line's sign reads it.
 // User test 2026-11-01: the profile shows this same evidence (range, tier, "Past results" verdict), so a viewer who
-// taps a shared card lands on the same answer. `edge` is the printed range's sign; ranking keeps confidence()'s own
-// pace interval (evidenceWeight, lib/trades.ts), which this does not touch.
-// The profile's "(low to high)" for that same range; the display log records exactly this text.
+// taps a shared card lands on the same answer. `edge` is the printed range's sign; ranking reads its own interval
+// (lib/rank-weight.ts#rankWeight, F-33), which this does not touch.
+// The profile's "(low to high)" for that same range; the display log records exactly this text. F-33 (OD 2.32): null for
+// a zero-width range (its printers say RECORD_STRIP.early).
 export const evidenceRangeText = (e: Pick<Confidence, 'perTrade'>): string | null =>
-  e.perTrade ? `(${pct(e.perTrade.low)} to ${pct(e.perTrade.high)})` : null;
+  e.perTrade && !zeroWidth(e.perTrade) ? `(${pct(e.perTrade.low)} to ${pct(e.perTrade.high)})` : null;
 
 // ponytail: the compare page still prints confidence()'s log-based range and tier (the trade and month pages call this
 // through lib/record-strip.ts#stripEvidence) — have it call cardEvidence too, or move confidence onto arithmeticRange.
@@ -212,7 +213,8 @@ export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {
   const c = confidence(trades, now);
   const r = arithmeticRange(trades);
   const perTrade = r && { low: r.low, mid: r.mid, high: r.high };
-  const tier: Tier = c.k < MIN_BETS || !r || tooWide({ low: r.mid - r.half, high: r.mid + r.half }) ? 'too-early' : tierFor(c.k, c.spanDays);
+  // F-33 (OD 2.32): a zero-width printed range is too early too (kept, no verdict), as a too-wide one is.
+  const tier: Tier = c.k < MIN_BETS || !r || tooWide({ low: r.mid - r.half, high: r.mid + r.half }) || zeroWidth(r) ? 'too-early' : tierFor(c.k, c.spanDays);
   const sign = trustSign({ perTrade });
   const edge = tier === 'too-early' ? null : sign === 'unclear' ? 'unclear' : sign;
   // A record shorter than half a day reads "1 day" on the profile too (orchestrator review): the card's trust line never
@@ -287,7 +289,8 @@ export function recordCard(i: CardInput): CardModel {
   const L = CARD_LAYOUT[i.kind];
   // The unfurl's chart gives up a row's height to the failed-import note and to the open-positions row (F-4
   // 2026-10-31: about 24% of the preview with every element kept); the square and story keep theirs (30%).
-  const range = c.perTrade ? SHARE_CARD.likely(pct(c.perTrade.low), pct(c.perTrade.high)) : null;
+  // F-33 (OD 2.32): a zero-width range prints "Too early to tell" in the range slot (image, alt and description alike).
+  const range = !c.perTrade ? null : zeroWidth(c.perTrade) ? RECORD_STRIP.early : SHARE_CARD.likely(pct(c.perTrade.low), pct(c.perTrade.high));
   const wide = i.kind === 'unfurl' && unfurlWide(pct(avg), range);
   // OPTIONS: on the unfurl the options line takes the caption's row and wraps once; the chart gives up that row.
   const box = { w: L.chart.w - (wide ? UNFURL_WIDE_SHIFT : 0), h: L.chart.h - (t.note ? L.noteCut : 0) - (card.open ? L.openCut : 0) - (card.optionsLine && i.kind === 'unfurl' ? L.noteCut : 0) };

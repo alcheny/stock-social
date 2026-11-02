@@ -2,7 +2,8 @@
 // helpers the renders use. No reads here (client components import it: the pane).
 import type { OptionSummary } from './options.ts';
 import { pct } from './trades.ts';
-import { OPTIONS } from './copy.ts';
+import { OPTIONS, RECORD_STRIP } from './copy.ts';
+import { zeroWidth } from './confidence.ts';
 
 export type OptionCounts = {
   shown: number; // long option closes in option_trades
@@ -32,7 +33,10 @@ export type OptionHeadline = { gate: 'closed'; counts: OptionCounts } | { gate: 
 
 /** D6: the options line's text from a summary ("Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)"). */
 export const optionsLineText = (s: OptionSummary) =>
-  OPTIONS.line(s.n, `${(s.winRate * 100).toFixed(0)}%`, pct(s.avg), s.range ? `(${pct(s.range.low)} to ${pct(s.range.high)})` : null);
+  OPTIONS.line(s.n, `${(s.winRate * 100).toFixed(0)}%`, pct(s.avg), optionRangeText(s.range));
+/** F-33 (OD 2.32): the options range as printed, or "Too early to tell" when it would print with no width. */
+export const optionRangeText = (r: OptionSummary['range']): string | null =>
+  !r ? null : zeroWidth(r) ? RECORD_STRIP.early : `(${pct(r.low)} to ${pct(r.high)})`;
 
 /** Fix round 1 (review 3): the open block's "as of": the oldest read across share and option positions, or null when
  *  there is none (Math.min of nothing is Infinity, which printed "Invalid Date"). */
