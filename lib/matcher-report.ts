@@ -21,5 +21,5 @@ export function addMoves(report: ReasonCounts, before: ReasonCounts, after: Reas
   return report;
 }
 
-// The one log line: the version and the net change per reason, counts only.
+// The report's text form (tests and readers; lib/matcher-rebuild.ts logs the same counts as JSON).
 export const movesLine = (version: number, report: ReasonCounts) => `matcher rebuild: moves per reason ${JSON.stringify({ version, ...report })}`;

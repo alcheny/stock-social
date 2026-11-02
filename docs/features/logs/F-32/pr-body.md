@@ -23,15 +23,16 @@ every shown figure and every other count is unchanged (fuzz-checked against the 
 
   The corporate /how bullet no longer names transfers. The "no recorded entry" bullet no longer opens with "Transfers
   in", because transfers now have one home.
-- `lib/matcher-report.ts`: the deploy rebuild's per-reason report, as net counts only
-  (`{version, shown, excluded, corporate, transfer, held}`). **Not wired yet; see the blocking item.**
+- `lib/matcher-report.ts` + `lib/matcher-rebuild.ts`: the version rebuild's per-reason report. #107's shared
+  `rebuildEach` reads each record's counts before and after its rebuild (in its transaction) and adds the change once it
+  commits; the deploy path and the sync-tick catch-up each log one line per run with records rebuilt:
+  `matcher rebuild: moves per reason {"version":3,"shown":…,"excluded":…,"corporate":…,"transfer":…,"held":…}`
+  (counts only, passes `lib/privacy-logs.test.ts`). Expected for v3: corporate −k, transfer +k, nothing else moves.
 
 ## Merge order (blocking)
-- [ ] **Merge after #107** (chore C5-43(b), matcher catch-up). This PR bumps
-      MATCHER_VERSION, and the bump ships only once C5-43(b) is on main.
-- [ ] **Before merge, wire the report.** Once C5-43(b) is on main, I merge main into this branch and call
-      `reasonCounts` before and after each record in its rebuild loop, with `addMoves`, then log `movesLine` once per
-      run. This is the engineer's sign-off condition, and the independent review flagged it too.
+- [x] **Merge after #107** (chore C5-43(b), matcher catch-up): merged into main at 2675fa1; main merged into this branch.
+- [x] **The report is wired** into #107's `rebuildEach` (both paths), with a DB test: a p5 record counted under the old
+      matcher moves corporate −1, transfer +1, nothing else.
 - [ ] **Never in the same deploy as F-36's MATCHER_VERSION bump.** The orchestrator orders the merges.
 
 ## Decisions
@@ -77,7 +78,8 @@ file's Decisions and Build log are updated.
   - p5 through stored vendor rows and `rebuildTrades`;
   - which vendor types are flagged, with counts that reset;
   - the loader flags exactly the three types.
-- `lib/matcher-report.test.ts`: the report holds counts only.
+- `lib/matcher-report.test.ts`: the report holds counts only. `lib/f32-transfers.db.test.ts`: the version rebuild's
+  per-reason moves for a p5 record (corporate −1, transfer +1).
 - `e2e/f32-transfer-line.spec.ts` (7 tests, 360 px, signed out):
   - light and dark: the link has its descriptive name, is at least 44 px, uses `--muted` with contrast of at least 4.5,
     is underlined, and has no icon;
@@ -116,8 +118,8 @@ file's Decisions and Build log are updated.
 2. **Personal data?**
    - `users.excluded_transfer` is a count and goes with the profile.
    - No transfer units, date or account is stored anew or shown (P3). The e2e scan checks the page and its responses.
-   - There is no new table, cookie, public closed_trades column or log line with personal data. The report helper logs
-     counts per reason only and is not yet called.
+   - There is no new table, cookie or public closed_trades column. The one new log line holds a version and counts per
+     reason only (it passes `lib/privacy-logs.test.ts`).
 3. **Money?** No.
 4. **Email, push, tracking?** No.
 5. **User content?** No; theses still re-attach by `sell_id`.

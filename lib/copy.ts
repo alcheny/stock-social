@@ -1,7 +1,7 @@
 // Fixed product copy for F-1 (docs/features/logs/F-1/plan.md §2, the UX lead's strings verbatim).
 // Every string here is tested against the banned-claims list (lib/copy.test.ts). Change copy here only.
 // F-1 PR-3 fix round 4 (UX lead demand 2): every count goes through lib/format.ts (thousands grouped: "2,828").
-import { count, counted, toneWord } from './format.ts';
+import { count, counted, pct as pct1, toneWord } from './format.ts';
 import { CLOSES_PAGE } from './paging.ts';
 import { EXCLUSION_DAYS } from './discovery/weights.ts';
 import { tone, type Tone } from './open-split.ts'; // A11Y-FIXES #23 (group 3)
@@ -976,6 +976,22 @@ export const BILLING = {
   deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
 } as const;
 export { billingDate };
+// ---- F-25 one link rule for trade rows (docs/features/F-25-one-link-rule-for-trade-rows.md). Before PUBLIC, which reads
+// RECORD_LINK. No advice, promotion or completeness words (lib/f25-trade-link.test.ts).
+export const TRADE_LINK = {
+  // Shape C (a figure link inside a row that holds other links): its whole accessible name.
+  name: (symbol: string, returnPct: number) => `${symbol} ${signWord(returnPct)} ${pct1(returnPct)}, open trade page`,
+  // Shape R (the whole row is the link): a visually hidden suffix after the row's visible text.
+  suffix: (symbol: string) => `, open ${symbol} trade page`,
+  // The feed card's footer trade link: visible text, then the visually hidden symbol and figure.
+  card: 'This trade',
+  cardName: (symbol: string, returnPct: number) => `: ${symbol} ${signWord(returnPct)} ${pct1(returnPct)}`,
+} as const;
+// The card footer's profile link on connected and F-7 public-record cards alike (amends F-7 AC20; F-25 decision).
+export const RECORD_LINK = 'Record, wins and losses';
+export const RECORD_LINK_ARROW = `${RECORD_LINK} →`;
+// end F-25
+
 // ---- F-7 public-record traders (docs/features/logs/F-7/plan.md Round 4 item 1, Round 5 items 3-6; legal C9-C12, C15, C18,
 // C24). Never "Verified"; no advice, signals or completeness claims (lib/f7-trust.test.ts walks every string).
 export const isPublicRecord = (s: string): s is 'public' | 'public_demo' => s === 'public' || s === 'public_demo';
@@ -989,7 +1005,7 @@ export const PUBLIC = {
   imageLine: 'This person has not joined Stock Social.', // the share image's line (the alt and unfurl carry notJoined)
   // The trade and month images' alt (og and twitter): the label and the not-joined line, never Verified or an amount.
   imageAlt: (what: string, s: 'public' | 'public_demo'): string => `${what} on Stock Social: ${publicLabel(s)}. ${PUBLIC.notJoined}`,
-  cardLine: 'Company insider · from a public filing', cardFooter: 'See their record, wins and losses →',
+  cardLine: 'Company insider · from a public filing', cardFooter: RECORD_LINK_ARROW, // F-25: one constant with app/ui.tsx
   filing: 'Filing ↗', filingName: (symbol: string, day: string) => `Public filing for the ${symbol} sale closed ${day}, opens another site`,
   sold: 'Sold: filing ↗', bought: 'Bought: filing ↗', boughtName: (symbol: string) => `Public filing for the ${symbol} purchase, opens another site`, soldName: (symbol: string) => `Public filing for the ${symbol} sale, opens another site`,
   // F4-10 (cycle 4, C4-14; WCAG 2.5.3, 2.4.4): the trade page's filing link names start with their visible words and
