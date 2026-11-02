@@ -139,7 +139,7 @@ Each is marked `ponytail:` in code:
   rewrites.
 
 ## Owner items
-- **The /how date:** `F36_RECALC_DATE = '2026-11-02'` must be the day the version-3 rebuild runs in production. If the
+- **The /how date:** `F36_RECALC_DATE = '2026-11-02'` must be the day the version-4 rebuild runs in production. If the
   deploy slips, the orchestrator moves the constant (one line in `lib/copy.ts`) in the PR that orders the merge.
 - **DESIGN §2.5 amendment:** lands through the protected-files session.
 - **Merge order:** after #108's deploy (C5-43(b) is merged); version 4.
