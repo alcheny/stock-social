@@ -48,8 +48,8 @@ import { loadSimilar } from '@/lib/similar.ts';
 import { median } from '@/lib/discovery/section.ts';
 import { SimilarSection } from './similar-section.tsx';
 // F-6: open positions in every number.
-import { combined, openSummary } from '@/lib/open-split.ts';
-import { asOfDay, OPEN } from '@/lib/copy.ts';
+import { combined, openFacts, openSummary } from '@/lib/open-split.ts';
+import { asOfDay, OPEN, openLine } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from '../../open-rows.tsx';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
@@ -124,7 +124,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   // closes there is no stats line at all (PR-2b), only the profile's own empty-record words.
   // F-4 (2026-11-01): the stats part is the card's own words (average per trade with its range, period, evidence; no
   // win rate), from the same model as the image; F-6: open positions in words when the trader has any.
-  const cardText = card ? cardDescription(card, data.open ? OPEN.line(data.open, pct) : null) : null;
+  const cardText = card ? cardDescription(card, card.open?.line.withAsOf ?? null) : null; // F-34: the card's own line
   const statsText = cardText ?? `${pct(s.avgReturn)} average per trade · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
   const base = profileDescription({ state, demo, verified, trades: s.trades, stats: statsText });
   return {
@@ -158,6 +158,8 @@ export default async function Profile({ params, searchParams }: Params) {
   const long = open ? longValues(pct(s.avgReturn), pct(open.avg), String(open.n)) : undefined;
   // OPTIONS fix round 1 (review 3): the combined line counts the same open positions as the grid (option percents too).
   const both = open && combined(trades.map((t) => t.return_pct as number), [...positions.map((p) => p.pct), ...optOpen.map((o) => o.pct)]);
+  // F-34: the one open line over the same positions as the grid.
+  const line = open && openLine(openFacts([...positions.map((p) => p.pct), ...optOpen.map((o) => o.pct)]), openAsOf ?? null);
   const me = await currentUser();
   const isMe = me?.id === user.id;
   // F-2 PR-3b: "Similar trades" (lib/similar.ts), only for a whole record with a typical holding period; the same for every
@@ -341,7 +343,7 @@ export default async function Profile({ params, searchParams }: Params) {
         </div>
       </section>
       {/* F-6: the unrealized grid directly under the realized one, same size (TR-4), then the combined average. */}
-      {open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={long} />}
+      {open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={long} line={line} />}
       {both && <CombinedLine c={both} />}
       {/* FIXES-LABELS (D-09): the F3 line right after the headline figures. QA round 2 (B2): before the evidence line, so
           it is on the first screen at 320 px with an F-7 top block or a 40-character name above the figures. */}
@@ -373,7 +375,7 @@ export default async function Profile({ params, searchParams }: Params) {
       {open && <ChartNote o={open} />}
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
-      {complete && trades.length === 0 && open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={longValues(pct(open.avg), String(open.n))} />}
+      {complete && trades.length === 0 && open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={longValues(pct(open.avg), String(open.n))} line={line} />}
       {user.excluded_positions > 0 && (
         <p className="muted">{PROFILE.excludedPositions(user.excluded_positions)}</p>
       )}

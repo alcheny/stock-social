@@ -5,7 +5,8 @@
 // (a stored average of 0.024499999 prints "+2.4%"; its closes rounded to 1 decimal could average to "+2.5%").
 import { paneSummary, paneTrust, type TrustBadge } from './pane.ts';
 import { paneEvidence } from './pane-evidence.ts';
-import { combined, openSummary, type OpenSummary } from './open-split.ts';
+import { combined, openFacts, openSummary, type OpenSummary } from './open-split.ts';
+import { openLine, type OpenLine } from './copy.ts'; // F-34: the one producer
 import type { PublicState } from './connections.ts';
 import { isoDay, wireDay, wirePct, wireRate } from './public-wire.ts';
 
@@ -24,7 +25,12 @@ export type PaneModel = {
   open: OpenSummary | null; // n, up, down, flat (counts, by printed tone) and avg
   openAsOf: string | null; // 'YYYY-MM-DD' of the oldest position read
   both: { n: number; avg: number } | null;
+  // F-34: the open line, built here so the pane prints it as received (printed strings and tones only; no extra number).
+  openLine: Pick<OpenLine, 'text' | 'parts' | 'withAsOf'> | null;
 };
+// F-34 (plan §7): the pane's lines after the realized stats, in this order, one line each. `exclusions` is F-21's slot and
+// `options` F-29's (nothing renders until they are built); `open` is the open grid with its line.
+export const PANE_LINES = ['exclusions', 'open', 'options'] as const;
 
 export function paneModel(trades: PaneModelTrade[], state: PublicState, now: Date, unrealized: number[] = [], openAsOf?: Date | null): PaneModel {
   const p = paneSummary(trades);
@@ -46,5 +52,6 @@ export function paneModel(trades: PaneModelTrade[], state: PublicState, now: Dat
     open: o && { ...o, avg: wirePct(o.avg) },
     openAsOf: o && openAsOf ? isoDay(openAsOf) : null,
     both: both && { n: both.n, avg: wirePct(both.avg) },
+    openLine: ((l) => l && { text: l.text, parts: l.parts, withAsOf: l.withAsOf })(openLine(openFacts(unrealized), o && openAsOf ? openAsOf : null)),
   };
 }

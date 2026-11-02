@@ -48,7 +48,7 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
 // `base`), hold days at one decimal. Every figure is computed first, from stored values (chartSeries on the caller's
 // stored closes); only the output is rounded. `v` is the format version (PAYLOAD_V): the routes' URLs carry it too, so
 // no cache serves a pre-F-23 body to a new client.
-export const PAYLOAD_V = 2;
+export const PAYLOAD_V = 3; // F-34: the pane model carries openLine
 // FIXES-CYCLE4-PART2 (F4-16): a dated published note adds its written and edited UTC day numbers (lib/paging.ts#noteDays).
 export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number, writtenDay?: number | null, editedDay?: number | null];
 export type PackedSeries = { t0: number; t1: number; last: number; n: number; dd: number; min: number; max: number; p: number[] };

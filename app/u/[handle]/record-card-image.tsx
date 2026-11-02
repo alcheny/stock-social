@@ -7,7 +7,7 @@
 // Committee round 1: the chart, the count and the period lead (count and period at 1.5× body, in the text color); the
 // trust state is an outlined badge (Demo in its own tone, as strong as Verified); "New record" is a badge at the count's
 // size; the evidence label shares the trust line's row; the 0% label sits in a gutter left of the line.
-import { OPTIONS } from '@/lib/copy.ts';
+import { OPTIONS, openRowSpans } from '@/lib/copy.ts';
 import { IMAGE_PALETTE } from '@/lib/palette.ts';
 import { unfurlHeadRows, type HeadPill } from '@/lib/card-head.ts'; // FIXES-CYCLE4-PART2 (F4-15)
 import { UNFURL_WIDE_SHIFT } from '@/lib/record-card.ts'; // FIXES-CYCLE4-PART2 (F4-15)
@@ -47,33 +47,37 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   const toneColor = (tone: 'up' | 'down' | 'flat') => (tone === 'up' ? C.up : tone === 'down' ? C.down : C.text);
   const lineColor = toneColor(m.headlineTone ?? 'flat'); // the line agrees with the headline it sums to
 
-  // F-6: "3 open, unrealized · 2 up, 1 down · lowest -8.0%, highest +12.1%", each percent in its own sign's color (the
-  // words carry the meaning; the color only repeats it). Never clipped: a held loser is never hidden.
+  // F-34: the one open line (lib/copy.ts#openLine), each value with its word in its own sign's colour (the words carry
+  // the meaning; the colour only repeats it). Never clipped: a held loser is never hidden. data-open-* mark the line's
+  // pieces for the render-equality test (Satori ignores them).
   const o = m.open;
-  // `lead`: whether words come before the spread on its row (no indent before "at 0.0%" when nothing does).
-  const gap = (on: boolean) => ({ marginLeft: on ? '0.28em' : 0 });
-  const spread = (lead: boolean) => o && (o.low === o.high
-    ? [<span key="a" style={gap(lead)}>at</span>, <span key="l" style={{ color: toneColor(o.lowTone), ...gap(true) }}>{o.low}</span>]
-    : [<span key="a" style={gap(lead)}>lowest</span>, <span key="l" style={{ color: toneColor(o.lowTone), ...gap(true) }}>{o.low}</span>,
-      <span key="c">,</span>, <span key="b" style={gap(true)}>highest</span>, <span key="h" style={{ color: toneColor(o.highTone), ...gap(true) }}>{o.high}</span>]);
-  const openRow = (size: number, short: boolean) => {
-    if (!o) return null;
-    const words = [short ? o.shortTitle : '', o.split].filter(Boolean).join(' · ');
-    return (
-      <div style={{ ...row, flexWrap: 'wrap', ...t(size), lineHeight: 1 }}>
-        {words && <span>{`${words} ·`}</span>}{spread(!!words)}
-      </div>
-    );
-  };
-  // The note sits on the title's row (it wraps under it only if the row is full), so the block is two rows high and
-  // the worst case (failed note, New record, 12 positions) keeps every row (UX test, round 2).
+  const pre = { whiteSpace: 'pre' } as const;
+  const valueColor = (tone: 'up' | 'down' | 'flat' | null) => toneColor(tone ?? 'flat');
+  // Square and story: F-4's block. The title at the line size with the as-of words muted on its row (where the note sat),
+  // then the split and spread at body size; the leading " · " of the second row is kept in the text, not drawn.
   const openBlock = o && (
     <div style={col}>
       <div style={{ ...row, alignItems: 'baseline', flexWrap: 'wrap', gap: 16 }}>
-        <span style={big(f.line)}>{o.title}</span>
-        <span style={{ ...t(f.body, C.muted), whiteSpace: 'nowrap' }}>{o.note}</span>
+        <span data-open-text="" style={big(f.line)}>{o.line.parts[0].label}</span>
+        <span data-open-asof="" style={{ ...t(f.body, C.muted), whiteSpace: 'nowrap' }}>{o.line.asOf}</span>
       </div>
-      {openRow(f.body, false)}
+      <div style={{ ...row, flexWrap: 'wrap', ...t(f.body), lineHeight: 1 }}>
+        {o.line.parts.slice(1).flatMap((p, k) => [
+          k === 0 ? <span key={`s${k}`} data-open-text="" style={{ display: 'none' }}>{p.sep}</span> : null,
+          <span key={`l${k}`} data-open-text="" style={pre}>{`${k === 0 ? '' : p.sep}${p.label}${p.value === null ? '' : ' '}`}</span>,
+          p.value === null ? null : <span key={`v${k}`} data-open-text="" data-open-value={p.tone ?? 'flat'} style={{ ...pre, color: valueColor(p.tone) }}>{`${p.value}\u00a0${p.word}`}</span>,
+        ])}
+      </div>
+    </div>
+  );
+  // Unfurl: the image form (lib/copy.ts#imageRows, packed by the model), one row each, values toned.
+  const openRows = o?.rows && (
+    <div style={{ ...col, marginTop: 2, flexShrink: 0 }}>
+      {o.rows.map((r) => (
+        <div key={r} data-open-row="" style={{ ...row, ...t(f.body), lineHeight: 1 }}>
+          {openRowSpans(r, o.line).map((x, k) => <span key={k} {...(x.tone ? { 'data-open-value': x.tone } : {})} style={{ ...pre, color: x.tone ? valueColor(x.tone) : C.text }}>{x.text}</span>)}
+        </div>
+      ))}
     </div>
   );
 
@@ -127,7 +131,7 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   const wide = unfurlWide(m.headline, m.range);
   // Breathing room around the range and before the count (user test), except where the 630 px card has none to spare:
   // two extra rows (failed-import note and open positions) or a wide card.
-  const tight = !!(m.note && o) || wide;
+  const tight = !!(m.note && o) || wide || (o?.rows?.length ?? 0) > 1; // F-34: the open block's second row too
   const [labelA, labelB] = m.open || wide ? (m.headlineLabel ?? '').split(/(?<=per) /) : [m.headlineLabel];
   const unfurlAverage = (
     <div style={col}>
@@ -177,7 +181,7 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
         {m.optionsLine
           ? <span style={{ ...t(f.body, C.muted), lineHeight: 1, marginTop: 4, flexShrink: 0 }}>{m.optionsLine}</span>
           : <span style={{ ...t(f.body, C.muted), lineHeight: 1, whiteSpace: 'nowrap', marginTop: 4, flexShrink: 0 }}>{m.caption}</span>}
-        {o && <div style={{ display: 'flex', marginTop: L.gap, flexShrink: 0 }}>{openRow(f.body, true)}</div>}
+        {openRows}
       </div>
     );
   } else {

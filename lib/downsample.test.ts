@@ -175,7 +175,7 @@ test('fix round 8: the feed\'s stand-in carries the ALL line at FEED_LITE_POINTS
   // A short record ships whole: nothing to fetch.
   assert.equal(feedPaneChart(input.slice(0, PANE_EAGER_CLOSES), now).lite, undefined);
   assert.equal(feedPaneChart(input.slice(0, PANE_EAGER_CLOSES + 1), now).lite, 1);
-  assert.equal(paneChartSrc('a b'), '/u/a%20b/pane-chart?v=2'); // F-23: the payload version re-keys the public cache
+  assert.equal(paneChartSrc('a b'), '/u/a%20b/pane-chart?v=3'); // F-23: the payload version re-keys the public cache
 });
 
 test('fix round 8 (tester re-run 4, Low): a near-total loss is never shipped as an exact total loss', async () => {

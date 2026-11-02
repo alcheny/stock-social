@@ -15,7 +15,7 @@ import { Disclaimer } from './disclaimer.tsx';
 import { FIXES_LABELS } from '@/lib/copy.ts';
 import type { Segment } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from './status-line.tsx'; // FIXES-LABELS: status
-import { paneModel, type PaneModel } from '@/lib/pane-model.ts'; // F-23: every printed figure, from stored values
+import { PANE_LINES, paneModel, type PaneModel } from '@/lib/pane-model.ts'; // F-23: every printed figure, from stored values; F-34: the line order
 import { numericDay, wireToday } from '@/lib/public-wire.ts'; // F-23
 // OPTIONS (docs/features/logs/options/plan.md D5, AC 24): the label and the count line (or the options line once open).
 import { PaneOptions, ShareTradesLabel } from './u/[handle]/options-block.tsx';
@@ -81,7 +81,9 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
         {ev.rangeLine && <small className="range">{ev.rangeLine}</small>}{/* FIXES-LABELS (code review, TR-9): as on the profile */}
       </div>
     </section>
-    {open && <OpenGrid o={open} asOf={p.openAsOf ? new Date(p.openAsOf) : undefined} long={long} />}
+    {/* F-34 (PANE_LINES): exclusions (F-21's slot, nothing yet), then the open line, then options (F-29's slot; the
+        "Excluding options" label stays above until F-29 moves it). An absent slot renders nothing. */}
+    {PANE_LINES.map((slot) => slot === 'open' && open ? <OpenGrid key={slot} o={open} asOf={p.openAsOf ? new Date(p.openAsOf) : undefined} long={long} line={p.openLine} paneLine /> : null)}
     {both && <CombinedLine c={both} />}
     <PaneOptions v={options} />
   </>;

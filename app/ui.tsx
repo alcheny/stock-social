@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import type { PublicState } from '@/lib/connections.ts';
-import { asOfDay, isPublicRecord, OPEN, PUBLIC, RECORD_BODY } from '@/lib/copy.ts';
+import { isPublicRecord, openLine, PUBLIC, RECORD_BODY } from '@/lib/copy.ts';
 import { cardTrust, type TrustBadge } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
-import { openSummary } from '@/lib/open-split.ts';
-import { toneClass } from './open-rows.tsx';
+import { openFacts } from '@/lib/open-split.ts';
+import { OpenLineText, toneClass } from './open-rows.tsx';
 // FIXES-LABELS (D-05, D-09): the year rule for the close date; the F3 line on every card.
 import { dateText } from '@/lib/date-text.ts';
 import { Disclaimer } from './disclaimer.tsx';
@@ -85,8 +85,9 @@ const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode, ownHeld
 // FIXES-LABELS: status: `status`, the card's status segments (lib/record-status.ts `card`, static mode: only a frozen or
 // idle record has any), between the hero and the thesis.
 export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice, status, ownHeld }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode; ownHeld?: OwnHeld | null; status?: Segment[] }) {
-  // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
-  const open = unrealized && openAsOf ? openSummary(unrealized) : null;
+  // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them. F-34: the one
+  // open line, dated (withAsOf), at the card's body size; only the as-of words are muted.
+  const open = unrealized && openAsOf ? openLine(openFacts(unrealized), openAsOf) : null;
   const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
   const trust = cardTrust(t, state);
   const pub = isPublicRecord(state); // F-7: the card line in place of the thesis (filers post none)
@@ -110,7 +111,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       {status && <StatusText segments={status} kind="card" />}{/* FIXES-LABELS: status */}
       {/* F-13: on page 1's first card the first-visit line takes the thesis slot until it is dismissed (F-10's one-screen budget). */}
       {notice ? <div className="fv-slot">{notice}{thesisLine(t, pub, report, ownHeld)}</div> : thesisLine(t, pub, report, ownHeld)}
-      {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
+      {open && <p className="open-also" data-open><OpenLineText parts={open.parts} asOf={open.asOf} /></p>}
       <footer className="muted">
         {hint && <SwipeHint text={FIRST_VISIT.hint} />}
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>

@@ -72,7 +72,7 @@ async function draw(): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   for (const open of [false, true]) {
     const k = open ? 'open' : 'none';
-    for (const kind of ['unfurl', 'square'] as const) out[`${kind}|${k}`] = sha(await png(createElement(RecordCardImage, { m: card(kind, open), disclaimer: DISCLAIMER }), ...SIZE[kind]));
+    for (const kind of ['unfurl', 'square'] as const) out[`${kind}|${k}`] = sha(await png(createElement(RecordCardImage, { m: card(kind, open), disclaimer: DISCLAIMER }), SIZE[kind][0], SIZE[kind][1]));
     out[`trade|${k}`] = sha(await png(createElement(RecordStripImage, { lines: disclaimerAtFoot(tradeLines(open)), disclaimer: DISCLAIMER }), 1200, 630));
     out[`month|${k}`] = sha(await png(createElement(RecordStripImage, { lines: disclaimerAtFoot(monthLines(open)), disclaimer: DISCLAIMER }), 1200, 630));
   }
@@ -92,13 +92,12 @@ test('F-34 AC2 structural: with open positions only the open rows and the §3 st
     const none = f(false), open = f(true);
     assert.ok(!none.some((l) => l.role.startsWith('open')), name);
     assert.ok(open.some((l) => l.role.startsWith('open')), name);
-    // Every line of today's band is still drawn, in the same order, with the same words ("losses included" may join the
-    // count row, §3 step 5); only sizes and the open rows differ.
-    const words = (ls: typeof none) => ls.filter((l) => !l.role.startsWith('open')).map((l) => l.text).join(' · ');
-    const kept = none.filter((l) => l.role !== 'monthOf').map((l) => l.text);
-    let at = 0;
-    const w = words(open);
-    for (const t of kept) { const i = w.indexOf(t, at); assert.ok(i >= 0, `${name}: "${t}" kept in order`); at = i + t.length; }
+    // Every line of today's band is still drawn with the same words ("losses included" may join the count row, §3
+    // step 5; "One of N months" may give way, step 2); only sizes, joins and the open rows differ.
+    const w = open.filter((l) => !l.role.startsWith('open')).map((l) => l.text).join(' · ');
+    for (const l of none.filter((x) => x.role !== 'monthOf')) assert.ok(w.includes(l.text), `${name}: "${l.text}" kept`);
+    const roles = (ls: typeof none) => ls.map((l) => l.role).filter((r) => !r.startsWith('open') && r !== 'losses' && r !== 'monthOf');
+    assert.deepEqual(roles(open), roles(none), `${name}: the same lines in the same order`);
   }
   assert.deepEqual(Object.keys(card('unfurl', false)), Object.keys(card('unfurl', true)));
 });
