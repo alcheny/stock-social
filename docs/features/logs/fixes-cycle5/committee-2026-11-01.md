@@ -95,3 +95,57 @@ State at the pause:
   Its plan was not written yet.
 - To resume: re-fork WP1..WP4 from this branch with the briefs in the round-3 section (the builder brief is restated in
   the PR session's notes), then QA, the 360 px user test, the independent review, and one PR labelled `feature`.
+
+## Part 2 (second PR): plan rounds
+
+Scope: five items approval council 5 (#103) routed to the fixes lane (`docs/ideas/approval-2026-11-01-cycle5.md` →
+Fixes lane): MK-P6, C5-41, C5-34, C5-4's zero-width split, C5-5's "per closed trade" wording. Legal committee:
+`legal-committee-2026-11-02.md` §3 (C1-C16) and its addendum on the short strip wording (C17-C20).
+
+- **Round 1** (`plan-part2-round1.md`, UX lead). Business lead: SIGN on 8 demands. Engineer: OBJECT on 5 demands plus
+  build conditions. No direction changed, so the orchestrator folds both reviews in here as round 2. Where this section
+  and the round-1 plan differ, this section wins.
+
+### Round 2: conditions folded in
+1. Short strip wording: the legal committee re-signed "‹avg› per closed trade" (C17-C20), which closes BL 1 and
+   removes §6's open item.
+2. Post-connect prompt (BL 2). e2e at 360 × 640: with the prompt's heading scrolled into view, "Share my record" is
+   fully inside the viewport. If it isn't, cap the prompt's preview (for example `max-width: 240px`); never move the
+   button.
+3. One zero-width rule (BL 3, engineer 3).
+   - `zeroWidth` takes the surface's `digits`, and a source test checks every range-printing `pct(low)`/`pct(high)`
+     pair against it.
+   - The options line (`lib/options-view.ts`) goes through the rule as well (C11: every surface).
+   - `baselineKind` (`lib/ticker.ts`) uses the shown evidence, so a zero-width side never reads `data-kind="shown"`.
+   - The C10 test gains a near-boundary fixture.
+   - e2e: the zero-width fixtures read "Too early to tell" on both the month page and the profile.
+   Why: decided by the committee under the owner's instruction of 2026-11-01. One rule must hold on every surface that
+   prints a range, or one page says "+1% to +1%" while another says "Too early to tell".
+4. Record tools (BL 4). e2e on `/tools`: a demo record's card shows the Demo badge, and every card shows its loss
+   figures (win rate and lowest).
+5. The C5 allow-list (BL 5) is pinned by file and enclosing function, never by line number. A test asserts that no
+   `app/` server action imports those functions except whole-profile deletion.
+6. Card redundancy (BL 6). The zero-width card says "too early" once: it keeps the trust line and drops the duplicate
+   evidence word, and a test checks the visible card text holds "too early" exactly once.
+7. Placeholders (BL 7). The C3 line carries the real date, and the worst case prints a true minus ("≈−100.0%").
+8. Owner flag (BL 8). "Based on 4,731 trades. Too early to tell." goes to the owner as a question for the 2.32 session.
+   Part 2 changes no build for it. Not part 2's scope: the business lead suggests "average per closed trade so far" on
+   the card, so that card and strip agree.
+9. `lib/confidence.test.ts:139` (engineer 1). This test is the only coverage of the grouped verdict branch. It keeps its
+   original regex on a new grouped fixture with a real spread. The zero-width string becomes an extra assertion beside
+   it, and other fixtures that are the only path of a branch are treated the same way.
+   Why: decided by the committee under the owner's instruction of 2026-11-01. Never weaken an existing test.
+10. C5-34 queries (engineer 2). One owner render gains no query: either `optionHeadline` becomes a per-request read, or
+    one card model per request feeds both the unfurl and the square alt. A DB test counts the queries of one owner
+    render before and after.
+11. Naming (engineer 4). The short strip key is `RECORD_STRIP.perClosedShort`, not `perClosedTrade`, which already
+    names the card's "average per closed trade". The key is added to `lib/record-strip.guard.test.ts`'s list.
+12. Overlaps (engineer 5).
+    - #100 also edits `lib/record-tools.ts` and `lib/display-log.ts`: re-run their tests after merging.
+    - #102 (f25) edits `lib/f10-feed-card.test.ts` and `e2e/record-strip.spec.ts`.
+    - Part 1's WP4 edits `e2e/record-strip.spec.ts`, `lib/copy.ts` and `lib/recap.ts`, and WP3 rewrites the `/t` sums,
+      so the `/t` e2e runs after WP3 merges.
+13. Build (engineer 6). Part 2 builds now on `claude/fixes-cycle5-part2`, forked from `claude/fixes-cycle5` after WP1
+    merged (so the `page.tsx` wiring is built directly). The `/t` e2e and the `.db` suites run again after WP3 and WP4
+    merge. Before the PR, part 2 merges `claude/fixes-cycle5`; it never rebases, per the build rules. The PR targets
+    `claude/fixes-cycle5`'s PR, or `main` once PR 1 merges.
