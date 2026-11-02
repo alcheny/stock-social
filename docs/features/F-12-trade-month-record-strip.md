@@ -43,6 +43,9 @@ the stock image, reusing F-10's `RecordStrip`. Approved by the approval council
   "losses included" and the disclaimer, and no pooled average, range, win rate or verdict. Its alt text is static and
   states no figures, so the image-alt AC applies to the trade and month images. Why: a per-stock average with a range
   rates the stock (F3b), and pooled bets are not the profile's statistic; the /t pages belong to another session.
+- 2026-11-02: The owner accepted OD 2.36: trade and month images carry no win rate, and their link-preview
+  descriptions end with both disclaimer sentences whenever they carry a return, including while a record imports
+  (fixes-list item F6-7). Why: the owner's decision of 2026-11-02 (OD 2.36).
 
 ## Acceptance criteria
 - [ ] Trade and month pages show the shared `RecordStrip` with closed-trade count, average per trade with its range

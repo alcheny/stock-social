@@ -83,6 +83,15 @@ advice. The owner has been told this and the scope below respects it.
 - 2026-11-01: The watchlist is never an ordering input; the "symbols on your watchlist" reason in criteria 2 and 7 is superseded; reason lines are "Similar holding period to @x" (x followed or liked), "Trades symbols you read" and "New to you" (activity On). Why: decided by the committee under the owner's instruction of 2026-11-01; POLICY F1a and the owner's watchlist rule.
 - 2026-11-01: "N trades hidden by you. Show them" and the order line share one quiet paragraph above the first card; the Hidden trades list ships in the same PR as behavior-based ordering. Why: decided by the committee under the owner's instruction of 2026-11-01; the first card stays in view at 360 px, and criterion 15 is met (Q9).
 - 2026-11-01: /how documents how a signed-in feed is ordered, from the same constants. Why: decided by the committee under the owner's instruction of 2026-11-01; POLICY F1 asks for a documented method (Q12).
+- 2026-11-02: The owner accepted OD 2.13: the implicit activity log and expired like and reject events are deleted at
+  90 days. This replaces the earlier decision to keep them until cleared (POLICY P3, store the minimum) and is built
+  as F-43. Why: the owner's decision of 2026-11-02 (OD 2.13).
+- 2026-11-02: The owner accepted OD 2.14: implicit logging stays off and only the owner turns it on (main already
+  defaults it off). Correction recorded with it: the +2 weight is the opening swipe (`lib/discovery/weights.ts:7`),
+  not follow. Why: the owner's decision of 2026-11-02 (OD 2.14).
+- 2026-11-02: The owner accepted OD 2.23: viewers without age assurance get a non-personalized or follows-only order,
+  with no age-assurance build now; built as F-44, on main before 2027-01-01. Personalized ordering stays built behind
+  it. Why: the owner's decision of 2026-11-02 (OD 2.23).
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
