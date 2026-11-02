@@ -68,15 +68,15 @@ by `lib/sync.ts#rebuildTrades`) → pages compute `stats()` on read.
 - `closed_trades` deliberately stores no quantities or prices. Keep it that way: traders publish
   percentages only.
 - Sync paths: `/connect/done` (right after a broker connects) and `POST /api/sync` (hourly cron,
-  `Authorization: Bearer $CRON_SECRET`). Both call `syncUser`, which re-reads the last 7 days.
+  `Authorization: Bearer $CRON_SECRET`). Both call `syncUser`, which re-reads the last 7 days. A weekly
+  full-history pass per account (at most once every 7 days) inserts activities that re-read missed, insert-only
+  (F-24, `docs/SYNC.md` → Late postings).
 
 **Vendor isolation:** `lib/broker.ts` is the only file that imports `snaptrade-typescript-sdk`. It also
 owns AES-256-GCM encryption of the SnapTrade user secret (`APP_SECRET_KEY`). Changing that key orphans
 stored secrets. Add future vendors the same way: one file each.
 
-**Auth is a dev stub:** `lib/session.ts` trusts a plain `uid` cookie and signs in to existing handles
-without a password. It throws in production unless `ALLOW_DEV_AUTH=1`. Replace it with real auth before
-any public deploy. Don't build features that assume the stub's behavior.
+**Auth:** Sessions are real (F-1, lib/auth/). Only /login/dev is a stub, guarded by devGuard(); never set ALLOW_DEV_AUTH on production.
 
 **Pages:** `app/page.tsx` feed (public, ranking SQL inline), `app/u/[handle]/page.tsx` profile + thesis
 forms, `app/u/[handle]/opengraph-image.tsx` share card (next/og), `app/actions.ts` server actions
@@ -89,7 +89,9 @@ including the thesis moderation regex list. Styling is plain CSS tokens in `app/
 
 - **Verified** = every source activity has `source='snaptrade'`. There is no manual or self-reported
   trade path. Don't add one. Demo data always shows a **Demo** badge.
-- Rank losses equal to gains of the same size (feed uses `abs(return_pct)`). Never hide losses.
+- Rank losses equal to gains of the same size, by the one method documented on /how (DESIGN TR-9): the pace
+  interval's near-end distance from 0, weighted only from the moderate evidence tier, with a 1-point floor on the
+  spread (owner decisions OD 2.33 and cycle-5 Q3). Never hide losses.
 - Headline stats are win rate + avg return. Max drawdown is labeled "per-trade, equal-weight" because
   it is not account return.
 - Sells with no recorded entry are excluded and counted (`users.excluded_positions`), never guessed.
@@ -148,11 +150,11 @@ variant (each following the Branch team process in `docs/AUTOPILOT.md`, writing 
 Trade-offs, What to measure). Don't pick yourself. Decisions are recorded only by `/choose`/`/reject`
 (human) or business-lead via the Judge workflow (`AUTOPILOT_MODE=auto`) into `docs/DECISIONS.md`; read that file before
 proposing directions.
-Open question for the owner: `docs/process/decisions-and-authority.md` → Open questions (Q1).
+Exemption (owner decision 2026-11-01): features the owner decided in a design session or the approval council approved are built as one version; three versions stay for open-direction product changes.
 
 ## Known limits (marked `ponytail:` in code)
 
-- Options are skipped in `fetchActivities`; long-only FIFO.
+- Shares: long-only FIFO. Options: short options, exercises, assignments and unpriceable contracts are excluded and counted; option results are public only under the per-trader consent gate (lib/options-gate.ts); see docs/features/logs/options/.
 - `/api/sync` loops users sequentially (~5k/hour). Next steps: shard by `user_id % N`, then a queue.
 
 Convention: `docs/process/quality.md` → Ponytail convention.
