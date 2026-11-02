@@ -204,7 +204,7 @@ export async function compareCards(traders: ViewTrader[], now = new Date()): Pro
 // ponytail: each card reads the trader's whole closed_trades, exactly as the profile does (up to 4 profile reads per
 // view) — share a cached per-trader summary once the profile has one.
 async function card(t: ViewTrader, now: Date): Promise<Card> {
-  const [u] = await sql`select excluded_positions, excluded_future, excluded_corporate, excluded_held, excluded_transfer, excluded_transferred_out from users where id = ${t.id}`;
+  const [u] = await sql`select excluded_positions, excluded_future, excluded_corporate, excluded_held, excluded_transfer, excluded_transferred_out, sells_partly_transferred from users where id = ${t.id}`;
   const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${t.id}`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${t.id} and source = 'snaptrade'`;
   const { public: { state, paper } } = await publicRecordDetail(t.id);
@@ -236,6 +236,7 @@ async function card(t: ViewTrader, now: Date): Promise<Card> {
       ...((u?.excluded_corporate as number) > 0 ? [PROFILE.excludedCorporate(u.excluded_corporate as number)] : []), // F3-13
       ...((u?.excluded_transfer as number) > 0 ? [PROFILE.excludedTransfer(u.excluded_transfer as number)] : []), // F-32 Part A
       ...((u?.excluded_transferred_out as number) > 0 ? [PROFILE.excludedTransferredOut(u.excluded_transferred_out as number)] : []), // F-22
+      ...((u?.sells_partly_transferred as number) > 0 ? [PROFILE.sellsPartlyTransferred(u.sells_partly_transferred as number)] : []), // F-22 (Q5)
       ...((u?.excluded_held as number) > 0 ? [PROFILE.excludedHeld(u.excluded_held as number)] : []), // F-24 RT-2
       ...(paper > 0 ? [RECORD_BODY.paperExcluded(paper)] : []),
     ],

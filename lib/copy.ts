@@ -71,9 +71,10 @@ export const TRANSFER_REASON = 'a share transfer in the same stock';
 // not printed (UX lead, committee): whether to state it is an owner item.
 // F-22: rewritten so it stays true once a transfer taints no recorded buy: a transfer reaches a sell only by its date,
 // by the shares that arrived, or by the shares left after part of a holding moved out.
-const TRANSFER_HOW = `Transfers in and out of an account. A sell is counted as \u201cexcluded: ${TRANSFER_REASON}\u201d, wins and losses alike, when a transfer of that stock into or out of its account falls close to the sell\u2019s date, when the sell uses shares that arrived by transfer (their buy price is unknown), or when it sells shares left after part of a holding moved out by transfer (which shares left is unknown): a limit of how trades are matched, not a judgment of the trader.`;
+const TRANSFER_HOW = `Transfers in and out of an account. A sell is counted as \u201cexcluded: ${TRANSFER_REASON}\u201d, wins and losses alike, when a transfer of that stock into or out of its account falls close to the sell\u2019s date, when it sells only shares that arrived by transfer (their buy price is unknown), or when it sells shares left after part of a holding moved out by transfer (which shares left is unknown): a limit of how trades are matched, not a judgment of the trader. Shares that arrived by transfer are matched after every recorded buy; a sell that uses both is shown for its recorded shares only.`;
 // F-22 (owner OD 2.28): the /how item for transfers out; the profile's transferred-out line links to it.
-const TRANSFER_OUT_HOW = 'Transfers out of an account. Shares that leave an account by transfer are not a closed trade and have no return; each transfer out is counted as a \u201cshare transfer out of an account\u201d. The shares that left are taken from the oldest buys first (first in, first out, which is this record\u2019s own matching method, not the broker\u2019s), and only where that can\u2019t change the buy price or date of the shares left: the whole holding moved, or every buy still held has the same price, fee and date.';
+// Business lead (round 1): three sentences at most, with the limit in plain words.
+const TRANSFER_OUT_HOW = 'Transfers out of an account: shares that leave by transfer are not a closed trade, so each transfer out is counted and no return is shown for it. The shares that left are taken from the oldest buys first (first in, first out, this record\u2019s own matching method, not the broker\u2019s) only when that can\u2019t change a buy price: the whole holding moved, or every buy still held cost the same. Otherwise which shares left is unknown, so the later sells of that holding are counted, not shown.';
 
 // Own profile, first screen after sign-in (the committee's item 9): one status line, no celebration.
 export const PROFILE = {
@@ -108,9 +109,11 @@ export const PROFILE = {
   // F-22 (owner OD 2.28): transfers out (users.excluded_transferred_out), a count of transfers, not sells. Names no cause,
   // blames no one; links to /how#transfers-out. ponytail: committee wording; the owner's final wording is an owner item.
   excludedTransferredOut: (n: number) => n === 1
-    ? '1 share transfer out of an account: not a closed trade, so no return is shown for it.'
-    : `${count(n)} share transfers out of an account: not closed trades, so no return is shown for them.`,
-  excludedTransferredOutLink: 'How share transfers out are counted',
+    ? '1 transfer out of an account: not a closed trade, so no return is shown.'
+    : `${count(n)} transfers out of an account: not closed trades, so no returns are shown.`,
+  excludedTransferredOutLink: 'How transfers out are counted',
+  // F-22 (Q5): shown sells that also used shares that arrived by transfer (users.sells_partly_transferred).
+  sellsPartlyTransferred: (n: number) => `${counted(n, 'sell')} partly from shares that arrived by transfer: ${n === 1 ? 'its return is' : 'their returns are'} for the recorded shares only.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.

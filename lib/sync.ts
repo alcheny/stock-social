@@ -97,7 +97,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const kept = [...aside, ...live] as unknown as KeptThesis[];
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
-    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0, excludedTransfer = 0, transfersOut = 0;
+    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0, excludedTransfer = 0, transfersOut = 0, sellsPartlyTransferred = 0;
     // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
     // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
     const actions = await loadCorporateActions(tx, userId, notFuture(tx));
@@ -114,6 +114,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       excludedCorporate += m.excludedCorporate;
       excludedTransfer += m.excludedTransfer ?? 0; // F-32 Part A
       transfersOut += m.transfersOut ?? 0; // F-22
+      sellsPartlyTransferred += m.sellsPartlyTransferred ?? 0; // F-22 (Q5): shown, named
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
         await tx`insert into closed_trades ${tx(m.trades.slice(i, i + INSERT_CHUNK).map((t) => {
@@ -196,7 +197,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     await tx`update users set excluded_held = ${excludedHeld} where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
     await tx`update users set excluded_transfer = ${excludedTransfer} where id = ${userId}`; // F-32 Part A: a count only
-    await tx`update users set excluded_transferred_out = ${transfersOut} where id = ${userId}`; // F-22: a count only
+    await tx`update users set excluded_transferred_out = ${transfersOut}, sells_partly_transferred = ${sellsPartlyTransferred} where id = ${userId}`; // F-22: counts only
     return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate, excludedTransfer, transfersOut };
   };
   return tx ? run(tx) : sql.begin(run);

@@ -395,6 +395,12 @@ export default async function Profile({ params, searchParams }: Params) {
           <a className="tap44 excluded-link" href="/how#transfers-out">{PROFILE.excludedTransferredOut(user.excluded_transferred_out)}<span className="sr-only"> {PROFILE.excludedTransferredOutLink}</span></a>
         </p>
       )}
+      {/* F-22 (Q5): shown sells partly from transferred shares; links to the transfer item on /how. */}
+      {user.sells_partly_transferred > 0 && (
+        <p className="muted" data-sells-partly-transferred>
+          <a className="tap44 excluded-link" href="/how#transfers">{PROFILE.sellsPartlyTransferred(user.sells_partly_transferred)}<span className="sr-only"> {PROFILE.excludedTransferLink}</span></a>
+        </p>
+      )}
       {/* F-24 RT-2: sells counted while a possible re-issue in their pair is checked (shown only when there are any). */}
       {user.excluded_held > 0 && (
         <p className="muted" data-excluded-held>{PROFILE.excludedHeld(user.excluded_held)}</p>

@@ -188,3 +188,11 @@ test('property (3,000 seeded cases): a transfer in changes no shown figure: a se
   }
   if (!process.env.FUZZ_SEED) assert.ok(partly > 0, 'the cases reach a sell partly from moved-in units');
 });
+
+test('COUNTED_KEYS and NOT_SUMMED_KEYS name every numeric key of MatchResult (F-21): countedSum gives two units, never one number', async () => {
+  const { COUNTED_KEYS, NOT_SUMMED_KEYS, countedSum } = await import('./trades.ts');
+  // Adding a numeric key to MatchResult without listing it makes this literal fail the type check.
+  const every: Record<Exclude<keyof MatchResult, 'trades'>, true> = { excluded: true, excludedCorporate: true, excludedHeld: true, excludedTransfer: true, transfersOut: true, sellsPartlyTransferred: true };
+  assert.deepEqual([...COUNTED_KEYS, ...NOT_SUMMED_KEYS].sort(), Object.keys(every).sort());
+  assert.deepEqual(countedSum({ trades: [], excluded: 1, excludedCorporate: 2, excludedHeld: 4, excludedTransfer: 8, transfersOut: 16, sellsPartlyTransferred: 32 }), { sells: 15, transfersOut: 16 });
+});
