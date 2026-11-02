@@ -961,3 +961,6 @@ html:not([data-ss-seen~="hint"]) .feed .card footer .swipe-hint { display: block
    no rule for the profile pane's count line reaches it; token colours through .muted only. */
 .card-options-count { margin: 4px 0 0; }
 /* end F-29 */
+/* F-32 Part A: the profile's transfer-count line is a real link (44px tall, muted, underlined so it is not marked by colour
+   alone); position: relative holds its sr-only suffix inside it; long counts wrap at 320px. */
+.excluded-link { position: relative; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }

@@ -24,7 +24,8 @@ export default function How() {
       <HowOptionsParagraph open={optionsPublic()} />{/* F-29 (D2): the interim words while the gate is closed */}
       <ul>{OPTIONS.howMath.map((l) => <li key={l}>{l}</li>)}</ul>
       <h2>{HOW.excludedTitle}</h2>
-      <ul>{HOW.excluded.map((l) => <li key={l}>{l}</li>)}</ul>
+      {/* F-32 Part A: the profile's transfer line links to #transfers. */}
+      <ul>{HOW.excluded.map((l) => <li key={l} {...(l === HOW.transfer ? { id: 'transfers' } : {})}>{l}</li>)}</ul>
       <h2>{HOW.freezeTitle}</h2>
       <p>{HOW.freeze}</p>
       {/* F-2 PR-5 (Q12): the personal ordering, in words, from the same constants. */}
