@@ -171,7 +171,7 @@ test('#19: on short viewports (780×360, 320×256) the first card is not clipped
       await expect(card.locator('.ret'), `${width}×${height}: the return is reachable`).toBeInViewport({ ratio: 0.95 }); // sub-pixel edge
       const ret = (await card.locator('.ret').boundingBox())!, box = (await card.boundingBox())!;
       expect(ret.y + ret.height, `${width}×${height}: the return fits the card`).toBeLessThanOrEqual(box.y + box.height + 0.5);
-      const link = card.locator('footer a');
+      const link = card.locator(`footer a[href="/u/${await firstRow(page).getAttribute('data-handle')}"]`);
       await link.scrollIntoViewIfNeeded();
       await expect(link, `${width}×${height}: footer link`).toBeInViewport();
       expect(await page.evaluate(() => document.documentElement.scrollWidth), `${width}×${height}`).toBeLessThanOrEqual(width);

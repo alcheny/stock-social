@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
@@ -32,7 +33,7 @@ export default async function Likes({ searchParams }: { searchParams?: Promise<{
           {rows.map((r) => (
             <li key={r.key} className="line">
               <span className="who-col">
-                <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}>{LIKES.closed(r.symbol, DAY.format(r.closedAt))}</Link>{' '}
+                <Link href={tradePageHref({ handle: r.handle, tradeKey: r.key })}>{LIKES.closed(r.symbol, DAY.format(r.closedAt))}</Link>{' '}
                 <b className={toneClass(r.returnPct)}>{pct(r.returnPct)}</b>
                 <span className="small"><WhoName name={r.name} handle={r.handle} /></span>
               </span>

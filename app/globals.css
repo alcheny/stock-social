@@ -857,6 +857,49 @@ h1 { overflow-wrap: anywhere; }
 /* F-26: the trade page's link under the author's held line, on its own line (a 44 px target, lib/user-note.ts#HeldNote). */
 .held-edit { margin: 0; }
 
+/* ---- F-25 one link rule for trade rows (docs/features/F-25-one-link-rule-for-trade-rows.md) ---- */
+/* Feed card footer: "This trade →" then "Record, wins and losses →" at 0.875rem, one line at 360 px and wider, stacked
+   below. Each link's hit box is 44 px tall; the -14 px block margin keeps each row of links 16 px in the layout (F-10's
+   one-screen budget), and the 36 px row gap (28 px of pulled-in box + 8 px) keeps wrapped or stacked boxes 8 px apart,
+   also when a larger text size wraps them at 360 px or wider. */
+.card .f25-card-links { display: flex; flex-wrap: wrap; align-items: center; column-gap: 16px; row-gap: 36px; font-size: 0.875rem; }
+.card .f25-card-link { position: relative; display: inline-flex; align-items: center; min-height: 44px; margin-block: -14px; white-space: nowrap; }
+/* Below 360 px the links stack; the outer edges of the two boxes reach 22 px into the blocks above and below (the open
+   line or note, the disclaimer: text, no control), so the stacked pair keeps the 320 px card inside F-10's 15% budget
+   (e2e/record-strip.spec.ts AC8) with 8 px between the boxes. */
+@media (max-width: 359.98px) {
+  .card .f25-card-links { flex-direction: column; align-items: flex-start; }
+  .card .f25-card-links > :first-child { margin-top: -22px; }
+  .card .f25-card-links > :last-child { margin-bottom: -22px; }
+  /* The two words sit 8 px apart, so the pair reads as one group (UX user test): each text hugs the inner edge of its box. */
+  .card .f25-card-links > :first-child { align-items: flex-end; }
+  .card .f25-card-links > :last-child { align-items: flex-start; }
+}
+/* The text a footer box reaches over (the disclaimer below, the block above) paints above it, so a tap on that text never
+   follows a link (UX user test); the boxes keep their 44 px, and their own text and the space between stay theirs. */
+.feed .card .card-disclaimer, .feed .card > :has(+ footer) { position: relative; z-index: 1; }
+/* Page 1's first card: the swipe hint keeps its own line above the links (both links leave no room beside it). Like the
+   disclaimer, it paints above the first link's overhang, so a tap on the hint never follows the link and the card keeps
+   F-10's budget at 320 px with a 280-character note. */
+html:not([data-ss-seen~="hint"]) .feed .card footer .swipe-hint { display: block; margin: 0; } /* never over its dismissed display: none */
+.feed .card footer .f25-hint-text { position: relative; z-index: 1; } /* the line stays static (F-13) */
+/* ponytail: a footer link's 44 px box reaches 14 px (22 px below 360 px) over the card's text above and the disclaimer
+   below; that text paints above the box, so the box's tappable part there is smaller than 44 px — fix: a taller footer
+   row once the card has room (F-10's one-screen budget). */
+/* Shape C (the profile row's figure link): at least 44 × 44 px, a short "0.0%" padded to the width; the negative block
+   margin sits inside the row's 12 px padding, so the row keeps its height. */
+.rows .line .f25-fig { position: relative; display: inline-flex; align-items: center; justify-content: flex-end; min-width: 44px; min-height: 44px; margin-block: -12px; }
+/* The figure link shows it is a link (UX user test: the underlined symbol beside it goes to the stock page). */
+.rows .line .f25-fig b { text-decoration: underline; text-underline-offset: 3px; }
+/* Shape R (the whole row is the link). position: relative holds its sr-only spans inside it (in the off-screen pane they
+   would widen the page). The pane's last trades are 44 px rows inside the same 12 px padding. */
+.f25-row { position: relative; }
+.pane .rows a.line { position: relative; color: inherit; text-decoration: none; align-items: center; min-height: 44px; margin-block: -12px; }
+/* The focus ring (F-20's :focus-visible rule) draws around the whole row: a block-level link, inside the pane's padding. */
+/* The highlighted pane row already draws the focus colour (.pane .rows .line.hl); focus thickens it so focus stays visible. */
+.pane .rows a.line.hl:focus-visible { outline: 4px solid var(--focus); }
+/* end F-25 */
+
 /* ---- F-27 (docs/features/F-27-colour-follow-ups.md): the warn notice ---- */
 /* A failed import is never told apart from a loss by colour (DS-17): an icon, a box and the unchanged words. --warn is
    used only in these rules (lib/f27-colour-follow-ups.test.ts). The words stay --text (>= 4.5:1 on --surface); the border

@@ -166,7 +166,7 @@ export async function similarPool(now: number, ids?: number[]): Promise<Kept> {
   return k;
 }
 
-export type SimilarRow = { trader: number; handle: string; name: string; tradeId: string; sellId: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; bucket: number; verified: boolean };
+export type SimilarRow = { trader: number; handle: string; name: string; tradeId: string; sellId: string /* server-only (lib/similar.test.ts); never rendered */; tradeKey: string /* F-25: the row's trade link */; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; bucket: number; verified: boolean };
 export type Similar = { rows: SimilarRow[]; byUser: Map<number, PaneRow[]>; states: Map<number, RecordStatus> };
 
 // Fix round 1 (business lead D2): `panes: false` (the profile) skips the row traders' records; a sheet loads its pane on
@@ -180,14 +180,14 @@ export async function loadSimilar(o: { trader: number; hold: number; closes: num
   if (cands.length < 3) return null;
   const bucket = holdBucket(o.hold);
   const [found, states] = await Promise.all([sql`
-    select u.id, u.handle, u.display_name, t.id as trade_id, t.sell_id, t.symbol, t.return_pct, t.closed_at, t.holding_days,
+    select u.id, u.handle, u.display_name, t.id as trade_id, t.sell_id, t.trade_key, t.symbol, t.return_pct, t.closed_at, t.holding_days,
       not exists (select 1 from closed_trades v where v.user_id = u.id and not v.verified) as verified
-    from users u cross join lateral (select id, sell_id, symbol, return_pct, closed_at, holding_days from closed_trades x where x.user_id = u.id and ${feedReadySql('x')}
+    from users u cross join lateral (select id, sell_id, trade_key, symbol, return_pct, closed_at, holding_days from closed_trades x where x.user_id = u.id and ${feedReadySql('x')}
       and (case when holding_days < 1 then 0 when holding_days <= 7 then 1 when holding_days <= 28 then 2 when holding_days <= 183 then 3 else 4 end) = ${bucket}
       order by closed_at desc, sell_id desc limit 1) t
     where u.id = any(${cands.map((c) => c.trader)}) and u.deleted_at is null and ${filerVisibleSql('u')}`, recordStates(cands.map((c) => c.trader))]);
   const trades = new Map(found.filter((r) => states.get(r.id as number)?.state !== 'importing').map((r) => [r.id as number, {
-    trader: r.id as number, handle: r.handle as string, name: r.display_name as string, tradeId: String(r.trade_id), sellId: r.sell_id as string, symbol: r.symbol as string,
+    trader: r.id as number, handle: r.handle as string, name: r.display_name as string, tradeId: String(r.trade_id), sellId: r.sell_id as string, tradeKey: r.trade_key as string, symbol: r.symbol as string,
     returnPct: r.return_pct as number, closedAt: r.closed_at as Date, holdingDays: r.holding_days as number, bucket, verified: r.verified as boolean }]));
   const rows = similarRows(cands, trades, bucket);
   if (!rows) return null;

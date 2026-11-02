@@ -660,7 +660,7 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await feed.goto(`/u/${handle}`);
   await expect(feed.locator('.badge.verified')).toHaveCount(1);
   // Fix round 5: the stock page's trade rows for this trader are Verified while the record is whole.
-  const stockRows = () => feed.locator(`a.trow[href="/u/${handle}"]`);
+  const stockRows = () => feed.locator(`a.trow[href^="/u/${handle}/trade/"]`);
   await feed.goto('/t/AAA');
   await expect(stockRows().first()).toBeAttached();
   await expect(stockRows().first().locator('.badge.verified')).toHaveCount(1);
