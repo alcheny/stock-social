@@ -1780,7 +1780,8 @@ test('corporate actions (F3c): an import reads the vendor\'s split, reverse spli
     await page.setViewportSize({ width: 375, height: 740 });
     await page.goto(`/u/${handle}`);
     await expect(page.locator('.rows:not(.positions) li')).toHaveCount(4);
-    await expect(page.getByText('1 trade excluded: a share move, corporate action or broker row the importer can\'t price.', { exact: true })).toBeVisible();
+    // F-32 Part A: the transfer in is named under its own reason (was the generic corporate line), as a link to /how.
+    await expect(page.getByRole('link', { name: '1 sell excluded: a share transfer in the same stock. How share transfers are counted', exact: true })).toBeVisible();
     const main = await page.locator('main').innerText();
     expect(main).not.toMatch(/-45(\.0)?%|−45|\+1,?000(\.0)?%|\+900(\.0)?%/);
     expect(main).toContain('+10.0%');
