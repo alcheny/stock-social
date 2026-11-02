@@ -31,7 +31,7 @@ count; switching it is a follow-up chore (business lead).
 
 ## Testing
 - `npx tsc --noEmit` clean; `npm run build` ok; `node scripts/autopilot.ts guard origin/main` ok.
-- `npm test`: 0 failures (see the last run in the session); F-24 gate: all 11 `lib/sync-reconcile*.test.ts` green.
+- `npm test` on the branch with main merged (1b0dbcc): 0 failures; F-24 gate: all 11 `lib/sync-reconcile*.test.ts` green.
 - New `lib/f35-publish.test.ts` (18): AC1 (absent from closed_trades/option_trades, the profile reads and the compare card;
   counted), AC2 (first tick after the date, no new activity), AC3 (two ticks, one rebuild, a third none; counted by real
   rebuild calls), AC4 (failed rebuild leaves the watermark; retried), busy lock, scope (frozen publishes a loss with status
@@ -45,13 +45,16 @@ count; switching it is a follow-up chore (business lead).
   `['AAA', 'CCC']` → `['AAA']` and `[1, 0]` → `[2, 0]`; it then moves CCC's rows 13 h back and asserts `['AAA', 'CCC']`.
   Its twin "F-35 twin of fix round 6" covers the waiting +12 h sell published by the first tick. `lib/feed-imported.test.ts`
   dated a late sell `now() + 1 minute` and relied on the grace: it is dated at the insert's `now()` (still after asOf).
+  `lib/shared-accounts.test.ts` counts the rebuild's `notShared` uses: 3 → 4 (the unpriceable-sell future count also
+  leaves shared accounts out; the guard is stricter, not weaker).
 - AC7 at the LOAD shape (`LOAD=1 node --test lib/f35-matured.load.test.ts`, 100,000 traders, 2,000,000 activities, 200,000
   option rows, 20,000 corporate actions, 1% stored while dated ahead; one transaction, rolled back): every scan of the three
   raw tables is a Bitmap Heap Scan over its `*_future_stored` partial index, in both branches; rows read activities 20,000 /
   option rows 2,000 / corporate actions 200 = exactly the future-stored rows; no sequential scan.
 - e2e: `e2e/f35-month-today.spec.ts` 9/9 at 360 px, browser zones UTC and Pacific/Kiritimati, light and dark (month page
   "through today", waiting row absent and named, profile line exact text and muted, gone after maturity). Full
-  `npx playwright test`: see below.
+  `npx playwright test`: 339 passed, 6 skipped; the one failure (`fixes-labels.spec.ts:242`, the swipe test #105 fixed) and
+  the 7 serial tests after it pass on the merged build (20/20 with the F-35 spec).
 - Playwright here pins chromium 1248; the container has 1243, used through a scratch `PLAYWRIGHT_BROWSERS_PATH` (no repo
   change).
 
