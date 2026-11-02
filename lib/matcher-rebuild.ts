@@ -8,9 +8,10 @@ import { sql } from './db.ts';
 import { MATCHER_VERSION } from './trades.ts';
 import { USER_LOCK } from './sync.ts';
 import { rebuildRecord } from './options-sync.ts';
+import type { Shard } from './sync-limits.ts';
 
-// ponytail: records left over at the time budget wait for the next deploy (frozen ones included) — fix: let the sync tick
-// pick up records with no matcher_rebuilt row for the current version, in shards (lib/sync-shard.ts).
+// Chores cycle 5 (C5-43 part b): records left over at the deploy's time budget no longer wait for the next deploy. The
+// sync tick's catchUpMatcher (below) rebuilds them shard by shard, frozen ones included, and marks the version done.
 // ponytail: a sync running old code between this rebuild and the cutover can rebuild one active record with the old
 // matcher after it is marked; its next sync on the new code fixes it — fix: key closed_trades rows by matcher version.
 // ponytail: a trader whose published closes the rebuild turns into counts is not told (their /me/record shows the count
@@ -20,25 +21,90 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
   if (done && !ids) return null;
   const users = await sql`select u.id from users u
     where ${ids ? sql`u.id in ${sql(ids.length ? ids : [0])} and` : sql``}
-      not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version = ${version})
+      not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version >= ${version})
       and (exists (select 1 from activities a where a.user_id = u.id) or exists (select 1 from corporate_actions c where c.user_id = u.id))
     order by u.id`;
-  const start = Date.now();
-  let rebuilt = 0, failed = 0;
-  for (const u of users) {
-    if (Date.now() - start > budgetMs) break;
-    try {
-      await sql.begin(async (tx) => {
-        await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${u.id as number})`;
-        await rebuildRecord(u.id as number, tx);
-        await tx`insert into matcher_rebuilt (user_id, version) values (${u.id as number}, ${version})
-          on conflict (user_id) do update set version = excluded.version`;
-      });
-      rebuilt++;
-    } catch { failed++; }
-  }
-  const left = users.length - rebuilt;
+  const { rebuilt, failed, newer } = await rebuildEach(users.map((u) => u.id as number), version, budgetMs, false);
+  const left = users.length - rebuilt - newer;
   if (failed) console.error('matcher rebuild: records failed, the version stays open', JSON.stringify({ count: failed }));
   if (!left && !ids) await sql`insert into matcher_runs (version) values (${version}) on conflict (version) do nothing`;
   return { rebuilt, failed, left };
+}
+
+// Rebuilds each record under the trader's lock and marks it rebuilt for `version`, until `budgetMs` has passed (checked
+// before each record, so one record can run past it). `skipLocked`: a record whose lock is held (a sync in flight) is
+// skipped, not waited on, and stays for the next call; the deploy path waits instead. Inside the lock the record's marker
+// is read again: a record rebuilt for this version or a newer one since the batch was selected is left alone (`newer`),
+// and the marker never moves down, so older code can never rebuild a record back after a newer version reached it
+// (parent review of #107: the batch is selected before the locks are taken).
+async function rebuildEach(ids: number[], version: number, budgetMs: number, skipLocked: boolean, now = Date.now, beforeRecord?: (id: number) => Promise<void>) {
+  const start = now();
+  let rebuilt = 0, failed = 0, busy = 0, newer = 0;
+  for (const id of ids) {
+    if (now() - start > budgetMs) break;
+    try {
+      if (beforeRecord) await beforeRecord(id);
+      const outcome = await sql.begin(async (tx) => {
+        if (skipLocked) {
+          const [got] = await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${id}) as ok`;
+          if (!got.ok) return 'busy' as const;
+        } else await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${id})`;
+        const [mark] = await tx`select version from matcher_rebuilt where user_id = ${id}`;
+        if (mark && (mark.version as number) >= version) return 'newer' as const;
+        await rebuildRecord(id, tx);
+        await tx`insert into matcher_rebuilt (user_id, version) values (${id}, ${version})
+          on conflict (user_id) do update set version = excluded.version where matcher_rebuilt.version < excluded.version`;
+        return 'rebuilt' as const;
+      });
+      if (outcome === 'rebuilt') rebuilt++; else if (outcome === 'busy') busy++; else newer++;
+    } catch { failed++; }
+  }
+  return { rebuilt, failed, busy, newer };
+}
+
+// A record the matcher has to rebuild for `version`: it has stored rows and no matcher_rebuilt row for that version or a
+// newer one (a record a newer deploy already rebuilt is never rebuilt back by older code).
+// `ids` narrows the population (tests: only their own records); `shard` narrows it to `id % of = shard`.
+const pending = (version: number, ids?: number[], shard?: Shard) => sql`
+  not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version >= ${version})
+  and (exists (select 1 from activities a where a.user_id = u.id) or exists (select 1 from corporate_actions c where c.user_id = u.id))
+  ${ids ? sql`and u.id in ${sql(ids.length ? ids : [0])}` : sql``}
+  ${shard && shard.of > 1 ? sql`and u.id % ${shard.of} = ${shard.shard}` : sql``}`;
+
+export type CatchUp = { rebuilt: number; failed: number; busy: number; newer: number; left: number; done: boolean };
+export const MATCHER_CATCHUP_MS = 20_000;
+export const MATCHER_CATCHUP_BATCH = 200;
+
+/** Chores cycle 5 (C5-43 part b; council cycle 5: before any MATCHER_VERSION bump). The sync tick's share of the
+ *  matcher rebuild: each call rebuilds up to `batch` of this shard's records not yet rebuilt for `version` (frozen and
+ *  disconnected records included: the selection reads stored rows only), within `budgetMs`, skipping a record whose
+ *  sync holds its lock. Once no record is left in any shard, the version is written to matcher_runs, and later calls
+ *  cost one primary-key read. So a matcher change reaches every record within ticks, with no further deploy.
+ *  `ids` limits the population to those records (tests); with `ids` the version is marked done only for that population
+ *  being empty, which only a test's private version number may rely on. */
+// `beforeRecord` is a test hook (it runs before each record's transaction), used to interleave another rebuild.
+export async function catchUpMatcher(o: { shard: Shard; budgetMs?: number; version?: number; ids?: number[]; batch?: number; now?: () => number; beforeRecord?: (id: number) => Promise<void> }): Promise<CatchUp | null> {
+  const version = o.version ?? MATCHER_VERSION;
+  // A newer version done (or a record rebuilt for a newer version, in `pending`) counts as done: code still serving the
+  // cron while the next deploy rebuilds must never rebuild a record back with the older matcher (independent review).
+  const [done] = await sql`select 1 from matcher_runs where version >= ${version} limit 1`;
+  if (done) return null;
+  const batch = o.batch ?? MATCHER_CATCHUP_BATCH;
+  const users = await sql`select u.id from users u where ${pending(version, o.ids, o.shard)} order by u.id limit ${batch}`;
+  const r = await rebuildEach(users.map((u) => u.id as number), version, o.budgetMs ?? MATCHER_CATCHUP_MS, true, o.now, o.beforeRecord);
+  if (r.failed) console.error('matcher catch-up: records failed, the version stays open', JSON.stringify({ count: r.failed }));
+  // ponytail: a record that fails every time is retried first on every tick of its shard (ids in order), so more than `batch`
+  // such records in one shard would starve the rest — fix: a matcher_rebuilt attempt count, failed records ordered last.
+  // ponytail: `left` counts this shard's records up to one batch past the ones rebuilt (a cheap bound, not the backlog)
+  // — fix: a count(*) here if the coverage report ever needs the exact backlog.
+  const [{ n }] = await sql`select count(*)::int as n from (select 1 from users u where ${pending(version, o.ids, o.shard)} limit ${batch}) x`;
+  let marked = false;
+  if (!n) {
+    const [any] = await sql`select 1 from users u where ${pending(version, o.ids)} limit 1`;
+    if (!any) {
+      await sql`insert into matcher_runs (version) values (${version}) on conflict (version) do nothing`;
+      marked = true;
+    }
+  }
+  return { ...r, left: n as number, done: marked };
 }

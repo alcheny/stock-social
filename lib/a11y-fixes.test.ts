@@ -113,10 +113,12 @@ test('#21: a root 404 page with a main landmark and one h1; an invalid ticker sy
   assert.match(read('app/t/[symbol]/page.tsx'), /if \(!symbol\) notFound\(\);/);
 });
 
+// F-25: the stable key is now the trade_key (it survives rebuildTrades too), and the link is built by tradePageHref.
 test('#22: ticker thesis rows carry sell_id and link to the trade page, which survives rebuildTrades', () => {
-  const r = selectTheses([{ id: 7, sellId: 'sell-a/1', handle: 'h', thesis: 'why', thesisStatus: 'published', returnPct: 0.05, holdingDays: 3, closedAt: new Date(0), verified: true }]);
-  assert.equal(r.items[0].sellId, 'sell-a/1');
+  const key = 'b'.repeat(64);
+  const r = selectTheses([{ id: 7, tradeKey: key, handle: 'h', thesis: 'why', thesisStatus: 'published', returnPct: 0.05, holdingDays: 3, closedAt: new Date(0), verified: true }]);
+  assert.equal(r.items[0].tradeKey, key);
   const src = read('app/t/[symbol]/Theses.tsx');
-  assert.match(src, /href=\{`\/u\/\$\{r\.handle\}\/trade\/\$\{encodeURIComponent\(r\.sellId\)\}`\}/);
+  assert.match(src, /href=\{tradePageHref\(\{ handle: r\.handle, tradeKey: r\.tradeKey! \}\)\}/);
   assert.doesNotMatch(src, /#trade-/);
 });

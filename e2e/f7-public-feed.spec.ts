@@ -5,7 +5,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import postgres from 'postgres';
 import { feedLock } from './feed-lock.ts';
-import { deleteFilers, insertFiler, RAW_AMOUNTS } from './f7-fixture.ts';
+import { deleteFilers, insertFiler, RAW_AMOUNTS, withoutKeys } from './f7-fixture.ts';
 
 const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
@@ -49,8 +49,8 @@ test('AC 14, 20, Round 5 items 3, 5: the card carries both badges, the card line
     await expect(card.locator('.badge.demo')).toHaveText('Demo');
     await expect(card.locator('.badge.verified')).toHaveCount(0);
     await expect(card.locator('[data-public-card]')).toHaveText('Company insider · from a public filing');
-    await expect(card.locator('footer a')).toHaveText('See their record, wins and losses →');
-    await expect(card.locator('footer a')).toHaveAttribute('href', `/u/${F}`);
+    await expect(card.locator(`footer a[href="/u/${F}"]`)).toHaveText(`Record, wins and losses: @${F} →`); // F-25: the visually hidden handle sits between the words and the arrow
+    await expect(card.locator(`footer a[href="/u/${F}"]`)).toHaveAttribute('href', `/u/${F}`);
     await expect(card.locator('[data-like], .like-mark')).toHaveCount(0);
     // AC 21: the close inside the floor is on no card.
     await expect(page.locator(`.row[data-handle="${F}"] .symbol`, { hasText: 'ZQFL' })).toHaveCount(0);
@@ -64,7 +64,7 @@ test('AC 14, 20, Round 5 items 3, 5: the card carries both badges, the card line
     const order = await pane.evaluate((el) => [...el.querySelectorAll('figure.chart, [data-public-line]')].map((n) => n.tagName));
     expect(order).toEqual(['FIGURE', 'P']);
     const html = await page.content();
-    for (const a of RAW_AMOUNTS) expect(html).not.toContain(a);
+    for (const a of RAW_AMOUNTS) expect(withoutKeys(html)).not.toContain(a);
     await expect(page.locator('footer#site-footer')).toContainText(DISCLAIMER);
   } finally {
     await ctx.close();

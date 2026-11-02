@@ -21,13 +21,15 @@ import { WarnNotice } from './warn-notice.tsx'; // F-27
 import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
 import { retEms } from '@/lib/feed-focus.ts';
+import { CardFooterLinks } from './f25-links.tsx'; // F-25: the footer's two links
+import { TRADE_LINK } from '@/lib/copy.ts'; // F-25
 
 // F-7: `kind` 'public' / 'public_demo' is the "Public filing" badge (Demo beside it on a fictional fixture), never Verified.
 export function Badge({ verified, kind = verified ? 'verified' : 'demo' }: { verified?: boolean; kind?: TrustBadge }) {
   // FIXES-CYCLE4-PART2 (F4-14, C4-15): a space between the two badges, so they read "Demo Public filing", never one word.
   if (kind === 'public' || kind === 'public_demo') return <>{kind === 'public_demo' && <><Badge kind="demo" />{' '}</>}<span className="badge public" title={PUBLIC.badgeTitle}>{PUBLIC.badge}</span></>;
   return kind === 'verified'
-    ? <span className="badge verified" title={VERIFIED_MEANING} /* fix #9 (F-13 group): one constant with the footer */>✓ Verified</span>
+    ? <span className="badge verified" title={VERIFIED_MEANING} /* fix #9 (F-13 group): one constant with the footer */><span aria-hidden="true">✓ </span>Verified</span> /* F-25: the glyph is not read, so a row link's name says "Verified" */
     : <span className="badge demo" title={FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20) */}>Demo</span>;
 }
 
@@ -45,6 +47,7 @@ export type TradeRow = {
   id: string; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
   thesis: string | null; thesis_status: string | null; handle: string; display_name: string; user_id: number;
   thesis_written_at?: Date | null; thesis_edited_at?: Date | null;
+  trade_key?: string; // F-25: the footer's "This trade →" link (lib/trade-href.ts); without it (other callers) no trade link
 };
 
 const days = (d: number) => (d < 1 ? `${Math.max(1, Math.round(d * 24))}h` : `${d.toFixed(d < 10 ? 1 : 0)}d`);
@@ -114,7 +117,10 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         {hint && <SwipeHint text={FIRST_VISIT.hint} />}
-        <Link href={`/u/${t.handle}`}>See their record, wins and losses<span aria-hidden="true"> →</span></Link>
+        {/* F-25: two text links, the trade page first, then the record (RECORD_LINK, one constant with PUBLIC.cardFooter).
+            The return figure is not a link (F-2 keeps taps on the card body for the double-tap like). Each name is unique
+            on the page: the trade's symbol and figure, the trader's handle, in visually hidden text after the visible words. */}
+        <CardFooterLinks handle={t.handle} tradeKey={t.trade_key} name={TRADE_LINK.cardName(t.symbol, t.return_pct)} />
         {/* F-10 (user test 2026-11-01, F-10 AC10): with the record line, the disclaimer is in view on every card, so the
             first screen at 360 px carries it (the site footer sits below the fold). */}
         {strip && <p className="card-disclaimer" data-disclaimer>{DISCLAIMER}</p>}

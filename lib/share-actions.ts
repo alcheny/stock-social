@@ -42,7 +42,7 @@ export function shareTarget(path: unknown, picture: unknown): ShareTarget | null
 }
 async function pageExists(userId: number, surface: ShareSurface, detail: string): Promise<boolean> {
   const [r] = surface === 'trade'
-    ? await sql`select exists (select 1 from closed_trades where user_id = ${userId} and sell_id = ${detail}) e`
+    ? await sql`select exists (select 1 from closed_trades where user_id = ${userId} and trade_key = ${detail}) e` // F-25: trade URLs carry the trade_key
     : await sql`select exists (select 1 from closed_trades where user_id = ${userId}
         and closed_at >= ${detail + '-01'}::timestamp at time zone 'UTC' and closed_at < (${detail + '-01'}::timestamp + interval '1 month') at time zone 'UTC') e`;
   return r.e as boolean;

@@ -143,8 +143,9 @@ dbTest('F-15: a hidden or removed public filer, and a filer with no closed trade
   assert.equal(await prof(removed.handle), null);
   assert.equal(await prof(empty.handle), null);
   assert.equal(await prof(plain.handle), plain.id);
-  const [{ sell_id: sellId }] = await sql`select sell_id from closed_trades where user_id = ${hidden.id}`;
+  const [{ sell_id: sellId, trade_key: key }] = await sql`select sell_id, trade_key from closed_trades where user_id = ${hidden.id}`;
   assert.equal(await viewedUserId({ surface: 'trade', handle: hidden.handle, detail: sellId }), null);
+  assert.equal(await viewedUserId({ surface: 'trade', handle: hidden.handle, detail: key }), null); // F-25: nor by its key
   const ym = new Date(Date.now() - 86_400_000).toISOString().slice(0, 7);
   assert.equal(await viewedUserId({ surface: 'month', handle: hidden.handle, detail: ym }), null);
   for (const f of [shown, hidden, removed, empty]) { await sql`delete from users where id = ${f.id}`; await sql`delete from public_filers where id = ${f.filerId}`; }
