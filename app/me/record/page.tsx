@@ -5,6 +5,7 @@ import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
 import { habits, insights, MIN_TRADES, sinceLast, visitDecision } from '@/lib/insights.ts';
 import { pct } from '@/lib/trades.ts';
+import { PROFILE } from '@/lib/copy.ts';
 import { REASONS, REASON_LABEL, reflectionInsights, type Reason } from '@/lib/reflections.ts';
 import { RULE_KINDS, RULE_LABEL, ruleAdherence, ruleOutcomes, rulesByReason, ruleTrend, signedPct, tradesLabel, type RuleKind } from '@/lib/rules.ts';
 import { setReflection, setRule } from '@/app/actions.ts';
@@ -22,6 +23,8 @@ const sign = toneClass;
 export default async function MyRecord() {
   const me = await currentUser();
   if (!me) redirect('/login');
+  // F-35: rows dated after now(), waiting on the future line (shares + options).
+  const waiting = Number((me as unknown as { excluded_future?: number }).excluded_future ?? 0) + Number((me as unknown as { excluded_future_options?: number }).excluded_future_options ?? 0);
 
   const rows = await sql`select sell_id, symbol, return_pct, holding_days, closed_at, verified from closed_trades where user_id = ${me.id}`;
   const [v] = await sql`select record_first_viewed_at as first, record_last_viewed_at as last, record_prev_viewed_at as prev from users where id = ${me.id}`;
@@ -287,6 +290,8 @@ export default async function MyRecord() {
       <p className="muted small">
         Percentages only. Computed from your closed trades{demo ? ' (including demo data)' : ''} each time you open this page.
         {me.excluded_positions > 0 && <> Trades with no recorded entry are excluded: {me.excluded_positions}.</>}
+        {/* F-35 (UX lead user test): the trader sees why a sell dated ahead is missing (lib/session.ts reads every column). */}
+        {waiting > 0 && <span data-excluded-future> {PROFILE.futureWaiting(waiting)}</span>}
       </p>
     </main>
   );

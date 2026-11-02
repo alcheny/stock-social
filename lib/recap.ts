@@ -77,6 +77,7 @@ export type RecapView = {
   excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
   // FIXES-CYCLE4-PART2 (F4-4): the trader's options gate and the month's shown option closes (counts only).
   optionsGate?: 'open' | 'closed'; monthOptionCloses?: number;
+  futureWaiting?: number; // F-35: the record's rows dated after now() (shares + options), waiting on the future line
 };
 const who = (r: RecapView) => ({ state: r.state, demo: r.demo, verified: r.verified, handle: r.handle });
 // The trader's record strip (every closed trade) and the month's figures (that month's trades, no count: R3-2).

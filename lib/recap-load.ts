@@ -32,6 +32,8 @@ export async function loadRecap(handle: string, ym: string) {
     ? await monthOptionCloseCount(Number(u.id), bounds.start, bounds.end)
     : 0;
   const record = wholeRecord(all, now); // F-7 (C17): a public record never shows New record.
+  // F-35 (UX lead user test): the month page names rows still waiting for their date, so "through today" never hides one.
+  const [{ waiting }] = await sql`select excluded_future + excluded_future_options as waiting from users where id = ${u.id}`;
   // FIXES-LABELS: status (F-11): the status-line facts beside the state (the page renders live, the image static).
-  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state, recap, record: { ...record, newRecord: record.newRecord && !u.public_filer_id }, open: await openPercents(Number(u.id), state), excludingOptions, optionsGate: head.gate, monthOptionCloses /* FIXES-CYCLE4-PART2 (F4-4) */, months: monthsOnRecord(all) /* FIXES-LABELS (D-24) */, status: await statusFor(Number(u.id), state) } satisfies RecapView;
+  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state, recap, record: { ...record, newRecord: record.newRecord && !u.public_filer_id }, open: await openPercents(Number(u.id), state), excludingOptions, optionsGate: head.gate, monthOptionCloses /* FIXES-CYCLE4-PART2 (F4-4) */, months: monthsOnRecord(all) /* FIXES-LABELS (D-24) */, status: await statusFor(Number(u.id), state), futureWaiting: Number(waiting) } satisfies RecapView;
 }

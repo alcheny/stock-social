@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from '@/lib/copy.ts';
+import { isPublicRecord, PROFILE, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from '@/lib/copy.ts';
 import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { monthAlt, monthCountText, monthDescription, monthStripInput, recordStripInput } from '@/lib/recap.ts';
@@ -89,6 +89,8 @@ export default async function RecapPage({ params }: Params) {
           {m.monthSoFar && <span>Month so far: not a complete month. Trades close through today.</span>}
         </p>
       ) : null}
+      {/* F-35 (UX lead user test, F3c): rows dated after now() are named here too while the month is still running. */}
+      {m.monthSoFar && (r.futureWaiting ?? 0) > 0 && <p className="muted small" data-excluded-future>{PROFILE.futureWaiting(r.futureWaiting!)}</p>}
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-month">
           <h2 id="this-month">This month</h2>

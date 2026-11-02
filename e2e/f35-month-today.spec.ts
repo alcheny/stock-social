@@ -56,6 +56,8 @@ for (const timezoneId of ['UTC', 'Pacific/Kiritimati']) {
         await page.goto(`/u/${HANDLE}/month/${ym}`);
         const current = ym === new Date().toISOString().slice(0, 7);
         if (current) await expect(page.getByText('Trades close through today.')).toBeVisible();
+        // F-35 (UX lead user test, F3c): while the month runs, the waiting row is named on the month page too.
+        if (current) await expect(page.locator('[data-excluded-future]')).toHaveText(PROFILE.futureWaiting(1));
         const list = page.locator('ol li');
         await expect(list).toHaveCount(1);
         await expect(list.first()).toContainText('FPAST');
@@ -91,4 +93,5 @@ test('F-35: once the date has passed, the close is listed and the future line is
   const [{ m }] = await sql`select to_char(max(closed_at) at time zone 'UTC', 'YYYY-MM') as m from closed_trades where user_id = ${u.id} and symbol = 'FWAIT'`;
   await page.goto(`/u/${HANDLE}/month/${m}`);
   await expect(page.locator('ol li', { hasText: 'FWAIT' })).toHaveCount(1);
+  await expect(page.locator('[data-excluded-future]')).toHaveCount(0);
 });
