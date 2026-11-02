@@ -45,14 +45,16 @@ test('fix #20: a profile 404 carries the 404 title, not a profile title', async 
       insert into users (handle, display_name, adult_attested_at, signup_attempt_id, deleted_at)
       select ${handle}, 'Leaving Trader', now(), a.id, now() from a returning signup_attempt_id`;
     attempt = u.signup_attempt_id as number;
-    for (const h of [`${handle}x`, handle]) { // never existed; marked for deletion
+    // F-16/F-17 (plan §2.1): a handle whose deletion is in progress is a retired handle, with its own neutral 404 title.
+    for (const [h, title] of [[`${handle}x`, 'Page not found · Stock Social'], [handle, 'Handle no longer in use · Stock Social']]) { // never existed; marked for deletion
       const res = await page.goto(`/u/${h}`);
       expect(res?.status(), h).toBe(404);
-      await expect(page).toHaveTitle('Page not found · Stock Social');
+      await expect(page).toHaveTitle(title);
       // A shared link's preview says "not found" too (Next adds og:title from the 404 page's own title).
-      for (const t of await page.locator('meta[property="og:title"]').evaluateAll((ms) => ms.map((m) => m.getAttribute('content')))) expect(t, h).toBe('Page not found · Stock Social');
+      for (const t of await page.locator('meta[property="og:title"]').evaluateAll((ms) => ms.map((m) => m.getAttribute('content')))) expect(t, h).toBe(title);
       // The segment's card image link resolves to a 404, never a profile card.
-      const img = await page.locator('meta[property="og:image"]').getAttribute('content');
+      // F-16/F-17: app/u/[handle]/not-found.tsx sets no og:image at all (e2e/f16-not-found.spec.ts); if one appears, it 404s.
+      const [img] = await page.locator('meta[property="og:image"]').evaluateAll((ms) => ms.map((m) => m.getAttribute('content')));
       if (img) expect((await page.request.get(img)).status(), img).toBe(404);
       await expect(page.locator('body')).not.toContainText('Leaving Trader');
     }
