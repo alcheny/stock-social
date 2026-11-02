@@ -74,6 +74,8 @@ const isTest = (f: string) => /\.test\.[jt]sx?$/.test(f) || f.startsWith('e2e/')
 export const LICENSE_OK = new Set(['MIT', 'MIT-0', 'Zlib', 'OFL-1.1', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', 'BlueOak-1.0.0', 'Python-2.0', 'CC-BY-4.0']);
 export const LICENSE_REVIEWED: [RegExp, string][] = [
   [/^@img\/sharp-libvips-/, 'LGPL-3.0-or-later prebuilt libvips binary, dynamically linked by the optional image optimizer; used unmodified'],
+  // Owner decision 2026-11-01, item 2.46: the accessibility rule engine, for the e2e accessibility checks only.
+  [/^(axe-core|@axe-core\/playwright)$/, 'MPL-2.0 accessibility rule engine: a dev dependency used only by the e2e tests (e2e/axe.ts), never bundled into the app; used unmodified'],
 ];
 
 export function scanText(file: string, text: string, onlyLines?: Set<number>): Violation[] {

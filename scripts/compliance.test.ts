@@ -95,9 +95,10 @@ test('licenses: permissive and reviewed packages pass, copyleft and unknown fail
     writeFileSync(join(root, name, 'package.json'), JSON.stringify({ name, version: '1.0.0', ...(license ? { license } : {}) }));
   };
   pkg('ok-mit', 'MIT'); pkg('ok-dual', '(MIT OR GPL-3.0)'); pkg('@img/sharp-libvips-linux-x64', 'LGPL-3.0-or-later');
+  pkg('axe-core', 'MPL-2.0'); pkg('@axe-core/playwright', 'MPL-2.0'); pkg('axe-core-extra', 'MPL-2.0'); // only the two named packages
   pkg('bad-gpl', 'GPL-3.0'); pkg('bad-agpl', 'AGPL-3.0-only'); pkg('bad-none'); pkg('bad-and', 'MIT AND GPL-2.0');
   const bad = checkLicenses(root).map((v) => v.detail.split(':')[0]).sort();
-  assert.deepEqual(bad, ['bad-agpl', 'bad-and', 'bad-gpl', 'bad-none']);
+  assert.deepEqual(bad, ['axe-core-extra', 'bad-agpl', 'bad-and', 'bad-gpl', 'bad-none']);
 });
 
 test('commit emails: only GitHub noreply addresses pass', () => {
