@@ -412,6 +412,12 @@ export default async function Profile({ params, searchParams }: Params) {
       {user.excluded_corporate > 0 && (
         <p className="muted">{PROFILE.excludedCorporate(user.excluded_corporate)}</p>
       )}
+      {/* F-32 Part A: sells a transfer row excludes, under their own reason; a real link to the /how sentence. */}
+      {user.excluded_transfer > 0 && (
+        <p className="muted" data-excluded-transfer>
+          <a className="tap44 excluded-link" href="/how#transfers">{PROFILE.excludedTransfer(user.excluded_transfer)}<span className="sr-only"> {PROFILE.excludedTransferLink}</span></a>
+        </p>
+      )}
       {/* F-24 RT-2: sells counted while a possible re-issue in their pair is checked (shown only when there are any). */}
       {user.excluded_held > 0 && (
         <p className="muted" data-excluded-held>{PROFILE.excludedHeld(user.excluded_held)}</p>

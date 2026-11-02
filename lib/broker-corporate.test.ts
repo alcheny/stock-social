@@ -74,8 +74,9 @@ test('syncUser against the vendor fake: the -45% and +1000% inputs read +10%; st
     await syncUser({ id: user.id, snaptrade_user_id: u.snaptradeUserId, snaptrade_secret_enc: u.secretEnc });
     const rows = await sql`select symbol, return_pct from closed_trades where user_id = ${user.id} order by symbol`;
     assert.deepEqual(rows.map((r) => [r.symbol, Math.round((r.return_pct as number) * 1e9) / 1e9]), [['DIVCO', 0.1], ['REICO', 0.1], ['REVCO', 0.1], ['SPLITCO', 0.1]]);
-    const [c] = await sql`select excluded_positions, excluded_corporate from users where id = ${user.id}`;
-    assert.deepEqual([c.excluded_positions, c.excluded_corporate], [0, 1]);
+    // F-32 Part A: the transfer in is still excluded and counted, now under its own reason (was excluded_corporate 1).
+    const [c] = await sql`select excluded_positions, excluded_corporate, excluded_transfer from users where id = ${user.id}`;
+    assert.deepEqual([c.excluded_positions, c.excluded_corporate, c.excluded_transfer], [0, 0, 1]);
     // A second sync reads the same rows again: nothing duplicated, the same record.
     await syncUser({ id: user.id, snaptrade_user_id: u.snaptradeUserId, snaptrade_secret_enc: u.secretEnc });
     assert.equal((await sql`select count(*)::int as n from corporate_actions where user_id = ${user.id}`)[0].n, 4);

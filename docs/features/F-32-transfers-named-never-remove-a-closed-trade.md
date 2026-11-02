@@ -65,6 +65,15 @@ all with conditions).
   ships; that merged as #107, so Part A now waits only for the owner to resume development. Why: the owner's decision
   of 2026-11-02 (OD 2.28).
 
+- 2026-11-02: Part A build (committee `docs/features/logs/F-32/committee-2026-11-01.md`): transfers are recognised in
+  the loader from the stored vendor row's type, so nothing new is stored and older rows read the same; a lot keeps
+  "transfer" as its cause only while every taint on it came from a transfer; a non-transfer action that reaches the sell
+  (taint, window or day, the oversell path included) wins the reason; the gap a transfer leaves on an empty ledger stays
+  "no recorded entry". The label is `TRANSFER_REASON` ("a share transfer in the same stock"); /how says "close to the
+  sell's date" and does not print the 14-day window (owner item); the corporate line keeps "a share move" (unpaired
+  adjustments). Why: committee rounds 1-2 (UX lead, business lead, engineer); OD 2.28 answered yes (relayed by the
+  orchestrator, 2026-11-02), F-22 follows as its own PR.
+
 ## Acceptance criteria
 Part A:
 - [ ] The audit's p5 probe (fictional: WX bought 100 @100 and sold @40; YX bought 100 @100 and sold @140; a +1 WX
@@ -118,3 +127,6 @@ Both bumps:
 ## Rework notes
 
 ## Build log
+- 2026-11-02: Part A built on `claude/f32-transfers-part-a` (PR pending): matcher, `users.excluded_transfer`, profile and
+  compare-card line, /how sentence, `EXCLUDED_KEYS`/`exclusionSum`, MATCHER_VERSION 3, per-reason report helper. Merges
+  only after chore C5-43(b), which must be merged in first so the report is wired into its rebuild loop.
