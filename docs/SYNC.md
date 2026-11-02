@@ -241,12 +241,51 @@ from broker_accounts where reconcile_invalid > 0 order by reconcile_invalid desc
 Alert on any account whose `reconcile_invalid` keeps growing: its passes never validate, so a held row there (possibly a
 genuine fill) stays held and counted until the owner looks.
 
+## Publish once the date has passed (F-35)
+
+A trade reaches the record once its date has passed: the rebuild reads rows with `executed_at <= now()` (the
+transaction's clock), for shares, options and corporate actions (`lib/sync.ts#published`, `lib/options-sync.ts`). This
+amends #62's 24-hour grace, which published a sell dated up to a day ahead (council cycle 5, C5-30).
+
+- **Waiting rows.** A row dated after now() is stored (raw rows are immutable), never matched, and counted:
+  `users.excluded_future` (share rows, buys and sells, same filters as before) and `users.excluded_future_options`
+  (option rows, not paper, not shared). The profile prints their sum on one muted line,
+  `PROFILE.futureWaiting(n)`: "N imported trade(s) excluded: dated in the future by the broker. It waits on this line
+  until that date passes." (the second sentence describes the line only: a matured sell with no entry is counted, not
+  shown). F-21's sells-only sum must never read `excluded_future` (it holds buys). The compare tool's card keeps the
+  first sentence (`PROFILE.excludedFuture`) with the summed count.
+- **The 24-hour grace** (`FUTURE_GRACE_HOURS`) now bounds only the re-read window: a row dated further ahead never sets
+  it (the newest stored row minus a week). How far ahead a row is quarantined is unchanged.
+- **Watermark.** `users.published_through` is the clock of the record's last committed rebuild
+  (`lib/options-sync.ts#rebuildRecord`, the same transaction: a failed rebuild leaves it). An insert that stores a row
+  dated ahead lowers it to its own transaction's clock (`lib/sync.ts#lowerWatermark`; never fills a null), so a
+  transaction that started before a rebuild committed (an import step waiting on the lock) never stores a row the pass
+  skips.
+- **Matured pass** (`lib/sync-shard.ts#maturePass`, every shard run from `/api/sync`, `mature: true`). After the shard
+  lease and heartbeat, before the workers: one query (`maturedQuery`) finds the records with a row stored while dated
+  ahead (`executed_at > created_at`) whose date is in (`published_through`, now()], within 8 days; and, once per record,
+  the records with no watermark holding a row still dated ahead (`maturedInitial`: a close published early on the old
+  grace leaves at once after the deploy, with no fleet-wide rebuild). Up to `MATURED_PER_RUN` (50) records per run,
+  within `MATURED_BOX_MS` (20 s), and never past the run's deadline, the route's end or a lost lease. Each record: one
+  transaction, `pg_try_advisory_xact_lock(USER_LOCK, id)` (busy: left for the next run, the watermark unmoved), then
+  `rebuildWithoutRead` (the rebuild, with `last_synced_at` put back: "Updated" and the claim order never claim a vendor
+  read the pass did not make). Scope: not deleted, not a public filer, no import running (its own rebuild advances the
+  watermark); frozen records are included (the rows were imported before the freeze, no vendor read is made, and a loss
+  among them is published like any other: TR-5).
+- **Indexes.** Partial indexes on `executed_at` where `executed_at > created_at` on `activities`, `option_activities`
+  and `corporate_actions` (only rows stored while dated ahead). Each table is read through its index in a materialized
+  CTE, so the plan never visits a trader without such a row. EXPLAIN at the LOAD shape: `lib/f35-matured.load.test.ts`
+  (100,000 traders, 2,000,000 activities): no sequential scan, rows read within the future-stored rows.
+- Owner queries: `select count(*) from users where published_through is null and exists (select 1 from activities a
+  where a.user_id = users.id and a.executed_at > a.created_at and a.executed_at > now())` (deploy catch-up left).
+
 ## Logs (numbers only, no personal data)
 
 | Line | When | Fields |
 |---|---|---|
 | `sync run start {…}` | a run took its lease | of, shard, concurrency, rps |
-| `sync run {…}` | every call | of, shard, busy, done, skipped (lock held elsewhere), deferred (did not fit), transient, refused, failed, quarantined, releaseFailed, remaining (left this round), inBackoff, stoppedAtDeadline, breaker, leaseLost, aborted, concurrency, requests, tokenWaitMs, pages, ms |
+| `sync run {…}` | every call | of, shard, busy, done, skipped (lock held elsewhere), deferred (did not fit), transient, refused, failed, quarantined, releaseFailed, remaining (left this round), inBackoff, stoppedAtDeadline, breaker, leaseLost, aborted, concurrency, requests, tokenWaitMs, pages, ms, matured, maturedInitial, maturedBusy, maturedFailed (F-35) |
+| `sync matured rebuild failed <id> <class> <status>` | one record's matured-pass rebuild failed (F-35) | internal user id, error name and HTTP status |
 | `sync coverage {…}` | every unsharded or housekeeping call | missingShards (no heartbeat in 15 min, counting shards that never ran), capRatio, capBreach, oldestActivitiesReadHours, oldestPositionsReadHours, freshnessAlarm, unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings, idle (F-11: records with no successful sync for 30 days, `lib/sync.ts#idleCount`) |
 | `sync round incomplete {…}` | the previous round left traders unclaimed, or a shard is missing | of, missingShards, unclaimedPrevRound |
 | `sync failed <id> <class> <status>` | one trader's sync failed | internal user id, failure class, error name and HTTP status (never the message) |

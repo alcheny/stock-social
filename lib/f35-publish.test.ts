@@ -372,6 +372,26 @@ dbTest('AC7: the matured-rows query reads the partial indexes (both branches), n
   } finally { await h.cleanup(); }
 });
 
+dbTest('AC5 (server zone): under TZ=Pacific/Kiritimati the month page\'s data holds "Trades close through today": the waiting close is absent and every shown close is at or before the database now()', async () => {
+  const h = await harness();
+  const zone = process.env.TZ;
+  try {
+    process.env.TZ = 'Pacific/Kiritimati'; // UTC+14: the server's local date is a day ahead of UTC for part of each day
+    const u = await h.mk('t');
+    await h.S.insertActivities(u.id, 'snaptrade', [h.share(u, 'b', 'BUY', 100, -3 * DAY), h.share(u, 'p', 'SELL', 110, -HOUR, 'FTF'),
+      h.share(u, 'b2', 'BUY', 100, -3 * DAY, 'FWT'), h.share(u, 'w', 'SELL', 90, 2 * HOUR, 'FWT')]);
+    await h.O.rebuildRecord(u.id);
+    const ym = new Date(h.now - HOUR).toISOString().slice(0, 7); // the UTC month of the shown close (parseYm's bounds)
+    const { loadRecap } = await import('./recap-load.ts');
+    const r = await loadRecap(u.handle, ym);
+    assert.ok(r, 'the month page renders');
+    assert.deepEqual(r.recap.trades.map((t) => t.symbol), ['FTF'], 'the close dated ahead is absent');
+    const [{ t }] = await h.sql`select extract(epoch from now()) * 1000 as t`;
+    for (const x of r.recap.trades) assert.ok(x.closedAt.getTime() <= Number(t), 'no close after now()');
+    assert.equal(r.recap.monthSoFar, new Date(h.now).toISOString().slice(0, 7) === ym);
+  } finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; await h.cleanup(); }
+});
+
 test('the future line says plainly that a waiting row stays on it until its date passes (no promise of publication)', () => {
   assert.equal(PROFILE.futureWaiting(1), '1 imported trade excluded: dated in the future by the broker. It waits on this line until that date passes.');
   assert.equal(PROFILE.futureWaiting(1_200), '1,200 imported trades excluded: dated in the future by the broker. They wait on this line until their dates pass.');

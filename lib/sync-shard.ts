@@ -92,6 +92,13 @@ export const MATURED_PER_RUN = 50;
 export const MATURED_BOX_MS = 20_000;
 // The window (BACKFILL_MS) plus the grace: a row older than this that the pass missed waits for the record's next rebuild.
 export const MATURED_LOOKBACK_DAYS = 8;
+// ponytail: a matured row the pass misses for more than MATURED_LOOKBACK_DAYS (8 days of failed or busy runs) waits for the
+// record's next rebuild (its next activities read; never, for a frozen record) — fix: page by the watermark per record.
+// ponytail: a vendor timestamp a few seconds ahead of the insert enters the partial index and costs one extra rebuild
+// once it passes — fix: none needed until the counters show it (maturedInitial/matured per run).
+// ponytail: a matured close's feed import time (closed_trades.sell_imported_at, the row's stored time) is earlier than its
+// publication, so a feed page pinned in between (one tick at most) can gain it on a later page — fix: a per-close publish
+// time.
 const MATURED_TABLES = ['activities', 'option_activities', 'corporate_actions'] as const;
 export function maturedQuery(sh: Shard, scope: Scope, limit: number) {
   const on = (col: string) => sql`and ${sql(col)} % ${sh.of}::int = ${sh.shard}::int
@@ -135,7 +142,8 @@ async function maturePass(o: RunOpts, sh: Shard, r: RunReport, stop: () => boole
       else r.matured++;
     } catch (e) {
       r.maturedFailed++;
-      console.error('sync matured rebuild failed', row.id, logSafe(e)); // the internal id and the error class only
+      const { id } = row; // the internal id and the error class only (lib/privacy-logs.test.ts)
+      console.error('sync matured rebuild failed', id, logSafe(e));
     }
   }
 }
