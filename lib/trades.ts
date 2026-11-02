@@ -108,8 +108,9 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 // before trades (trade dates are often day-only and an action is dated on its effective day).
 // Bumped when a change to the matcher can change a published figure: a deploy then rebuilds every record once
 // (lib/matcher-rebuild.ts). 2: fixes cycle 4 (C4-1 ties, C4-2 the gap). 3: F-32 Part A (the transfer count; ships only
-// after chore C5-43(b), never in the same deploy as F-36's bump).
-export const MATCHER_VERSION = 3;
+// after chore C5-43(b), never in the same deploy as F-36's bump). 4: F-36, a return divides by entry cost plus entry fees
+// (DESIGN §2.5 as amended); merged after F-32 Part A's deploy, never in the same deploy.
+export const MATCHER_VERSION = 4;
 
 // `orderKnown` (independent review, finding 1): the input order is the true order at a tie (public filings pass rows in
 // filing order, lib/public-trades.ts), so ties fall back to it instead of the vendor id.
@@ -355,6 +356,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     let verified = a.verified;
     let tainted = false;
     let corporateTaint = false; // F-32 Part A: a drawn lot some non-transfer action tainted
+    let noBasis = false; // F-36: a lot with no price (≤ 0) is never priced by its fees alone
     while (!tiny(remaining, a.units) && open.length) {
       const lot = open[0];
       const take = Math.min(lot.units, remaining);
@@ -364,6 +366,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       verified &&= lot.verified;
       tainted ||= !!lot.tainted;
       corporateTaint ||= !!lot.tainted && lot.cause !== 'transfer';
+      noBasis ||= !(lot.price > 0);
       lot.units -= take;
       remaining -= take;
       if (tiny(lot.units, a.units)) open.shift();
@@ -379,8 +382,17 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       addGap(b, remaining); // C4-2: a short or earlier history
       continue;
     }
+    // F-36: a sell drawing a lot with no basis, or with no positive denominator, is a broker row the importer can't price
+    // (excludedCorporate); it never shows a return priced from fees alone. F-32 Part A's reasons come first, so a lot a
+    // transfer tainted (no basis by design) keeps the transfer count.
+    if (openedAt && !(cost + entryFees > 0)) noBasis = true;
+    // ponytail: a lot priced just above zero (a vendor price of 1e-12) is still priced, so its fee is nearly its whole
+    // basis — fix: a minimum price per unit, an owner/vendor question (no such floor is decided) (tester, F-36 QA note 2).
+    // ponytail: a negative fee (a rebate) would lower the denominator; the importer reads fees with Math.abs today, and the
+    // matcher does not check it — fix: count a sell drawing a lot with a negative fee if a vendor ever sends rebates.
     if (corporateTaint || inWindow(times, a) || sameDay(days, a)) { excludedCorporate++; note(a.externalId, 'corporate'); }
     else if (tainted || inWindow(transferTimes, a) || sameDay(transferDays, a)) { excludedTransfer++; note(a.externalId, 'transfer'); } // F-32 Part A
+    else if (noBasis) { excludedCorporate++; note(a.externalId, 'corporate'); } // F-36
     else if (gapped) { excluded++; note(a.externalId, 'excluded'); } // C4-2: a short or earlier history: no buy can be matched for certain
     else if (openedAt) {
       const exitFee = a.fee;
@@ -390,7 +402,8 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         symbol: a.symbol,
         openedAt,
         closedAt: a.executedAt,
-        returnPct: (a.units * a.price - cost - entryFees - exitFee) / cost,
+        // F-36: the entry fees join the denominator (as options, lib/options.ts); the numerator is unchanged, so the sign is.
+        returnPct: (a.units * a.price - cost - entryFees - exitFee) / (cost + entryFees),
         holdingDays: (a.executedAt.getTime() - openedAt.getTime()) / DAY,
         verified,
       };

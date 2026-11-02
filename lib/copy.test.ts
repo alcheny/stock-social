@@ -349,3 +349,16 @@ test('F-2 PR-3: every suggestions-section string passes PROMO, the suggestion wo
   assert.equal(SECTION.holds.length, 5);
   assert.ok(allCopy().includes(SECTION.heading));
 });
+
+// F-36 (plan Round 2 changes, R2-9): the return formula once, in plain text, with one fictional worked example (no
+// currency sign), and the dated note. Real U+2212 minus and U+00F7 division signs with spaces around every operator.
+test('F-36 copy: /how states the formula and the fictional example verbatim, and the dated recalculation note', async () => {
+  const { F36_RECALC_DATE } = await import('./copy.ts');
+  assert.ok(HOW.math.includes('Return = (sale proceeds − purchase cost − purchase fees − sale fees) ÷ (purchase cost + purchase fees), using the fees the broker reported. Nothing is weighted by size.'));
+  assert.ok(HOW.math.includes('A fictional example: paid 100 plus a fee of 10, sold for 165 with no fee on the sale. (165 − 100 − 10) ÷ (100 + 10) = 55 ÷ 110 = +50%.'));
+  assert.equal(HOW.math.filter((l) => /^Return = /.test(l)).length, 1);
+  assert.doesNotMatch(HOW.math.join(' '), /[$€£¥]/);
+  assert.equal(HOW.changesTitle, 'Changes to the math');
+  assert.equal(HOW.recalcNote, 'returns of trades with a purchase fee were recalculated to divide by the purchase cost plus that fee. Before, they divided by the purchase cost alone, so both gains and losses looked bigger.');
+  assert.equal(F36_RECALC_DATE, '2026-11-02');
+});

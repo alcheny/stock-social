@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../disclaimer.tsx';
 import Link from 'next/link';
-import { HOW, HOW_PERSONAL, OPEN, OPTIONS, PUBLIC } from '@/lib/copy.ts';
+import { F36_RECALC_DATE, HOW, HOW_EXAMPLE, HOW_PERSONAL, howDate, OPEN, OPTIONS, PUBLIC } from '@/lib/copy.ts';
 import { optionsPublic } from '@/lib/options-gate.ts'; // F-29
 import { HowOptionsParagraph } from './options-paragraph.tsx'; // F-29
 
@@ -16,7 +16,8 @@ export default function How() {
       <h2>{HOW.verifiedTitle}</h2>
       <p>{HOW.verified}</p>
       <h2>{HOW.mathTitle}</h2>
-      <ul>{HOW.math.map((l) => <li key={l}>{l}</li>)}{/* F-6 */}{OPEN.how.map((l) => <li key={l}>{l}</li>)}</ul>
+      {/* F-36: the worked example comes last, right above the F3 line (its only percent figure; C1 plain view). */}
+      <ul>{HOW.math.filter((l) => l !== HOW_EXAMPLE).map((l) => <li key={l}>{l}</li>)}{/* F-6 */}{OPEN.how.map((l) => <li key={l}>{l}</li>)}<li>{HOW_EXAMPLE}</li></ul>
       {/* FIXES-LABELS (D-09): after the block that describes the returns */}
       <Disclaimer />
       {/* OPTIONS (docs/features/logs/options/plan.md D8): the profile's gated count line links here. */}
@@ -35,6 +36,9 @@ export default function How() {
       <h2 id="public-filings">{PUBLIC.how.title}</h2>
       <ul>{PUBLIC.how.lines.map((l) => <li key={l}>{l}</li>)}</ul>
       <p><Link className="tap44" href="/public-records">{PUBLIC.how.link}</Link></p>
+      {/* F-36 (COMPLIANCE §12): the dated history of changes to the math, kept; later entries append here. */}
+      <h2 id="changes">{HOW.changesTitle}</h2>
+      <ul><li><time dateTime={F36_RECALC_DATE}>{howDate(F36_RECALC_DATE)}</time>: {HOW.recalcNote}</li></ul>
     </main>
   );
 }

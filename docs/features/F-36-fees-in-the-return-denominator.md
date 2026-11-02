@@ -1,7 +1,10 @@
 # F-36 · Fees in the return's denominator
 
-Status: blocked
-Blocked: development paused by the owner 2026-11-02 (resume: set back to ready). The owner answered Q1 yes on 2026-11-02; F-24 merged as #84 and chore C5-43(b) as #107, so nothing else blocks it
+Status: built
+Built: branch `claude/f36-fees-denominator` (2026-11-02). The owner answered Q1 yes on 2026-11-02; F-24 merged as #84,
+chore C5-43(b) as #107 and F-32 Part A as #108, so F-36 takes MATCHER_VERSION 4. It merges only after #108 has deployed
+(never the same deploy). Development is otherwise paused by the owner (2026-11-02); this build was finished on the
+orchestrator's instruction.
 Start conditions: the owner answers cycle-5 Q1 yes (`docs/direction/cycle5-2026-11-01.md` §8), and #84 merges. It is
 the matcher build slot, shared with F-32: one builder, separate version bumps that never ship in the same deploy.
 
@@ -38,16 +41,16 @@ conditions).
   bloc).
 
 ## Acceptance criteria
-- [ ] The probe (fictional: buy 2 @5, fee 10, sell @15) prints +50%.
-- [ ] A long share trade shows worse than −100% only when its exit fee exceeds its sale proceeds, and a test pins that
+- [x] The probe (fictional: buy 2 @5, fee 10, sell @15) prints +50%.
+- [x] A long share trade shows worse than −100% only when its exit fee exceeds its sale proceeds, and a test pins that
       case.
-- [ ] Zero-fee fixtures rebuild byte-identical.
-- [ ] A fixture check: every changed expectation belongs to a trade with an entry fee above 0. The PR's list of
+- [x] Zero-fee fixtures rebuild byte-identical.
+- [x] A fixture check: every changed expectation belongs to a trade with an entry fee above 0. The PR's list of
       changed expectations comes from the test run's output, not a hand-written list.
-- [ ] A lot with no basis or a zero price stays counted and is never priced from fees.
-- [ ] No trade changes sign. The rebuild report's sign-change count is 0 on the fixtures.
-- [ ] /how renders the formula and the worked example as text, with the dated note.
-- [ ] No page, payload or image shows a fee amount (source scan plus a render test).
+- [x] A lot with no basis or a zero price stays counted and is never priced from fees.
+- [x] No trade changes sign. The rebuild report's sign-change count is 0 on the fixtures.
+- [x] /how renders the formula and the worked example as text, with the dated note.
+- [x] No page, payload or image shows a fee amount (source scan plus a render test).
 
 ## Out of scope
 - Showing fees.
@@ -68,3 +71,6 @@ conditions).
 ## Rework notes
 
 ## Build log
+- 2026-11-02: built on `claude/f36-fees-denominator` through the committee cycle (`docs/features/logs/F-36/committee-2026-11-01.md`):
+  plan signed in round 2; tests first; tester QA pass; 360/320 px user test pass; independent review with no blocking
+  finding. MATCHER_VERSION 4 (F-32 Part A took 3 in #108). Fixture audit: `docs/features/logs/F-36/audit.txt`.

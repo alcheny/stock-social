@@ -4,6 +4,7 @@
 // become counted go to kept_theses and come back by sell_id). Progress is kept per record (matcher_rebuilt), so a deploy
 // rebuilds only the records not yet done, a failing record is retried next time without redoing the rest, and the run
 // stops at its time budget; the version is written to matcher_runs once no record is left.
+import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { MATCHER_VERSION } from './trades.ts';
 import { USER_LOCK } from './sync.ts';
@@ -17,6 +18,28 @@ import type { Shard } from './sync-limits.ts';
 // matcher after it is marked; its next sync on the new code fixes it — fix: key closed_trades rows by matcher version.
 // ponytail: a trader whose published closes the rebuild turns into counts is not told (their /me/record shows the count
 // only; lib/session.ts is protected) — fix: a one-time owner-facing notice listing records whose shown count dropped.
+// F-36 (AC6): how many shown share returns a rebuild changed, and how many of those changed sign (expected 0: a matcher
+// change that only moves the denominator keeps the numerator). Closes in both maps only: a close the rebuild removes or
+// adds is counted by F-24's rewrites (lib/options-sync.ts#logRewrites). Counted in rebuildEach, so the deploy's rebuild
+// and the sync tick's catch-up (C5-43 b) both count the records they rebuild.
+// ponytail: the sign count compares stored and rebuilt share closes by sell_id only (option closes already divide by
+// premium plus entry fees) — fix: one rebuild report table with per-cause counts if a later bump needs them.
+// ponytail: each run reports only the records it rebuilt (the deploy's line covers the deploy; the catch-up logs only a
+// sign change), and a record a sync on the new code rebuilt first reads unchanged — fix: keep the counts per record in
+// matcher_rebuilt, written by whichever rebuild first runs the new version (independent review, finding 1).
+export function signChanges(before: Map<string, number>, after: Map<string, number>): { changed: number; signChanged: number } {
+  let changed = 0, signChanged = 0;
+  for (const [id, r] of after) {
+    const was = before.get(id);
+    if (was === undefined || was === r) continue;
+    changed++;
+    if (Math.sign(was) !== Math.sign(r)) signChanged++;
+  }
+  return { changed, signChanged };
+}
+const shareReturns = async (tx: TransactionSql, userId: number) =>
+  new Map((await tx`select sell_id, return_pct from closed_trades where user_id = ${userId}`).map((r) => [r.sell_id as string, r.return_pct as number]));
+
 // `moves` (F-32 Part A): filled with the run's per-reason changes (tests read it; the run logs it either way).
 export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: number[], budgetMs = Number(process.env.MATCHER_REBUILD_MS) || 600_000, moves: ReasonCounts = noCounts()): Promise<{ rebuilt: number; failed: number; left: number } | null> {
   const [done] = await sql`select 1 from matcher_runs where version = ${version}`;
@@ -26,8 +49,11 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
       not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version >= ${version})
       and (exists (select 1 from activities a where a.user_id = u.id) or exists (select 1 from corporate_actions c where c.user_id = u.id))
     order by u.id`;
-  const { rebuilt, failed, newer } = await rebuildEach(users.map((u) => u.id as number), version, budgetMs, false, Date.now, undefined, moves);
+  const { rebuilt, failed, newer, returnsChanged, signChanged } = await rebuildEach(users.map((u) => u.id as number), version, budgetMs, false, Date.now, undefined, moves);
   const left = users.length - rebuilt - newer;
+  // F-36: the run's report, counts only (no ids, handles or figures).
+  console.log('matcher rebuild', JSON.stringify({ version, rebuilt, failed, left, returnsChanged, signChanged }));
+  if (signChanged > 0) console.error('matcher rebuild: a return changed sign', JSON.stringify({ count: signChanged }));
   if (failed) console.error('matcher rebuild: records failed, the version stays open', JSON.stringify({ count: failed }));
   if (rebuilt) logMoves(version, moves);
   if (!left && !ids) await sql`insert into matcher_runs (version) values (${version}) on conflict (version) do nothing`;
@@ -44,7 +70,7 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
 // the change is added to `moves` once the transaction commits. Counts per reason only, never an id.
 async function rebuildEach(ids: number[], version: number, budgetMs: number, skipLocked: boolean, now = Date.now, beforeRecord?: (id: number) => Promise<void>, moves: ReasonCounts = noCounts()) {
   const start = now();
-  let rebuilt = 0, failed = 0, busy = 0, newer = 0;
+  let rebuilt = 0, failed = 0, busy = 0, newer = 0, returnsChanged = 0, signChanged = 0;
   for (const id of ids) {
     if (now() - start > budgetMs) break;
     try {
@@ -57,16 +83,21 @@ async function rebuildEach(ids: number[], version: number, budgetMs: number, ski
         const [mark] = await tx`select version from matcher_rebuilt where user_id = ${id}`;
         if (mark && (mark.version as number) >= version) return 'newer' as const;
         const before = await reasonCounts(tx, id);
+        const beforeReturns = await shareReturns(tx, id); // F-36
         await rebuildRecord(id, tx);
         const after = await reasonCounts(tx, id);
+        const signs = signChanges(beforeReturns, await shareReturns(tx, id)); // F-36
         await tx`insert into matcher_rebuilt (user_id, version) values (${id}, ${version})
           on conflict (user_id) do update set version = excluded.version where matcher_rebuilt.version < excluded.version`;
-        return { before, after };
+        return { before, after, signs };
       });
-      if (typeof outcome === 'object') { rebuilt++; addMoves(moves, outcome.before, outcome.after); } else if (outcome === 'busy') busy++; else newer++;
+      if (typeof outcome === 'object') { // counted once the record's transaction committed
+        rebuilt++; addMoves(moves, outcome.before, outcome.after);
+        returnsChanged += outcome.signs.changed; signChanged += outcome.signs.signChanged; // F-36
+      } else if (outcome === 'busy') busy++; else newer++;
     } catch { failed++; }
   }
-  return { rebuilt, failed, busy, newer };
+  return { rebuilt, failed, busy, newer, returnsChanged, signChanged };
 }
 
 // The one report line per run: the version and the net change per reason (counts only; lib/privacy-logs.test.ts).
@@ -103,7 +134,9 @@ export async function catchUpMatcher(o: { shard: Shard; budgetMs?: number; versi
   const batch = o.batch ?? MATCHER_CATCHUP_BATCH;
   const users = await sql`select u.id from users u where ${pending(version, o.ids, o.shard)} order by u.id limit ${batch}`;
   const moves = o.moves ?? noCounts();
-  const r = await rebuildEach(users.map((u) => u.id as number), version, o.budgetMs ?? MATCHER_CATCHUP_MS, true, o.now, o.beforeRecord, moves);
+  const { returnsChanged, signChanged, ...r } = await rebuildEach(users.map((u) => u.id as number), version, o.budgetMs ?? MATCHER_CATCHUP_MS, true, o.now, o.beforeRecord, moves);
+  void returnsChanged; // F-36: the catch-up's shape is unchanged; only a sign change (expected never) is logged
+  if (signChanged > 0) console.error('matcher catch-up: a return changed sign', JSON.stringify({ count: signChanged }));
   if (r.failed) console.error('matcher catch-up: records failed, the version stays open', JSON.stringify({ count: r.failed }));
   if (r.rebuilt) logMoves(version, moves);
   // ponytail: a record that fails every time is retried first on every tick of its shard (ids in order), so more than `batch`

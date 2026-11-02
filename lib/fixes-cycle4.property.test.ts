@@ -48,7 +48,8 @@ type Rng = ReturnType<typeof rngFrom>;
 // ---- the reference model ----
 type Lot = { units: number; price: number; fpu: number; at: number; verified: boolean };
 type Seg = { kind: 'day'; at: number; rows: Activity[] } | { kind: 'split'; at: number; p: number; q: number } | { kind: 'rename'; at: number };
-type Fig = { unknown: boolean; rMin: number; rMax: number; hMin: number; hMax: number; vTrue: boolean; vFalse: boolean };
+// F-36: `l*` is the legacy figure (divided by the purchase cost alone) and `feeMax` the largest entry fee of any reading.
+type Fig = { unknown: boolean; rMin: number; rMax: number; lMin: number; lMax: number; feeMax: number; hMin: number; hMax: number; vTrue: boolean; vFalse: boolean };
 // `after`: the sells of the chain that come after its first oversell (the same in every reading: nothing branches before it).
 type Readings = { figs: Map<string, Fig>; count: number; oversold: boolean; after: string[] };
 
@@ -78,11 +79,12 @@ function readings(chain: Seg[], cap = STATE_CAP): Readings | null {
   let oversold = false, aborted = false;
   const memo = new Map<string, number>(); // (segment, state) -> number of readings from there
   const orders = chain.map((s) => (s.kind === 'day' ? dayOrders(s.rows) : []));
-  const note = (id: string, f: { r: number; h: number; v: boolean } | null) => {
+  const note = (id: string, f: { r: number; l: number; fees: number; h: number; v: boolean } | null) => {
     let g = figs.get(id);
-    if (!g) figs.set(id, (g = { unknown: false, rMin: Infinity, rMax: -Infinity, hMin: Infinity, hMax: -Infinity, vTrue: false, vFalse: false }));
+    if (!g) figs.set(id, (g = { unknown: false, rMin: Infinity, rMax: -Infinity, lMin: Infinity, lMax: -Infinity, feeMax: 0, hMin: Infinity, hMax: -Infinity, vTrue: false, vFalse: false }));
     if (!f) { g.unknown = true; return; }
     g.rMin = Math.min(g.rMin, f.r); g.rMax = Math.max(g.rMax, f.r);
+    g.lMin = Math.min(g.lMin, f.l); g.lMax = Math.max(g.lMax, f.l); g.feeMax = Math.max(g.feeMax, f.fees);
     g.hMin = Math.min(g.hMin, f.h); g.hMax = Math.max(g.hMax, f.h);
     if (f.v) g.vTrue = true; else g.vFalse = true;
   };
@@ -123,7 +125,11 @@ function readings(chain: Seg[], cap = STATE_CAP): Readings | null {
         l.units -= take; left -= take;
         if (l.units <= 1e-9) next.shift();
       }
-      note(a.externalId, { r: (a.units * a.price - cost - fees - a.fee) / cost, h: (a.executedAt.getTime() - openedAt) / DAY, v });
+      // F-36: the return divides by the purchase cost plus the purchase fees; the numerator is unchanged. The legacy
+      // figure (cost alone) is kept beside it: same sign, never larger in size, and exactly equal with no entry fee.
+      const num = a.units * a.price - cost - fees - a.fee, r = num / (cost + fees), l = num / cost;
+      if (Math.sign(r) !== Math.sign(l) || Math.abs(r) > Math.abs(l) || (fees === 0 && r !== l)) throw new Error(`F-36 model: ${r} vs legacy ${l} (entry fees ${fees > 0 ? 'yes' : 'no'})`);
+      note(a.externalId, { r, l, fees, h: (a.executedAt.getTime() - openedAt) / DAY, v });
       return play(si, order, j + 1, next, short);
     }
     note(a.externalId, null);
@@ -162,6 +168,7 @@ function chainsOf(acts: Activity[], actions: CorporateAction[]): Seg[][] {
 }
 
 // ---- the checks ----
+let feeShown = 0; // F-36: shown trades with an entry fee that passed the checks against the legacy figure
 type Checked = { afterOversell: number; readings: number; oversold: boolean; tie: boolean; published: number; sells: number; agreedButCounted: number };
 
 const fmt = (a: Activity) => `${a.side} ${a.units}@${a.price}${a.fee ? ` fee ${a.fee}` : ''}${a.verified ? '' : ' unverified'} ${a.accountId}|${a.symbol} ${a.executedAt.toISOString().replace(':00:00.000Z', 'Z')} (${a.externalId})`;
@@ -195,6 +202,12 @@ function failure(acts: Activity[], actions: CorporateAction[], seed: number, sta
     if (Math.abs(f.rMin - t.returnPct) > TOL || Math.abs(f.rMax - t.returnPct) > TOL) return `(1) ${t.sellId} shown at return ${t.returnPct}; readings give ${f.rMin}..${f.rMax}`;
     if (Math.abs(f.hMin - t.holdingDays) > TOL || Math.abs(f.hMax - t.holdingDays) > TOL) return `(1) ${t.sellId} shown at ${t.holdingDays} days held; readings give ${f.hMin}..${f.hMax}`;
     if ((t.verified ? f.vFalse : f.vTrue)) return `(1) ${t.sellId} shown verified=${t.verified}; some reading differs`;
+    // F-36: against the legacy figure (purchase cost alone): the sign never changes, the size never grows, and a trade
+    // with no entry fee in any reading keeps its figure.
+    if (Math.abs(f.lMin) > TOL && Math.sign(t.returnPct) !== Math.sign(f.lMin)) return `(F-36) ${t.sellId} shown at ${t.returnPct}; legacy ${f.lMin} has the other sign`;
+    if (Math.abs(t.returnPct) > Math.abs(f.lMin) + TOL || Math.abs(t.returnPct) > Math.abs(f.lMax) + TOL) return `(F-36) ${t.sellId} shown at ${t.returnPct}, larger than legacy ${f.lMin}..${f.lMax}`;
+    if (f.feeMax === 0 && (Math.abs(f.lMin - t.returnPct) > TOL || Math.abs(f.lMax - t.returnPct) > TOL)) return `(F-36) ${t.sellId} has no entry fee but moved: ${t.returnPct} vs legacy ${f.lMin}..${f.lMax}`;
+    if (f.feeMax > 0) feeShown++;
   }
   // (3) the input order says nothing: the same trades shown and the same two counts.
   const want = sorted(m), r = rngFrom(seed ^ 0x5bd1e995);
@@ -453,4 +466,11 @@ test('C4 reference model: exactly tied sells land in the same count bucket whate
   assert.deepEqual([b.excluded, b.excludedCorporate], [a.excluded, a.excludedCorporate], 'the count bucket must not depend on the input order');
   // Vendor id order: cx-s10 < cx-s4, so the 10 draws the tainted lot whole and the 4 oversells with nothing tainted.
   assert.deepEqual([a.excluded, a.excludedCorporate], [1, 1]);
+});
+
+test('F-36: the model divides by purchase cost plus purchase fees; shown fee-bearing trades keep their sign and never grow', () => {
+  const was = feeShown;
+  const t = run(0xf36_0001, 1500, (r) => ({ acts: genPlain(r), actions: [] }));
+  assert.ok(t.checked >= 1300, `checked ${t.checked} histories (skipped ${t.skipped})`);
+  assert.ok(feeShown - was >= 200, `${feeShown - was} shown trades with an entry fee checked against the legacy figure`);
 });

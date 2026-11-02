@@ -39,7 +39,7 @@ test('2:1 split mid-position: buy 100 at 100, split, sell 200 at 55 reads +10%; 
 
 test('1:10 reverse split mid-position: buy 100 at 10 (fee 10), split, sell 10 at 110 (fee 0): +10% less the entry fee, fee per unit scaled', () => {
   const m = accounted([t('BUY', 100, 10, 1, { fee: 10 }), t('SELL', 10, 110, 30)], [split(20, 1, 10)]);
-  near(m.trades[0].returnPct, (1100 - 1000 - 10) / 1000);
+  near(m.trades[0].returnPct, (1100 - 1000 - 10) / (1000 + 10)); // F-36: entry fee in the denominator
 });
 
 test('split between two partial sells: the first at the old basis, the second at the adjusted basis', () => {
