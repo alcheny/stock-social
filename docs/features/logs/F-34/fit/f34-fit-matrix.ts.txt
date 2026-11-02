@@ -1,0 +1,157 @@
+// F-34 plan round 3: fit matrix over the REAL stripImageLines / tradeHero / monthHero (month-card.real.ts is lib/month-card.ts
+// verbatim with `export` added to monthHero and absolute imports). The open-band rules are the plan's §3 model.
+// Run: /opt/node24/bin/node f34-fit-matrix.ts [image|full]   (argv[2], default image)
+import { recordStrip, stripImageLines, fitPx, STRIP_BAND, type ImageLine } from '/home/user/stock-social/lib/record-strip.ts';
+import { tradeHero, tradeSharePayload, tradeStripInput } from '/home/user/stock-social/lib/trade-share.ts';
+import { monthRecap, wholeRecord } from '/home/user/stock-social/lib/recap.ts';
+import { monthHero } from './month-card.real.ts';
+import { contrast } from '/home/user/stock-social/lib/colour-math.ts';
+import { IMAGE_PALETTE } from '/home/user/stock-social/lib/palette.ts';
+const MODE = process.argv[2] ?? 'image';
+const NOW = new Date(Date.UTC(2026, 9, 20, 12)), DAY = 864e5, t0 = Date.UTC(2025, 0, 1);
+let seq = 0;
+const tr = (o: number, c: number, r: number) => ({ sellId: `s${seq++}`, symbol: `Q${seq}`, openedAt: new Date(t0 + o * DAY), closedAt: new Date(t0 + c * DAY), returnPct: r, holdingDays: c - o, verified: true });
+const all = [...Array.from({ length: 40 }, (_, i) => tr(i * 3, i * 3 + 2, i % 2 ? 0.013 : 0.005)), ...Array.from({ length: 8 }, (_, i) => tr(600 + i, 608 + i, -0.05))];
+const FROZEN = 'Disconnected Sep 30, 2026 · record frozen', NB = ' ', W = STRIP_BAND.width, ROOM = STRIP_BAND.bottom - STRIP_BAND.top;
+const fits = (t: string, s: number) => t.length * s * STRIP_BAND.glyph <= W;
+type Item = { sep: string; text: string };
+function items(n: number, long: boolean): { title: string; rest: Item[]; asOf: string } {
+  const title = MODE === 'image' ? `Still open: ${n}` : `Still open: ${n} position${n === 1 ? '' : 's'}`;
+  const asOf = MODE === 'image' ? 'as of Sep 30, 2026' : 'unrealized as of Sep 30, 2026';
+  if (n === 1) return { title, rest: [{ sep: ' · ', text: `at ${long ? '-99.98%' : '-15.0%'}${NB}down` }], asOf };
+  const split = n === 3 ? `2${NB}up, 1${NB}down` : `3${NB}up, 8${NB}down, 1${NB}flat`;
+  return { title, rest: [{ sep: ' · ', text: split }, { sep: ' · ', text: `lowest ${long ? '-99.98%' : '-15.0%'}${NB}down` }, { sep: ', ', text: `highest ${long ? '+1088.7%' : '+4.0%'}${NB}up` }], asOf };
+}
+// imageRows: greedy pack; the as-of after the values, or right after the title when that saves a row.
+function pack(xs: Item[], s: number): string[] | null {
+  const rows: string[] = []; let cur = '';
+  for (const x of xs) { if (!fits(x.text, s)) return null; const c = cur ? cur + x.sep + x.text : x.text; if (fits(c, s)) cur = c; else { rows.push(cur); cur = x.text; } }
+  if (cur) rows.push(cur); return rows;
+}
+function imageRows(n: number, long: boolean, s: number): string[] | null {
+  const { title, rest, asOf } = items(n, long);
+  const A = { sep: ' · ', text: asOf }, T = { sep: '', text: title };
+  if (MODE === 'full') { const r = pack([T, ...rest], s); return r && fits(asOf, s) ? [...r, asOf] : null; }
+  const a = pack([T, ...rest, A], s), b = pack([T, A, ...rest], s);
+  return !a ? b : !b ? a : b.length < a.length ? b : a;
+}
+const blockOf = (r: string) => (r.startsWith('open') ? 'open' : r.replace(/\d+$/, ''));
+function H(ls: ImageLine[], g: number) {
+  let gaps = 0;
+  for (let i = 1; i < ls.length; i++) { const a = blockOf(ls[i - 1].role), b = blockOf(ls[i].role); if (!(a === b && ['open', 'note', 'frozen', 'disclaimer'].includes(a))) gaps++; }
+  return ls.reduce((x, l) => x + l.size * 1.2, 0) + g * gaps;
+}
+const REC = ['count', 'average', 'range', 'early'];
+type Step = { r: number; o: number; g: number; losses: 'own' | 'count'; note: 2 | 1; options: 'own' | 'count'; frozen: 'rows' | 'asOf' | 'label'; last: boolean };
+// The open-band transform over today's lines (no open in the strip): returns null when the step's rule cannot apply.
+function transform(base: ImageLine[], n: number, long: boolean, st: Step): ImageLine[] | null {
+  if (st.o < st.r) return null;
+  let ls = base.filter((l) => l.role !== 'losses').map((l) => (REC.includes(l.role) ? { ...l, size: Math.min(l.size, st.r, fitPx(l.text, st.r)) } : l));
+  if (ls.some((l) => REC.includes(l.role) && l.size < 26)) return null;
+  const rows = imageRows(n, long, st.o); if (!rows) return null;
+  const block: ImageLine[] = rows.map((t, k) => ({ role: `open${k}`, text: t, size: st.o, tone: 'text', weight: k === 0 ? 700 : 400 }));
+  // options: own row (as today, its size capped at o) or joined to the count row
+  const oi = ls.findIndex((l) => l.role === 'options');
+  if (oi >= 0) {
+    if (st.options === 'own') ls[oi] = { ...ls[oi], size: Math.min(ls[oi].size, st.o) };
+    else { const c = ls.findIndex((l) => l.role === 'count'); if (c < 0) return null; const text = `${ls[c].text} · ${ls[oi].text}`, size = Math.min(ls[c].size, fitPx(text, ls[c].size)); if (size < 26) return null; ls[c] = { ...ls[c], text, size }; ls = ls.filter((_, j) => j !== oi); }
+  } else if (st.options === 'count') return null;
+  // losses: own row at o, or joined to the count row (size between 26 and o)
+  const k = Math.max(...[...REC, 'options'].map((r) => ls.findIndex((l) => l.role === r)));
+  let losses: ImageLine[] = [];
+  if (st.losses === 'own') losses = [{ role: 'losses', text: 'losses included', size: st.o, tone: 'muted', weight: 400 }];
+  else { const c = ls.findIndex((l) => l.role === 'count' || l.role === 'early'); if (c < 0) return null; const text = `${ls[c].text} · losses included`, size = Math.min(ls[c].size, fitPx(text, ls[c].size)); if (size < 26 || size > st.o) return null; ls[c] = { ...ls[c], text, size }; }
+  ls.splice(k + 1, 0, ...losses, ...block);
+  // failed note: 2 rows or the 1-row form
+  const n0 = ls.findIndex((l) => l.role === 'note0');
+  if (st.note === 1) { if (n0 < 0 || ls[n0].tone !== 'warn') return null; ls = ls.filter((l) => l.role !== 'note1'); ls[n0] = { ...ls[n0], text: 'This record may be incomplete.', size: 26 }; }
+  else if (n0 < 0 && st.note !== 2) return null;
+  // frozen: "Disconnected ‹date›" / "record frozen"; "record frozen" may ride the as-of row or the label row; never dropped
+  const f0 = ls.findIndex((l) => l.role === 'frozen'), f1 = ls.findIndex((l) => l.role === 'frozen1');
+  if (st.frozen !== 'rows') {
+    if (f1 < 0) return null;
+    const rf = ls[f1].text;
+    if (st.frozen === 'asOf') { const a = ls.findIndex((l) => l.role.startsWith('open') && l.text.endsWith(items(n, long).asOf)); if (a < 0) return null; const text = `${ls[a].text} · ${rf}`; if (!fits(text, ls[a].size)) return null; ls[a] = { ...ls[a], text }; }
+    else { const lb = ls.findIndex((l) => l.role === 'label'); if (lb < 0) return null; const text = `${ls[lb].text} · ${rf}`, size = Math.min(ls[lb].size, fitPx(text, ls[lb].size)); if (size < 26) return null; ls[lb] = { ...ls[lb], text, size }; }
+    ls = ls.filter((l) => l.role !== 'frozen1');
+  }
+  // frozen lines never optional except in the LAST pass (the "Disconnected" row only), with the failed note
+  ls = ls.map((l) => (l.role.startsWith('frozen') || l.role.startsWith('note') ? { ...l, optional: false } : l));
+  if (st.last) ls = ls.map((l) => (l.role === 'frozen' && st.frozen !== 'rows') || (l.role.startsWith('note') && l.tone === 'warn') ? { ...l, optional: true } : l);
+  return ls;
+}
+function tryFit(ls: ImageLine[], g: number) {
+  let cur = ls; const dropped: string[] = [];
+  while (H(cur, g) > ROOM && cur.some((l) => l.optional)) { const i = cur.findLastIndex((l) => l.optional); dropped.push(cur[i].role); cur = cur.filter((_, j) => j !== i); }
+  const tooWide = cur.filter((l) => l.text.length * l.size * STRIP_BAND.glyph > W);
+  return { ok: H(cur, g) <= ROOM && !tooWide.length, lines: cur, dropped, spare: ROOM - H(cur, g) };
+}
+// openBand: steps 1–10 at every size first; step 11 (last) only after nothing else fits.
+function openBand(baseAt: (o: { disc: number; a: number; b: number; extra: boolean }) => ImageLine[], n: number, long: boolean, heroSteps: [number, number][], hasNote: boolean, hasFrozen: boolean) {
+  for (const last of [false, true])
+    for (const r of [30, 28, 26])
+      for (const extra of [true, false]) // thesis / "One of N months" kept, then given way
+        for (const disc of [35, 32, 30, 28])
+          for (const [a, b] of heroSteps)
+            for (const losses of ['own', 'count'] as const)
+              for (const note of hasNote ? [2, 1] as const : [2] as const)
+                for (const options of ['own', 'count'] as const)
+                  for (const frozen of hasFrozen ? ['rows', 'asOf', 'label'] as const : ['rows'] as const)
+                    for (const o of [30, 28, 26])
+                      for (const g of [4, 3, 2]) {
+                        if (b < 26 || a < r) continue; // month label stays >= r
+                        const ls = transform(baseAt({ disc, a, b, extra }), n, long, { r, o, g, losses, note, options, frozen, last });
+                        if (!ls) continue;
+                        const f = tryFit(ls, g);
+                        // the optional lines of today's band (thesis, "One of N months") may give way; frozen/note only in the last pass
+                        if (f.ok && (last || !f.dropped.some((d) => d.startsWith('frozen') || d.startsWith('note')))) return { ...f, step: { last, r, o, g, disc, a, b, losses, note, options, frozen, extra } };
+                      }
+  return null;
+}
+const tradeSteps: [number, number][] = []; for (const h of [30, 28, 26]) for (let sp = 80; sp >= 40; sp -= 8) tradeSteps.push([sp, h]);
+const monthSteps: [number, number][] = []; for (const f of [30, 28, 26]) for (const lp of [52, 48, 44, 40, 36, 32, 30, 28, 26]) monthSteps.push([lp, f]);
+const bg = IMAGE_PALETTE.stripBg, col = IMAGE_PALETTE.strip;
+const out: string[] = []; let ok = 0, total = 0, viol = 0; const disc: Record<number, number> = {}, last: string[] = [];
+for (const kind of ['trade', 'month'] as const)
+for (const handle of ['f12_trader', 'abcdefghijklmnopqrst'])
+for (const state of ['connected', 'failed'] as const)
+for (const opts of [false, true])
+for (const frozen of [null, FROZEN])
+for (const n of [1, 3, 12])
+for (const long of [false, true]) {
+  total++;
+  let res;
+  if (kind === 'trade') {
+    const pick = all[all.length - 1];
+    const p = tradeSharePayload({ symbol: 'ABCDEFGHIJ', returnPct: -0.987, holdingDays: 0.2, closedAt: pick.closedAt, thesis: 'A thesis that runs well past the width of the band', thesisStatus: 'published', demo: false, allTrades: all }, NOW);
+    const t = { ...p, handle, displayName: 'A', state, verified: true, excludingOptions: opts };
+    const strip = recordStrip(tradeStripInput(t as any), 'image');
+    res = openBand(({ disc, a, b, extra }) => stripImageLines(strip, { handle, newRecord: false, hero: tradeHero({ ...t, thesis: extra ? t.thesis : null } as any, { symbolPx: a, heldPx: b }), frozen, disclaimerPx: disc }), n, long, tradeSteps, state === 'failed', !!frozen);
+  } else {
+    const m = monthRecap(all as any, '2026-09', NOW)!; const w = wholeRecord(all as any, NOW);
+    const who = { state, demo: false, verified: true, handle };
+    const whole = recordStrip({ ...w.strip, ...who, excludingOptions: opts }, 'image');
+    const month = recordStrip({ ...m.figures!, ...who, monthExcludingOptions: opts }, 'figures');
+    res = openBand(({ disc, a, b, extra }) => stripImageLines(whole, { handle, newRecord: false, hero: monthHero({ handle, recap: m, record: { newRecord: false }, months: extra ? 22 : undefined } as any, month, a, b), frozen, disclaimerPx: disc }), n, long, monthSteps, state === 'failed', !!frozen);
+  }
+  const key = `${kind} h=${handle.length} ${state} opts=${opts ? 'Y' : 'n'} frozen=${frozen ? 'Y' : 'n'} n=${n} long=${long ? 'Y' : 'n'}`;
+  if (!res) { out.push(`${key} | NO FIT`); continue; }
+  // assertions
+  const L = res.lines, s = res.step, txt = L.map((l) => l.text).join(' / ');
+  const errs: string[] = [];
+  if (s.disc < 28) errs.push('disc<28');
+  if (s.o < s.r) errs.push('o<r');
+  const lossLine = L.find((l) => l.text.includes('losses included'));
+  if (!lossLine || lossLine.size < 26 || contrast(col[lossLine.tone as 'muted'] ?? col.text, bg) < 4.5) errs.push('losses');
+  if (L.some((l) => l.text.length * l.size * STRIP_BAND.glyph > W)) errs.push('outside band');
+  const it = items(n, long); for (const x of [it.title, ...it.rest.map((r) => r.text), it.asOf]) if (!L.some((l) => l.role.startsWith('open') && l.text.includes(x))) errs.push(`missing ${x}`);
+  if (frozen && !txt.includes('record frozen')) errs.push('record frozen dropped');
+  if (frozen && !txt.includes('Disconnected') && !s.last) errs.push('Disconnected dropped outside last');
+  if (errs.length) viol++; else ok++;
+  disc[s.disc] = (disc[s.disc] ?? 0) + 1;
+  const desc = `disc=${s.disc} hero=${s.a}/${s.b} record=${s.r} open=${s.o} gap=${s.g} losses=${s.losses}${s.options === 'count' ? ' options→count' : ''}${s.note === 1 ? ' note:1row' : ''}${s.frozen === 'asOf' ? ' frozen→as-of row' : s.frozen === 'label' ? ' frozen→label row' : ''}${s.extra ? '' : ' (thesis/monthOf given way)'}${res.dropped.length ? ` dropped=${res.dropped.join('+')}` : ''} spare=${res.spare.toFixed(1)}`;
+  if (s.last) last.push(`${key} | ${desc}`);
+  out.push(`${key} | ${s.last ? 'STEP 11 · ' : ''}${desc}${errs.length ? ' | VIOLATION ' + errs.join(',') : ''}${process.env.ROWS ? ' | ' + L.filter((l) => l.role.startsWith('open') || l.role === 'label').map((l) => l.text).join(' / ') : ''}`);
+}
+console.log(out.join('\n'));
+console.log(`SUMMARY mode=${MODE} total=${total} fit+asserts=${ok} violations=${viol} nofit=${total - ok - viol} disc=${JSON.stringify(disc)} step11=${last.length}`);

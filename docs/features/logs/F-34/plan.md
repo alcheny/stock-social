@@ -1,9 +1,20 @@
-# F-34 · Implementation plan (UX lead, 2026-11-02, branch `claude/f34-open-positions-line` at fd1b6f1). Round 2
+# F-34 · Implementation plan (UX lead, 2026-11-02, branch `claude/f34-open-positions-line` at fd1b6f1). Round 3
 
 Input: `docs/features/F-34-one-open-positions-line.md`, including the owner's 2026-11-02 answer to OD 2.25: real users'
 unrealized values keep showing, and every surface shows F-4's card line, lowest value first. Also F-4, F-6, F-12, F-20,
 F-21, F-23 and F-29, the code cited below, and the round-1 feedback from the business lead (BL1–BL6) and the engineer
 (EN1–EN7). This plan changes no decision. One AC detail needs the committee's sign-off: the image text, in Q11.
+
+## Round 3 changes (each demand and how it is resolved)
+
+| Demand | Resolution | Where |
+|---|---|---|
+| BL-R2-1: `imageRows` is the only producer of image open rows; content and equality tests; scan bans "Still open" and "as of" outside `lib/copy.ts` | `imageRows(line, size, width)` lives in the `openLine` block of `lib/copy.ts` and uses `packRows` from `lib/open-split.ts`. The unfurl, trade and month images call only it. Test A covers every §2 state plus the 1,204 case and checks that the joined rows contain the count as formatted, each split count with its word, the low and high values each with their word (or "at" with value and word), and a 4-digit year. Test B checks that the joined rows equal `imageText` or `imageTextDateFirst` and map back to `withAsOf`. The source scan bans the literals "Still open" and "as of" outside `lib/copy.ts` | §2b, §8 |
+| BL-R2-2: "record frozen" is never dropped beside open values; step 11 drops only "Disconnected ‹date›" and the failed note; space comes from the month hero first; matrix assertion; 192/192 | "record frozen" is now kept in all 96 frozen states. It stays on its own row, rides the as-of row (`as of Sep 30, 2026 · record frozen`, 10 states) or rides the label row (`Verified from broker · record frozen` / `Import did not finish · record frozen`, 78 states). Step 11 may drop only the "Disconnected ‹date›" row and the failed-note row. The month label floor goes below 32 px, staying at r or above (it reaches 26 px in 6 states). Dropping the month figures row was not needed. A matrix assertion checks every frozen state for "record frozen". **Result: 192/192** | §3, §3a, §8 |
+| BL-R2-3: feed card e2e at 320 px | The e2e at 320 px checks the open line takes at most 3 lines, "-15.0%" never splits from "down", and the card's trade return keeps the largest computed font size on the card | §3, §7, §8 |
+| EN-R2-1: step 11 is a separate last pass; test asserts the frozen line is kept except in named states; fix the run command | `openBand` runs steps 1–10 over every size first and step 11 only after that whole search fails. The test lists the 14 step-11 states by name, and every other frozen state keeps "Disconnected ‹date›" too. The run command now reads `node f34-fit-matrix.ts image`, with the mode in `process.argv[2]` | §3, §3a, §8 |
+| EN-R2-2: run the real functions | The script calls the real `stripImageLines`, `tradeHero` and `recordStrip`. For `monthHero` it imports `lib/month-card.ts` byte for byte, with only `export` added to `monthHero` (the one-line diff is shown in §3a). The build adds that `export` to `lib/month-card.ts`, and `lib/f34-open-band.test.ts` then imports it directly | §3a, §8 |
+| EN-R2-3: name the record-row size change | Named in Q11 and in the PR body: while an open block is present, the trade and month images draw the record rows (count, average, range) at 30, 28 or 26 px, down from 35. The open values are never smaller than those rows | §3, §10 |
 
 ## Round 2 changes (each demand and how it is resolved)
 
@@ -126,16 +137,29 @@ every state. The 1200×630 images therefore draw the same parts with two substit
 - `unrealized as of …` → `line.image.asOf` = `as of Sep 30, 2026`. The date with its year stays. The alt keeps
   "unrealized".
 
-The image text is `image.title` · split · low, high · `image.asOf`, packed into rows by `packRows`:
+**The one producer of image rows (BL-R2-1):** `imageRows(line, size, width): string[]`, in the `openLine` block of
+`lib/copy.ts`, built on the string-free `packRows` in `lib/open-split.ts`. The unfurl (`record-card-image.tsx`
+through the card model), the trade image and the month image (both through `stripImageLines`) call it and nothing
+else. No route or component packs open rows itself.
+
+The image text is `image.title` · split · low, high · `image.asOf`, packed into rows:
 - A row never breaks inside a part, and a value never breaks from its word.
 - The as-of comes after the values. It moves next to the title only when that saves a row (the "date-first" order).
 - Example (3 positions, mixed): `Still open: 3 · 2 up, 1 down` / `lowest -15.0% down, highest +4.0% up` / `as of Sep 30, 2026`.
 
 The square and story pictures have room for, and print, the full `text` plus `asOf`.
 
-Equality (Q11): an image's rows, joined with their separators, equal `imageText(line)` or `imageTextDateFirst(line)`
-exactly. Mapping `image.title` back to the title and `image.asOf` back to `asOf` gives `withAsOf`. That mapping is a
-unit-tested property, and every fact is shown.
+Tests (§8):
+- **A (content):** for every §2 state plus `Still open: 1,204`, at 26, 28, 30 and 35 px and the band and unfurl widths,
+  the joined rows contain:
+  - the count as formatted (`1,204`);
+  - every split count with its word (`2 up`, `1 down`, `1 flat`);
+  - `lowest ‹v› ‹word›` and `highest ‹v› ‹word›`, or `at ‹v› ‹word›`;
+  - a 4-digit year (`/\b\d{4}\b/` inside `as of ‹Mon› ‹D›, ‹YYYY›`).
+- **B (equality, Q11):** the joined rows equal `imageText(line)` or `imageTextDateFirst(line)` exactly. Replacing
+  `image.title` with the title and `image.asOf` with `asOf`, and putting the date last, gives `withAsOf`.
+- **Source scan:** the literals "Still open" and "as of" appear nowhere in `app/` or `lib/` outside `lib/copy.ts`,
+  tests excluded. `OPEN.asOfLabel`, `OPEN.asOf`, `OPEN.compare*` and `OPEN.tickerTraders` already live in `lib/copy.ts`.
 
 ## 3. Prominence (TR-4), placement and fit
 
@@ -159,7 +183,8 @@ and no value is ever muted. Only the as-of words may be muted.
   - Values are `<b class="up|down"><span class="nw">-15.0% down</span></b>`, with a one-line rule
     `.open-also .nw { white-space: nowrap; }`.
   - The as-of words are in `<span class="muted">`. There is no "Also open:" label.
-  - At 320 px the line may wrap to 3 lines with long values. It is never trimmed further and never dropped.
+  - At 320 px the line takes at most 3 lines (the e2e pins this, BL-R2-3). It is never trimmed further and never
+    dropped. The card's own trade return (`.hero .ret`) keeps the largest computed font size on the card.
 - **Card, square and story:** F-4's block. The title is at `f.line` size, the `asOf` words are muted on the title's row
   (where "unrealized, not sold yet" sat), and the split and spread row is at body size.
 - **Card, unfurl (BL3):** the image form at 35 px (the 10 CSS px floor), packed into the full 1120 px width, at most 53
@@ -200,244 +225,289 @@ in `lib/open-split.ts`, in this order (the outer loop changes last):
 1. **Size class** `r` = 30, then 28, then 26.
 2. **Thesis kept, then given way** (trade). "One of N months" gives way first on the month image (it is already optional).
 3. **Disclaimer** 35 → 32 → 30 → 28.
-4. **Hero** (existing loops). Trade: symbol 80 → 40, held 30 → 26. Month: label 52 → **32** (new floor, from 36; it stays
-   above `r` ≤ 30), figures 30 → 26.
+4. **Hero** (existing loops). Trade: symbol 80 → 40, held 30 → 26. Month: label 52 → 48 → … → 32 → 30 → 28 → 26, never
+   below `r` (BL-R2-2: the month hero gives space first; the old floor was 36), figures 30 → 26. Dropping the month's
+   figures row, which BL-R2-2 allows, was not needed (§3a).
 5. **"losses included"** on its own row at size `o`, or else joined to the count row (`48 closed trades · losses
    included`) when that row stays at least 26 px and at most `o`.
 6. **Failed note** in 2 rows, or else 1 row: `This record may be incomplete.`, the second clause of `RECORD_BODY.failed`,
    because the label row already says "Import did not finish". This is a new image-only string, `RECORD_BODY.failedShort`.
 7. **Options qualifier** on its own row, or else joined to the count row (the existing fallback, now also tried when an
    open block is present).
-8. **Frozen line:** `record frozen` rides the open block's last row when that row holds the as-of and fits
-   (`as of Sep 30, 2026 · record frozen`). "Disconnected ‹date›" then stays as one row.
+8. **Frozen line ("record frozen" is never dropped, BL-R2-2).** The line splits, as `frozenLines` already does, into
+   "Disconnected ‹date›" and "record frozen". In order, "record frozen":
+   - stays on its own row; or
+   - rides the open row that ends with the as-of (`as of Sep 30, 2026 · record frozen`); or
+   - rides the label row (`Verified from broker · record frozen` / `Import did not finish · record frozen`, with the
+     label row at 26 px or more).
+
+   Outside step 11, "Disconnected ‹date›" stays as its own row. Today's rule that the frozen line gives way beside a
+   failed note is switched off when an open block is present, so frozen rows give way only in step 11.
 9. **Open size** `o` = 30, then 28, then 26, never below `r`.
 10. **Gaps:** between blocks 4 → 3 → 2 px. Inside a wrapped block (open rows, note rows, frozen rows, disclaimer rows)
     there is no gap, because the 1.2 line height already spaces them. This applies only when an open block is present.
-11. **Last step** (Q12; reached only by the 8 extreme month cases in §3a): a frozen line beside an open block, and a
-    failed note, give way on the image. The label row keeps "Import did not finish", and the page and the alt keep both
-    lines in full. This extends the existing rule that the frozen line gives way beside a failed note.
+11. **Step 11, a separate last pass (EN-R2-1, Q12).** `openBand` runs only after steps 1–10 have been tried at every
+    size with no fit. It then reruns the same search, and only two rows may give way, last row first:
+    - the failed-note rows (the label row keeps "Import did not finish");
+    - the "Disconnected ‹date›" row.
+
+    "record frozen", every open part and every figure stay. The page and the alt keep both lines in full. 14 month states
+    reach this pass (§3a) and no trade state does.
 
 Never dropped: any open part, the as-of, the record count, average and range, "losses included", the label, and the
 disclaimer. "losses included" is at least 26 px, at least 4.5:1 (muted `#8b8b98` on `#0b0b0f` is 5.84:1; on the count
 row it is in the text tone, 17.88:1) and inside x 309–891 in every row of the matrix (BL4, asserted). The values are
 `#ff8a5b` (8.46:1) and `#3cc4b4` (9.12:1).
 
-### 3a. Fit matrix (run 2026-11-02, Node 24)
+### 3a. Fit matrix (round 3, run 2026-11-02, Node 24, real functions)
 
-The matrix is the pure model above over today's `stripImageLines`, `tradeHero` and a copy of `monthHero` (which is not
-exported). Fixture: a fictional 48-trade record, a 10-character symbol at −98.7%, a long thesis, September 2026.
-
-Axes: kind (trade, month) × handle length 10 or 20 × state (connected, failed) × options × frozen × open positions
-1 / 3 (`2 up, 1 down`) / 12 (`3 up, 8 down, 1 flat`) × long values (`-99.98%`, `+1088.7%`). That is 192 states.
-
-The script, which the engineer turns into `lib/f34-open-band.test.ts`, is
-`/tmp/claude-0/-home-user-stock-social/f8ed5835-8675-52ba-af3a-e662aa8c102e/scratchpad/f34-fit-matrix.ts`. Run it with
-`STRICT=1 DATEFIRST=1 R26=1 INTRA=all` (add `LAST=1` for the last step).
-
-**Result: 192/192 fit, all with the disclaimer at 28 px or more.**
-- Disclaimer size: 35 px in 112 states, 32 in 24, 30 in 36, 28 in 20.
-- Record and open size: 30 px in 104, 28 in 30, 26 in 58.
-- 184 states fit through steps 1–10. The other 8 (month · options · frozen or failed · long values or 12 positions) need
-  step 11.
-- Smallest spare: 0.0 px. Every line is inside the band, and "losses included" is at least 26 px in every state.
-- The full-text block, keeping the title "Still open: ‹n› positions", leaves 44 states with no fit, or 8 even with
-  step 11. That is why §2b uses the image form.
-
-<details><summary>All 192 states</summary>
+The script calls the real `recordStrip`, `stripImageLines`, `tradeSharePayload`, `tradeHero`, `monthRecap` and
+`wholeRecord` (EN-R2-2). It also calls `monthHero` from `month-card.real.ts`, which is `lib/month-card.ts` with
+absolute imports and this one-line diff (the build makes the same change in `lib/month-card.ts`):
 
 ```
-trade h=10 connected opts=n frozen=n n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=4 spare=14.0
-trade h=10 connected opts=n frozen=n n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=4 spare=14.0
-trade h=10 connected opts=n frozen=n n= 3 long=n | disc=35 hero=80/30 record=30 losses=count open=30 gap=4 gave way: thesis spare=19.6
-trade h=10 connected opts=n frozen=n n= 3 long=Y | disc=35 hero=80/30 record=30 losses=count open=30 gap=4 gave way: thesis spare=19.6
-trade h=10 connected opts=n frozen=n n=12 long=n | disc=35 hero=40/30 record=30 losses=count open=30 gap=3 gave way: thesis spare=0.0
-trade h=10 connected opts=n frozen=n n=12 long=Y | disc=35 hero=40/30 record=30 losses=count open=30 gap=3 gave way: thesis spare=0.0
-trade h=10 connected opts=n frozen=Y n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=2.8
-trade h=10 connected opts=n frozen=Y n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=2.8
-trade h=10 connected opts=n frozen=Y n= 3 long=n | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 gave way: thesis spare=4.8
-trade h=10 connected opts=n frozen=Y n= 3 long=Y | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 gave way: thesis spare=4.8
-trade h=10 connected opts=n frozen=Y n=12 long=n | disc=32 hero=40/30 record=28 losses=count open=28 gap=2 frozen+as-of gave way: thesis spare=4.4
-trade h=10 connected opts=n frozen=Y n=12 long=Y | disc=32 hero=40/30 record=28 losses=count open=28 gap=2 frozen+as-of gave way: thesis spare=4.4
-trade h=10 connected opts=Y frozen=n n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=4 gave way: thesis spare=9.2
-trade h=10 connected opts=Y frozen=n n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=4 gave way: thesis spare=9.2
-trade h=10 connected opts=Y frozen=n n= 3 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 options→count gave way: thesis spare=0.0
-trade h=10 connected opts=Y frozen=n n= 3 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 options→count gave way: thesis spare=0.0
-trade h=10 connected opts=Y frozen=n n=12 long=n | disc=32 hero=40/30 record=28 losses=own open=28 gap=2 options→count gave way: thesis spare=2.4
-trade h=10 connected opts=Y frozen=n n=12 long=Y | disc=32 hero=40/30 record=28 losses=own open=28 gap=2 options→count gave way: thesis spare=2.4
-trade h=10 connected opts=Y frozen=Y n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 options→count gave way: thesis spare=7.6
-trade h=10 connected opts=Y frozen=Y n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 options→count gave way: thesis spare=7.6
-trade h=10 connected opts=Y frozen=Y n= 3 long=n | disc=32 hero=40/30 record=28 losses=own open=28 gap=2 options→count gave way: thesis spare=5.2
-trade h=10 connected opts=Y frozen=Y n= 3 long=Y | disc=32 hero=40/30 record=28 losses=own open=28 gap=2 options→count gave way: thesis spare=5.2
-trade h=10 connected opts=Y frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 frozen+as-of gave way: thesis spare=0.4
-trade h=10 connected opts=Y frozen=Y n=12 long=Y | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 options→count frozen+as-of gave way: thesis spare=2.4
-trade h=10 failed opts=n frozen=n n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=2.8
-trade h=10 failed opts=n frozen=n n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=2.8
-trade h=10 failed opts=n frozen=n n= 3 long=n | disc=35 hero=80/30 record=30 losses=count open=30 gap=2 note 1 row gave way: thesis spare=2.4
-trade h=10 failed opts=n frozen=n n= 3 long=Y | disc=35 hero=80/30 record=30 losses=count open=30 gap=2 note 1 row gave way: thesis spare=2.4
-trade h=10 failed opts=n frozen=n n=12 long=n | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: thesis spare=0.0
-trade h=10 failed opts=n frozen=n n=12 long=Y | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: thesis spare=0.0
-trade h=10 failed opts=n frozen=Y n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: frozen1+frozen+thesis spare=2.8
-trade h=10 failed opts=n frozen=Y n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: frozen1+frozen+thesis spare=2.8
-trade h=10 failed opts=n frozen=Y n= 3 long=n | disc=35 hero=80/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=2.4
-trade h=10 failed opts=n frozen=Y n= 3 long=Y | disc=35 hero=80/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=2.4
-trade h=10 failed opts=n frozen=Y n=12 long=n | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=0.0
-trade h=10 failed opts=n frozen=Y n=12 long=Y | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=0.0
-trade h=10 failed opts=Y frozen=n n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=7.6
-trade h=10 failed opts=Y frozen=n n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=7.6
-trade h=10 failed opts=Y frozen=n n= 3 long=n | disc=28 hero=40/30 record=30 losses=own open=30 gap=2 note 1 row options→count gave way: thesis spare=0.4
-trade h=10 failed opts=Y frozen=n n= 3 long=Y | disc=28 hero=40/30 record=30 losses=own open=30 gap=2 note 1 row options→count gave way: thesis spare=0.4
-trade h=10 failed opts=Y frozen=n n=12 long=n | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 gave way: thesis spare=0.4
-trade h=10 failed opts=Y frozen=n n=12 long=Y | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 note 1 row gave way: thesis spare=0.4
-trade h=10 failed opts=Y frozen=Y n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: frozen1+frozen+thesis spare=7.6
-trade h=10 failed opts=Y frozen=Y n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: frozen1+frozen+thesis spare=7.6
-trade h=10 failed opts=Y frozen=Y n= 3 long=n | disc=28 hero=40/30 record=30 losses=own open=30 gap=2 note 1 row options→count gave way: frozen1+frozen+thesis spare=0.4
-trade h=10 failed opts=Y frozen=Y n= 3 long=Y | disc=28 hero=40/30 record=30 losses=own open=30 gap=2 note 1 row options→count gave way: frozen1+frozen+thesis spare=0.4
-trade h=10 failed opts=Y frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 gave way: frozen1+frozen+thesis spare=0.4
-trade h=10 failed opts=Y frozen=Y n=12 long=Y | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=0.4
-trade h=20 connected opts=n frozen=n n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=4 spare=14.0
-trade h=20 connected opts=n frozen=n n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=4 spare=14.0
-trade h=20 connected opts=n frozen=n n= 3 long=n | disc=35 hero=80/30 record=30 losses=count open=30 gap=4 gave way: thesis spare=19.6
-trade h=20 connected opts=n frozen=n n= 3 long=Y | disc=35 hero=80/30 record=30 losses=count open=30 gap=4 gave way: thesis spare=19.6
-trade h=20 connected opts=n frozen=n n=12 long=n | disc=35 hero=40/30 record=30 losses=count open=30 gap=3 gave way: thesis spare=0.0
-trade h=20 connected opts=n frozen=n n=12 long=Y | disc=35 hero=40/30 record=30 losses=count open=30 gap=3 gave way: thesis spare=0.0
-trade h=20 connected opts=n frozen=Y n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=2.8
-trade h=20 connected opts=n frozen=Y n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=2.8
-trade h=20 connected opts=n frozen=Y n= 3 long=n | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 gave way: thesis spare=4.8
-trade h=20 connected opts=n frozen=Y n= 3 long=Y | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 gave way: thesis spare=4.8
-trade h=20 connected opts=n frozen=Y n=12 long=n | disc=32 hero=40/30 record=28 losses=count open=28 gap=2 frozen+as-of gave way: thesis spare=4.4
-trade h=20 connected opts=n frozen=Y n=12 long=Y | disc=32 hero=40/30 record=28 losses=count open=28 gap=2 frozen+as-of gave way: thesis spare=4.4
-trade h=20 connected opts=Y frozen=n n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=4 gave way: thesis spare=9.2
-trade h=20 connected opts=Y frozen=n n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=4 gave way: thesis spare=9.2
-trade h=20 connected opts=Y frozen=n n= 3 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 options→count gave way: thesis spare=0.0
-trade h=20 connected opts=Y frozen=n n= 3 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 options→count gave way: thesis spare=0.0
-trade h=20 connected opts=Y frozen=n n=12 long=n | disc=32 hero=40/30 record=28 losses=own open=28 gap=2 options→count gave way: thesis spare=2.4
-trade h=20 connected opts=Y frozen=n n=12 long=Y | disc=32 hero=40/30 record=28 losses=own open=28 gap=2 options→count gave way: thesis spare=2.4
-trade h=20 connected opts=Y frozen=Y n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 options→count gave way: thesis spare=7.6
-trade h=20 connected opts=Y frozen=Y n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 options→count gave way: thesis spare=7.6
-trade h=20 connected opts=Y frozen=Y n= 3 long=n | disc=32 hero=40/30 record=28 losses=own open=28 gap=2 options→count gave way: thesis spare=5.2
-trade h=20 connected opts=Y frozen=Y n= 3 long=Y | disc=32 hero=40/30 record=28 losses=own open=28 gap=2 options→count gave way: thesis spare=5.2
-trade h=20 connected opts=Y frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 frozen+as-of gave way: thesis spare=0.4
-trade h=20 connected opts=Y frozen=Y n=12 long=Y | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 options→count frozen+as-of gave way: thesis spare=2.4
-trade h=20 failed opts=n frozen=n n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=2.8
-trade h=20 failed opts=n frozen=n n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=2.8
-trade h=20 failed opts=n frozen=n n= 3 long=n | disc=35 hero=80/30 record=30 losses=count open=30 gap=2 note 1 row gave way: thesis spare=2.4
-trade h=20 failed opts=n frozen=n n= 3 long=Y | disc=35 hero=80/30 record=30 losses=count open=30 gap=2 note 1 row gave way: thesis spare=2.4
-trade h=20 failed opts=n frozen=n n=12 long=n | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: thesis spare=0.0
-trade h=20 failed opts=n frozen=n n=12 long=Y | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: thesis spare=0.0
-trade h=20 failed opts=n frozen=Y n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: frozen1+frozen+thesis spare=2.8
-trade h=20 failed opts=n frozen=Y n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: frozen1+frozen+thesis spare=2.8
-trade h=20 failed opts=n frozen=Y n= 3 long=n | disc=35 hero=80/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=2.4
-trade h=20 failed opts=n frozen=Y n= 3 long=Y | disc=35 hero=80/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=2.4
-trade h=20 failed opts=n frozen=Y n=12 long=n | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=0.0
-trade h=20 failed opts=n frozen=Y n=12 long=Y | disc=28 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=0.0
-trade h=20 failed opts=Y frozen=n n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=7.6
-trade h=20 failed opts=Y frozen=n n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: thesis spare=7.6
-trade h=20 failed opts=Y frozen=n n= 3 long=n | disc=28 hero=40/30 record=30 losses=own open=30 gap=2 note 1 row options→count gave way: thesis spare=0.4
-trade h=20 failed opts=Y frozen=n n= 3 long=Y | disc=28 hero=40/30 record=30 losses=own open=30 gap=2 note 1 row options→count gave way: thesis spare=0.4
-trade h=20 failed opts=Y frozen=n n=12 long=n | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 gave way: thesis spare=0.4
-trade h=20 failed opts=Y frozen=n n=12 long=Y | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 note 1 row gave way: thesis spare=0.4
-trade h=20 failed opts=Y frozen=Y n= 1 long=n | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: frozen1+frozen+thesis spare=7.6
-trade h=20 failed opts=Y frozen=Y n= 1 long=Y | disc=35 hero=80/30 record=30 losses=own open=30 gap=2 gave way: frozen1+frozen+thesis spare=7.6
-trade h=20 failed opts=Y frozen=Y n= 3 long=n | disc=28 hero=40/30 record=30 losses=own open=30 gap=2 note 1 row options→count gave way: frozen1+frozen+thesis spare=0.4
-trade h=20 failed opts=Y frozen=Y n= 3 long=Y | disc=28 hero=40/30 record=30 losses=own open=30 gap=2 note 1 row options→count gave way: frozen1+frozen+thesis spare=0.4
-trade h=20 failed opts=Y frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 gave way: frozen1+frozen+thesis spare=0.4
-trade h=20 failed opts=Y frozen=Y n=12 long=Y | disc=35 hero=80/30 record=26 losses=own open=26 gap=2 note 1 row gave way: frozen1+frozen+thesis spare=0.4
-month h=10 connected opts=n frozen=n n= 1 long=n | disc=35 hero=52/30 record=30 losses=count open=30 gap=4 gave way: monthOf spare=0.8
-month h=10 connected opts=n frozen=n n= 1 long=Y | disc=35 hero=52/30 record=30 losses=count open=30 gap=4 gave way: monthOf spare=0.8
-month h=10 connected opts=n frozen=n n= 3 long=n | disc=30 hero=36/26 record=30 losses=count open=30 gap=2 gave way: monthOf spare=0.4
-month h=10 connected opts=n frozen=n n= 3 long=Y | disc=30 hero=36/26 record=30 losses=count open=30 gap=2 gave way: monthOf spare=0.4
-month h=10 connected opts=n frozen=n n=12 long=n | disc=35 hero=52/30 record=26 losses=count open=26 gap=3 gave way: monthOf spare=1.2
-month h=10 connected opts=n frozen=n n=12 long=Y | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 gave way: monthOf spare=4.0
-month h=10 connected opts=n frozen=Y n= 1 long=n | disc=32 hero=36/26 record=30 losses=count open=30 gap=2 gave way: monthOf spare=0.8
-month h=10 connected opts=n frozen=Y n= 1 long=Y | disc=32 hero=36/26 record=30 losses=count open=30 gap=2 gave way: monthOf spare=0.8
-month h=10 connected opts=n frozen=Y n= 3 long=n | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 frozen+as-of gave way: monthOf spare=4.0
-month h=10 connected opts=n frozen=Y n= 3 long=Y | disc=30 hero=32/26 record=26 losses=count open=26 gap=2 gave way: monthOf spare=3.2
-month h=10 connected opts=n frozen=Y n=12 long=n | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 frozen+as-of gave way: monthOf spare=4.0
-month h=10 connected opts=n frozen=Y n=12 long=Y | disc=30 hero=36/26 record=26 losses=count open=26 gap=2 frozen+as-of gave way: monthOf spare=0.4
-month h=10 connected opts=Y frozen=n n= 1 long=n | disc=35 hero=40/30 record=30 losses=own open=30 gap=2 gave way: monthOf spare=3.2
-month h=10 connected opts=Y frozen=n n= 1 long=Y | disc=35 hero=40/30 record=30 losses=own open=30 gap=2 gave way: monthOf spare=3.2
-month h=10 connected opts=Y frozen=n n= 3 long=n | disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count gave way: monthOf spare=2.0
-month h=10 connected opts=Y frozen=n n= 3 long=Y | disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count gave way: monthOf spare=2.0
-month h=10 connected opts=Y frozen=n n=12 long=n | disc=35 hero=36/30 record=26 losses=own open=26 gap=2 gave way: monthOf spare=0.8
-month h=10 connected opts=Y frozen=n n=12 long=Y | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 options→count gave way: monthOf spare=3.2
-month h=10 connected opts=Y frozen=Y n= 1 long=n | disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count frozen+as-of gave way: monthOf spare=4.4
-month h=10 connected opts=Y frozen=Y n= 1 long=Y | disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count frozen+as-of gave way: monthOf spare=4.4
-month h=10 connected opts=Y frozen=Y n= 3 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 options→count frozen+as-of gave way: monthOf spare=3.2
-month h=10 connected opts=Y frozen=Y n= 3 long=Y | LAST STEP · disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count gave way: frozen1+frozen+monthOf spare=2.0
-month h=10 connected opts=Y frozen=Y n=12 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 options→count frozen+as-of gave way: monthOf spare=3.2
-month h=10 connected opts=Y frozen=Y n=12 long=Y | LAST STEP · disc=30 hero=32/26 record=26 losses=own open=26 gap=2 options→count gave way: frozen1+frozen+monthOf spare=3.2
-month h=10 failed opts=n frozen=n n= 1 long=n | disc=35 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=10 failed opts=n frozen=n n= 1 long=Y | disc=35 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=10 failed opts=n frozen=n n= 3 long=n | disc=35 hero=32/26 record=28 losses=count open=28 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=10 failed opts=n frozen=n n= 3 long=Y | disc=35 hero=32/26 record=28 losses=count open=28 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=10 failed opts=n frozen=n n=12 long=n | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=10 failed opts=n frozen=n n=12 long=Y | disc=30 hero=32/26 record=26 losses=count open=26 gap=2 note 1 row gave way: monthOf spare=3.2
-month h=10 failed opts=n frozen=Y n= 1 long=n | disc=35 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=10 failed opts=n frozen=Y n= 1 long=Y | disc=35 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=10 failed opts=n frozen=Y n= 3 long=n | disc=35 hero=32/26 record=28 losses=count open=28 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=10 failed opts=n frozen=Y n= 3 long=Y | disc=35 hero=32/26 record=28 losses=count open=28 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=10 failed opts=n frozen=Y n=12 long=n | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=10 failed opts=n frozen=Y n=12 long=Y | disc=30 hero=32/26 record=26 losses=count open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=3.2
-month h=10 failed opts=Y frozen=n n= 1 long=n | disc=32 hero=32/26 record=30 losses=own open=30 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=10 failed opts=Y frozen=n n= 1 long=Y | disc=32 hero=32/26 record=30 losses=own open=30 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=10 failed opts=Y frozen=n n= 3 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=10 failed opts=Y frozen=n n= 3 long=Y | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=10 failed opts=Y frozen=n n=12 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=10 failed opts=Y frozen=n n=12 long=Y | LAST STEP · disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: note0+monthOf spare=3.2
-month h=10 failed opts=Y frozen=Y n= 1 long=n | disc=32 hero=32/26 record=30 losses=own open=30 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=10 failed opts=Y frozen=Y n= 1 long=Y | disc=32 hero=32/26 record=30 losses=own open=30 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=10 failed opts=Y frozen=Y n= 3 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=10 failed opts=Y frozen=Y n= 3 long=Y | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=10 failed opts=Y frozen=Y n=12 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=10 failed opts=Y frozen=Y n=12 long=Y | LAST STEP · disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: note0+frozen1+frozen+monthOf spare=3.2
-month h=20 connected opts=n frozen=n n= 1 long=n | disc=35 hero=52/30 record=30 losses=count open=30 gap=4 gave way: monthOf spare=0.8
-month h=20 connected opts=n frozen=n n= 1 long=Y | disc=35 hero=52/30 record=30 losses=count open=30 gap=4 gave way: monthOf spare=0.8
-month h=20 connected opts=n frozen=n n= 3 long=n | disc=30 hero=36/26 record=30 losses=count open=30 gap=2 gave way: monthOf spare=0.4
-month h=20 connected opts=n frozen=n n= 3 long=Y | disc=30 hero=36/26 record=30 losses=count open=30 gap=2 gave way: monthOf spare=0.4
-month h=20 connected opts=n frozen=n n=12 long=n | disc=35 hero=52/30 record=26 losses=count open=26 gap=3 gave way: monthOf spare=1.2
-month h=20 connected opts=n frozen=n n=12 long=Y | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 gave way: monthOf spare=4.0
-month h=20 connected opts=n frozen=Y n= 1 long=n | disc=32 hero=36/26 record=30 losses=count open=30 gap=2 gave way: monthOf spare=0.8
-month h=20 connected opts=n frozen=Y n= 1 long=Y | disc=32 hero=36/26 record=30 losses=count open=30 gap=2 gave way: monthOf spare=0.8
-month h=20 connected opts=n frozen=Y n= 3 long=n | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 frozen+as-of gave way: monthOf spare=4.0
-month h=20 connected opts=n frozen=Y n= 3 long=Y | disc=30 hero=32/26 record=26 losses=count open=26 gap=2 gave way: monthOf spare=3.2
-month h=20 connected opts=n frozen=Y n=12 long=n | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 frozen+as-of gave way: monthOf spare=4.0
-month h=20 connected opts=n frozen=Y n=12 long=Y | disc=30 hero=36/26 record=26 losses=count open=26 gap=2 frozen+as-of gave way: monthOf spare=0.4
-month h=20 connected opts=Y frozen=n n= 1 long=n | disc=35 hero=40/30 record=30 losses=own open=30 gap=2 gave way: monthOf spare=3.2
-month h=20 connected opts=Y frozen=n n= 1 long=Y | disc=35 hero=40/30 record=30 losses=own open=30 gap=2 gave way: monthOf spare=3.2
-month h=20 connected opts=Y frozen=n n= 3 long=n | disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count gave way: monthOf spare=2.0
-month h=20 connected opts=Y frozen=n n= 3 long=Y | disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count gave way: monthOf spare=2.0
-month h=20 connected opts=Y frozen=n n=12 long=n | disc=35 hero=36/30 record=26 losses=own open=26 gap=2 gave way: monthOf spare=0.8
-month h=20 connected opts=Y frozen=n n=12 long=Y | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 options→count gave way: monthOf spare=3.2
-month h=20 connected opts=Y frozen=Y n= 1 long=n | disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count frozen+as-of gave way: monthOf spare=4.4
-month h=20 connected opts=Y frozen=Y n= 1 long=Y | disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count frozen+as-of gave way: monthOf spare=4.4
-month h=20 connected opts=Y frozen=Y n= 3 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 options→count frozen+as-of gave way: monthOf spare=3.2
-month h=20 connected opts=Y frozen=Y n= 3 long=Y | LAST STEP · disc=35 hero=32/26 record=28 losses=own open=28 gap=2 options→count gave way: frozen1+frozen+monthOf spare=2.0
-month h=20 connected opts=Y frozen=Y n=12 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 options→count frozen+as-of gave way: monthOf spare=3.2
-month h=20 connected opts=Y frozen=Y n=12 long=Y | LAST STEP · disc=30 hero=32/26 record=26 losses=own open=26 gap=2 options→count gave way: frozen1+frozen+monthOf spare=3.2
-month h=20 failed opts=n frozen=n n= 1 long=n | disc=35 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=20 failed opts=n frozen=n n= 1 long=Y | disc=35 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=20 failed opts=n frozen=n n= 3 long=n | disc=35 hero=32/26 record=28 losses=count open=28 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=20 failed opts=n frozen=n n= 3 long=Y | disc=35 hero=32/26 record=28 losses=count open=28 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=20 failed opts=n frozen=n n=12 long=n | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 note 1 row gave way: monthOf spare=2.0
-month h=20 failed opts=n frozen=n n=12 long=Y | disc=30 hero=32/26 record=26 losses=count open=26 gap=2 note 1 row gave way: monthOf spare=3.2
-month h=20 failed opts=n frozen=Y n= 1 long=n | disc=35 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=20 failed opts=n frozen=Y n= 1 long=Y | disc=35 hero=40/30 record=30 losses=count open=30 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=20 failed opts=n frozen=Y n= 3 long=n | disc=35 hero=32/26 record=28 losses=count open=28 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=20 failed opts=n frozen=Y n= 3 long=Y | disc=35 hero=32/26 record=28 losses=count open=28 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=20 failed opts=n frozen=Y n=12 long=n | disc=35 hero=32/30 record=26 losses=count open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=2.0
-month h=20 failed opts=n frozen=Y n=12 long=Y | disc=30 hero=32/26 record=26 losses=count open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=3.2
-month h=20 failed opts=Y frozen=n n= 1 long=n | disc=32 hero=32/26 record=30 losses=own open=30 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=20 failed opts=Y frozen=n n= 1 long=Y | disc=32 hero=32/26 record=30 losses=own open=30 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=20 failed opts=Y frozen=n n= 3 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=20 failed opts=Y frozen=n n= 3 long=Y | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=20 failed opts=Y frozen=n n=12 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: monthOf spare=1.2
-month h=20 failed opts=Y frozen=n n=12 long=Y | LAST STEP · disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: note0+monthOf spare=3.2
-month h=20 failed opts=Y frozen=Y n= 1 long=n | disc=32 hero=32/26 record=30 losses=own open=30 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=20 failed opts=Y frozen=Y n= 1 long=Y | disc=32 hero=32/26 record=30 losses=own open=30 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=20 failed opts=Y frozen=Y n= 3 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=20 failed opts=Y frozen=Y n= 3 long=Y | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=20 failed opts=Y frozen=Y n=12 long=n | disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: frozen1+frozen+monthOf spare=1.2
-month h=20 failed opts=Y frozen=Y n=12 long=Y | LAST STEP · disc=30 hero=32/26 record=26 losses=own open=26 gap=2 note 1 row gave way: note0+frozen1+frozen+monthOf spare=3.2
+71c71
+< function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: number): ImageLine[] {
+---
+> export function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: number): ImageLine[] {
+```
+
+On top of those, the script runs the §3 model: `imageRows`, the transform for steps 5–10, the block-aware gaps, and
+`openBand` with step 11 as a separate last pass.
+
+- Fixture: a fictional 48-trade record, a 10-character symbol at −98.7%, a long thesis, September 2026.
+- Axes: kind (trade, month) × handle length 10 or 20 × state (connected, failed) × options × frozen × open positions
+  1 / 3 (`2 up, 1 down`) / 12 (`3 up, 8 down, 1 flat`) × long values (`-99.98%`, `+1088.7%`). That is 192 states.
+- Per state the script asserts:
+  - the disclaimer is at least 28 px;
+  - `o ≥ r`;
+  - "losses included" is present, at least 26 px and at least 4.5:1;
+  - every line is inside the band;
+  - every open part and the as-of are present;
+  - every frozen state contains "record frozen";
+  - "Disconnected" is dropped only in step 11.
+- Script: `/tmp/claude-0/-home-user-stock-social/f8ed5835-8675-52ba-af3a-e662aa8c102e/scratchpad/f34-fit-matrix.ts`.
+  Run it from that folder with `/opt/node24/bin/node f34-fit-matrix.ts image` (`full` tries the full title). The
+  mode is `process.argv[2]`, and `ROWS=1` prints the rows.
+
+**Result: 192/192 fit with every assertion passing, 0 violations.**
+- Disclaimer size: 35 px in 110 states, 32 px in 46, 28 px in 36.
+- Record rows = open values: 30 px in 104, 28 px in 38, 26 px in 50.
+- Gaps between blocks: 2 px in 170, 3 px in 6, 4 px in 16.
+- Month label: 52 px in 6, 40 in 12, 36 in 4, 32 in 14, 30 in 22, 28 in 32, 26 in 6. It is never below `r`.
+- "record frozen": kept in **96/96** frozen states (own row 8, as-of row 10, label row 78).
+- **Step 11 in 14 states, all month, none trade:**
+
+| State (month image) | Dropped in step 11 |
+|---|---|
+| h=10 and h=20 · connected · options · frozen · 12 positions · long | "Disconnected ‹date›" |
+| h=10 and h=20 · failed · no options · frozen · 12 · long | failed note + "Disconnected ‹date›" |
+| h=10 and h=20 · failed · options · not frozen · 12 · long | failed note |
+| h=10 and h=20 · failed · options · frozen · 3 · normal | failed note + "Disconnected ‹date›" |
+| h=10 and h=20 · failed · options · frozen · 3 · long | failed note + "Disconnected ‹date›" |
+| h=10 and h=20 · failed · options · frozen · 12 · normal | failed note + "Disconnected ‹date›" |
+| h=10 and h=20 · failed · options · frozen · 12 · long | failed note + "Disconnected ‹date›" |
+
+  "One of N months" gives way in all of them, as on main. "record frozen" and "Import did not finish" stay on the label
+  row.
+- **Full title** ("Still open: ‹n› positions", `full` mode) for comparison: 184 states fit (36 of them need step 11),
+  and 8 do not fit at all. That is why §2b uses the image form.
+
+<details><summary>All 192 states (round 3)</summary>
+
+```
+trade h=10 connected opts=n frozen=n n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=4 losses=own spare=14.0
+trade h=10 connected opts=n frozen=n n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=4 losses=own spare=14.0
+trade h=10 connected opts=n frozen=n n=3 long=n | disc=35 hero=80/30 record=30 open=30 gap=4 losses=count dropped=thesis spare=19.6
+trade h=10 connected opts=n frozen=n n=3 long=Y | disc=35 hero=80/30 record=30 open=30 gap=4 losses=count dropped=thesis spare=19.6
+trade h=10 connected opts=n frozen=n n=12 long=n | disc=35 hero=40/30 record=30 open=30 gap=3 losses=count dropped=thesis spare=0.0
+trade h=10 connected opts=n frozen=n n=12 long=Y | disc=35 hero=40/30 record=30 open=30 gap=3 losses=count dropped=thesis spare=0.0
+trade h=10 connected opts=n frozen=Y n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=2.8
+trade h=10 connected opts=n frozen=Y n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=2.8
+trade h=10 connected opts=n frozen=Y n=3 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=thesis spare=4.8
+trade h=10 connected opts=n frozen=Y n=3 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=thesis spare=4.8
+trade h=10 connected opts=n frozen=Y n=12 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=thesis spare=2.4
+trade h=10 connected opts=n frozen=Y n=12 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=thesis spare=2.4
+trade h=10 connected opts=Y frozen=n n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=4 losses=own dropped=thesis spare=9.2
+trade h=10 connected opts=Y frozen=n n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=4 losses=own dropped=thesis spare=9.2
+trade h=10 connected opts=Y frozen=n n=3 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own options→count dropped=thesis spare=0.0
+trade h=10 connected opts=Y frozen=n n=3 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own options→count dropped=thesis spare=0.0
+trade h=10 connected opts=Y frozen=n n=12 long=n | disc=32 hero=40/30 record=28 open=28 gap=2 losses=own options→count dropped=thesis spare=2.4
+trade h=10 connected opts=Y frozen=n n=12 long=Y | disc=32 hero=40/30 record=28 open=28 gap=2 losses=own options→count dropped=thesis spare=2.4
+trade h=10 connected opts=Y frozen=Y n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own options→count dropped=thesis spare=7.6
+trade h=10 connected opts=Y frozen=Y n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own options→count dropped=thesis spare=7.6
+trade h=10 connected opts=Y frozen=Y n=3 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=own options→count frozen→label row dropped=thesis spare=2.8
+trade h=10 connected opts=Y frozen=Y n=3 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=own options→count frozen→label row dropped=thesis spare=2.8
+trade h=10 connected opts=Y frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own frozen→label row dropped=thesis spare=0.8
+trade h=10 connected opts=Y frozen=Y n=12 long=Y | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own options→count frozen→as-of row dropped=thesis spare=0.4
+trade h=10 failed opts=n frozen=n n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=2.8
+trade h=10 failed opts=n frozen=n n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=2.8
+trade h=10 failed opts=n frozen=n n=3 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=count note:1row dropped=thesis spare=2.4
+trade h=10 failed opts=n frozen=n n=3 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=count note:1row dropped=thesis spare=2.4
+trade h=10 failed opts=n frozen=n n=12 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count note:1row dropped=thesis spare=0.0
+trade h=10 failed opts=n frozen=n n=12 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count note:1row dropped=thesis spare=0.0
+trade h=10 failed opts=n frozen=Y n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=3.2
+trade h=10 failed opts=n frozen=Y n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=3.2
+trade h=10 failed opts=n frozen=Y n=3 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count note:1row frozen→label row dropped=thesis spare=5.2
+trade h=10 failed opts=n frozen=Y n=3 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count note:1row frozen→label row dropped=thesis spare=5.2
+trade h=10 failed opts=n frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=0.8
+trade h=10 failed opts=n frozen=Y n=12 long=Y | disc=35 hero=80/30 record=26 open=26 gap=2 losses=count note:1row frozen→as-of row dropped=thesis spare=0.4
+trade h=10 failed opts=Y frozen=n n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=7.6
+trade h=10 failed opts=Y frozen=n n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=7.6
+trade h=10 failed opts=Y frozen=n n=3 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=own options→count note:1row dropped=thesis spare=0.4
+trade h=10 failed opts=Y frozen=n n=3 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=own options→count note:1row dropped=thesis spare=0.4
+trade h=10 failed opts=Y frozen=n n=12 long=n | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own dropped=thesis spare=0.4
+trade h=10 failed opts=Y frozen=n n=12 long=Y | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own note:1row dropped=thesis spare=0.4
+trade h=10 failed opts=Y frozen=Y n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=8.0
+trade h=10 failed opts=Y frozen=Y n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=8.0
+trade h=10 failed opts=Y frozen=Y n=3 long=n | disc=32 hero=40/30 record=28 open=28 gap=2 losses=own options→count note:1row frozen→label row dropped=thesis spare=5.6
+trade h=10 failed opts=Y frozen=Y n=3 long=Y | disc=32 hero=40/30 record=28 open=28 gap=2 losses=own options→count note:1row frozen→label row dropped=thesis spare=5.6
+trade h=10 failed opts=Y frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=0.8
+trade h=10 failed opts=Y frozen=Y n=12 long=Y | disc=28 hero=40/30 record=26 open=26 gap=2 losses=own options→count note:1row frozen→as-of row dropped=thesis spare=0.8
+trade h=20 connected opts=n frozen=n n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=4 losses=own spare=14.0
+trade h=20 connected opts=n frozen=n n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=4 losses=own spare=14.0
+trade h=20 connected opts=n frozen=n n=3 long=n | disc=35 hero=80/30 record=30 open=30 gap=4 losses=count dropped=thesis spare=19.6
+trade h=20 connected opts=n frozen=n n=3 long=Y | disc=35 hero=80/30 record=30 open=30 gap=4 losses=count dropped=thesis spare=19.6
+trade h=20 connected opts=n frozen=n n=12 long=n | disc=35 hero=40/30 record=30 open=30 gap=3 losses=count dropped=thesis spare=0.0
+trade h=20 connected opts=n frozen=n n=12 long=Y | disc=35 hero=40/30 record=30 open=30 gap=3 losses=count dropped=thesis spare=0.0
+trade h=20 connected opts=n frozen=Y n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=2.8
+trade h=20 connected opts=n frozen=Y n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=2.8
+trade h=20 connected opts=n frozen=Y n=3 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=thesis spare=4.8
+trade h=20 connected opts=n frozen=Y n=3 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=thesis spare=4.8
+trade h=20 connected opts=n frozen=Y n=12 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=thesis spare=2.4
+trade h=20 connected opts=n frozen=Y n=12 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=thesis spare=2.4
+trade h=20 connected opts=Y frozen=n n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=4 losses=own dropped=thesis spare=9.2
+trade h=20 connected opts=Y frozen=n n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=4 losses=own dropped=thesis spare=9.2
+trade h=20 connected opts=Y frozen=n n=3 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own options→count dropped=thesis spare=0.0
+trade h=20 connected opts=Y frozen=n n=3 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own options→count dropped=thesis spare=0.0
+trade h=20 connected opts=Y frozen=n n=12 long=n | disc=32 hero=40/30 record=28 open=28 gap=2 losses=own options→count dropped=thesis spare=2.4
+trade h=20 connected opts=Y frozen=n n=12 long=Y | disc=32 hero=40/30 record=28 open=28 gap=2 losses=own options→count dropped=thesis spare=2.4
+trade h=20 connected opts=Y frozen=Y n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own options→count dropped=thesis spare=7.6
+trade h=20 connected opts=Y frozen=Y n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own options→count dropped=thesis spare=7.6
+trade h=20 connected opts=Y frozen=Y n=3 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=own options→count frozen→label row dropped=thesis spare=2.8
+trade h=20 connected opts=Y frozen=Y n=3 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=own options→count frozen→label row dropped=thesis spare=2.8
+trade h=20 connected opts=Y frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own frozen→label row dropped=thesis spare=0.8
+trade h=20 connected opts=Y frozen=Y n=12 long=Y | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own options→count frozen→as-of row dropped=thesis spare=0.4
+trade h=20 failed opts=n frozen=n n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=2.8
+trade h=20 failed opts=n frozen=n n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=2.8
+trade h=20 failed opts=n frozen=n n=3 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=count note:1row dropped=thesis spare=2.4
+trade h=20 failed opts=n frozen=n n=3 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=count note:1row dropped=thesis spare=2.4
+trade h=20 failed opts=n frozen=n n=12 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count note:1row dropped=thesis spare=0.0
+trade h=20 failed opts=n frozen=n n=12 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count note:1row dropped=thesis spare=0.0
+trade h=20 failed opts=n frozen=Y n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=3.2
+trade h=20 failed opts=n frozen=Y n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=3.2
+trade h=20 failed opts=n frozen=Y n=3 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count note:1row frozen→label row dropped=thesis spare=5.2
+trade h=20 failed opts=n frozen=Y n=3 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=count note:1row frozen→label row dropped=thesis spare=5.2
+trade h=20 failed opts=n frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=0.8
+trade h=20 failed opts=n frozen=Y n=12 long=Y | disc=35 hero=80/30 record=26 open=26 gap=2 losses=count note:1row frozen→as-of row dropped=thesis spare=0.4
+trade h=20 failed opts=Y frozen=n n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=7.6
+trade h=20 failed opts=Y frozen=n n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own dropped=thesis spare=7.6
+trade h=20 failed opts=Y frozen=n n=3 long=n | disc=28 hero=40/30 record=30 open=30 gap=2 losses=own options→count note:1row dropped=thesis spare=0.4
+trade h=20 failed opts=Y frozen=n n=3 long=Y | disc=28 hero=40/30 record=30 open=30 gap=2 losses=own options→count note:1row dropped=thesis spare=0.4
+trade h=20 failed opts=Y frozen=n n=12 long=n | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own dropped=thesis spare=0.4
+trade h=20 failed opts=Y frozen=n n=12 long=Y | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own note:1row dropped=thesis spare=0.4
+trade h=20 failed opts=Y frozen=Y n=1 long=n | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=8.0
+trade h=20 failed opts=Y frozen=Y n=1 long=Y | disc=35 hero=80/30 record=30 open=30 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=8.0
+trade h=20 failed opts=Y frozen=Y n=3 long=n | disc=32 hero=40/30 record=28 open=28 gap=2 losses=own options→count note:1row frozen→label row dropped=thesis spare=5.6
+trade h=20 failed opts=Y frozen=Y n=3 long=Y | disc=32 hero=40/30 record=28 open=28 gap=2 losses=own options→count note:1row frozen→label row dropped=thesis spare=5.6
+trade h=20 failed opts=Y frozen=Y n=12 long=n | disc=35 hero=80/30 record=26 open=26 gap=2 losses=own note:1row frozen→label row dropped=thesis spare=0.8
+trade h=20 failed opts=Y frozen=Y n=12 long=Y | disc=28 hero=40/30 record=26 open=26 gap=2 losses=own options→count note:1row frozen→as-of row dropped=thesis spare=0.8
+month h=10 connected opts=n frozen=n n=1 long=n | disc=35 hero=52/30 record=30 open=30 gap=4 losses=count dropped=monthOf spare=0.8
+month h=10 connected opts=n frozen=n n=1 long=Y | disc=35 hero=52/30 record=30 open=30 gap=4 losses=count dropped=monthOf spare=0.8
+month h=10 connected opts=n frozen=n n=3 long=n | disc=32 hero=30/26 record=30 open=30 gap=2 losses=count dropped=monthOf spare=0.4
+month h=10 connected opts=n frozen=n n=3 long=Y | disc=32 hero=30/26 record=30 open=30 gap=2 losses=count dropped=monthOf spare=0.4
+month h=10 connected opts=n frozen=n n=12 long=n | disc=35 hero=52/30 record=26 open=26 gap=3 losses=count dropped=monthOf spare=1.2
+month h=10 connected opts=n frozen=n n=12 long=Y | disc=35 hero=32/30 record=26 open=26 gap=2 losses=count dropped=monthOf spare=4.0
+month h=10 connected opts=n frozen=Y n=1 long=n | disc=35 hero=40/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=monthOf spare=4.4
+month h=10 connected opts=n frozen=Y n=1 long=Y | disc=35 hero=40/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=monthOf spare=4.4
+month h=10 connected opts=n frozen=Y n=3 long=n | disc=35 hero=28/28 record=28 open=28 gap=2 losses=count frozen→label row dropped=monthOf spare=2.0
+month h=10 connected opts=n frozen=Y n=3 long=Y | disc=35 hero=28/28 record=28 open=28 gap=2 losses=count frozen→label row dropped=monthOf spare=2.0
+month h=10 connected opts=n frozen=Y n=12 long=n | disc=35 hero=32/30 record=26 open=26 gap=2 losses=count frozen→as-of row dropped=monthOf spare=2.0
+month h=10 connected opts=n frozen=Y n=12 long=Y | disc=32 hero=30/26 record=26 open=26 gap=2 losses=count frozen→label row dropped=monthOf spare=0.8
+month h=10 connected opts=Y frozen=n n=1 long=n | disc=35 hero=40/30 record=30 open=30 gap=2 losses=own dropped=monthOf spare=3.2
+month h=10 connected opts=Y frozen=n n=1 long=Y | disc=35 hero=40/30 record=30 open=30 gap=2 losses=own dropped=monthOf spare=3.2
+month h=10 connected opts=Y frozen=n n=3 long=n | disc=35 hero=28/28 record=28 open=28 gap=2 losses=own options→count dropped=monthOf spare=0.8
+month h=10 connected opts=Y frozen=n n=3 long=Y | disc=35 hero=28/28 record=28 open=28 gap=2 losses=own options→count dropped=monthOf spare=0.8
+month h=10 connected opts=Y frozen=n n=12 long=n | disc=35 hero=36/30 record=26 open=26 gap=2 losses=own dropped=monthOf spare=0.8
+month h=10 connected opts=Y frozen=n n=12 long=Y | disc=32 hero=28/26 record=26 open=26 gap=2 losses=own options→count dropped=monthOf spare=0.8
+month h=10 connected opts=Y frozen=Y n=1 long=n | disc=32 hero=30/28 record=30 open=30 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=0.0
+month h=10 connected opts=Y frozen=Y n=1 long=Y | disc=32 hero=30/28 record=30 open=30 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=0.0
+month h=10 connected opts=Y frozen=Y n=3 long=n | disc=28 hero=28/26 record=28 open=28 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=1.2
+month h=10 connected opts=Y frozen=Y n=3 long=Y | disc=28 hero=28/26 record=28 open=28 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=1.2
+month h=10 connected opts=Y frozen=Y n=12 long=n | disc=32 hero=28/26 record=26 open=26 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=1.2
+month h=10 connected opts=Y frozen=Y n=12 long=Y | STEP 11 · disc=32 hero=30/26 record=26 open=26 gap=2 losses=own options→count frozen→label row dropped=frozen+monthOf spare=0.8
+month h=10 failed opts=n frozen=n n=1 long=n | disc=35 hero=40/30 record=30 open=30 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=10 failed opts=n frozen=n n=1 long=Y | disc=35 hero=40/30 record=30 open=30 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=10 failed opts=n frozen=n n=3 long=n | disc=35 hero=32/26 record=28 open=28 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=10 failed opts=n frozen=n n=3 long=Y | disc=35 hero=32/26 record=28 open=28 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=10 failed opts=n frozen=n n=12 long=n | disc=35 hero=32/30 record=26 open=26 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=10 failed opts=n frozen=n n=12 long=Y | disc=32 hero=28/26 record=26 open=26 gap=2 losses=count note:1row dropped=monthOf spare=0.8
+month h=10 failed opts=n frozen=Y n=1 long=n | disc=32 hero=30/28 record=30 open=30 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=10 failed opts=n frozen=Y n=1 long=Y | disc=32 hero=30/28 record=30 open=30 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=10 failed opts=n frozen=Y n=3 long=n | disc=28 hero=28/26 record=28 open=28 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=10 failed opts=n frozen=Y n=3 long=Y | disc=28 hero=28/26 record=28 open=28 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=10 failed opts=n frozen=Y n=12 long=n | disc=32 hero=28/26 record=26 open=26 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=10 failed opts=n frozen=Y n=12 long=Y | STEP 11 · disc=28 hero=28/26 record=28 open=28 gap=2 losses=count frozen→label row dropped=note1+note0+frozen+monthOf spare=0.4
+month h=10 failed opts=Y frozen=n n=1 long=n | disc=32 hero=32/26 record=30 open=30 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=10 failed opts=Y frozen=n n=1 long=Y | disc=32 hero=32/26 record=30 open=30 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=10 failed opts=Y frozen=n n=3 long=n | disc=32 hero=26/26 record=26 open=26 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=10 failed opts=Y frozen=n n=3 long=Y | disc=32 hero=26/26 record=26 open=26 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=10 failed opts=Y frozen=n n=12 long=n | disc=32 hero=26/26 record=26 open=26 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=10 failed opts=Y frozen=n n=12 long=Y | STEP 11 · disc=32 hero=28/26 record=26 open=26 gap=2 losses=own dropped=note1+note0+monthOf spare=0.8
+month h=10 failed opts=Y frozen=Y n=1 long=n | disc=28 hero=28/26 record=28 open=28 gap=2 losses=own note:1row frozen→label row dropped=monthOf spare=1.6
+month h=10 failed opts=Y frozen=Y n=1 long=Y | disc=28 hero=28/26 record=28 open=28 gap=2 losses=own note:1row frozen→label row dropped=monthOf spare=1.6
+month h=10 failed opts=Y frozen=Y n=3 long=n | STEP 11 · disc=35 hero=30/28 record=28 open=28 gap=2 losses=own frozen→label row dropped=note1+note0+frozen+monthOf spare=0.8
+month h=10 failed opts=Y frozen=Y n=3 long=Y | STEP 11 · disc=35 hero=30/28 record=28 open=28 gap=2 losses=own frozen→label row dropped=note1+note0+frozen+monthOf spare=0.8
+month h=10 failed opts=Y frozen=Y n=12 long=n | STEP 11 · disc=35 hero=36/30 record=26 open=26 gap=2 losses=own frozen→as-of row dropped=note1+note0+frozen+monthOf spare=0.8
+month h=10 failed opts=Y frozen=Y n=12 long=Y | STEP 11 · disc=32 hero=30/26 record=26 open=26 gap=2 losses=own frozen→label row dropped=note1+note0+frozen+monthOf spare=0.8
+month h=20 connected opts=n frozen=n n=1 long=n | disc=35 hero=52/30 record=30 open=30 gap=4 losses=count dropped=monthOf spare=0.8
+month h=20 connected opts=n frozen=n n=1 long=Y | disc=35 hero=52/30 record=30 open=30 gap=4 losses=count dropped=monthOf spare=0.8
+month h=20 connected opts=n frozen=n n=3 long=n | disc=32 hero=30/26 record=30 open=30 gap=2 losses=count dropped=monthOf spare=0.4
+month h=20 connected opts=n frozen=n n=3 long=Y | disc=32 hero=30/26 record=30 open=30 gap=2 losses=count dropped=monthOf spare=0.4
+month h=20 connected opts=n frozen=n n=12 long=n | disc=35 hero=52/30 record=26 open=26 gap=3 losses=count dropped=monthOf spare=1.2
+month h=20 connected opts=n frozen=n n=12 long=Y | disc=35 hero=32/30 record=26 open=26 gap=2 losses=count dropped=monthOf spare=4.0
+month h=20 connected opts=n frozen=Y n=1 long=n | disc=35 hero=40/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=monthOf spare=4.4
+month h=20 connected opts=n frozen=Y n=1 long=Y | disc=35 hero=40/30 record=30 open=30 gap=2 losses=count frozen→label row dropped=monthOf spare=4.4
+month h=20 connected opts=n frozen=Y n=3 long=n | disc=35 hero=28/28 record=28 open=28 gap=2 losses=count frozen→label row dropped=monthOf spare=2.0
+month h=20 connected opts=n frozen=Y n=3 long=Y | disc=35 hero=28/28 record=28 open=28 gap=2 losses=count frozen→label row dropped=monthOf spare=2.0
+month h=20 connected opts=n frozen=Y n=12 long=n | disc=35 hero=32/30 record=26 open=26 gap=2 losses=count frozen→as-of row dropped=monthOf spare=2.0
+month h=20 connected opts=n frozen=Y n=12 long=Y | disc=32 hero=30/26 record=26 open=26 gap=2 losses=count frozen→label row dropped=monthOf spare=0.8
+month h=20 connected opts=Y frozen=n n=1 long=n | disc=35 hero=40/30 record=30 open=30 gap=2 losses=own dropped=monthOf spare=3.2
+month h=20 connected opts=Y frozen=n n=1 long=Y | disc=35 hero=40/30 record=30 open=30 gap=2 losses=own dropped=monthOf spare=3.2
+month h=20 connected opts=Y frozen=n n=3 long=n | disc=35 hero=28/28 record=28 open=28 gap=2 losses=own options→count dropped=monthOf spare=0.8
+month h=20 connected opts=Y frozen=n n=3 long=Y | disc=35 hero=28/28 record=28 open=28 gap=2 losses=own options→count dropped=monthOf spare=0.8
+month h=20 connected opts=Y frozen=n n=12 long=n | disc=35 hero=36/30 record=26 open=26 gap=2 losses=own dropped=monthOf spare=0.8
+month h=20 connected opts=Y frozen=n n=12 long=Y | disc=32 hero=28/26 record=26 open=26 gap=2 losses=own options→count dropped=monthOf spare=0.8
+month h=20 connected opts=Y frozen=Y n=1 long=n | disc=32 hero=30/28 record=30 open=30 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=0.0
+month h=20 connected opts=Y frozen=Y n=1 long=Y | disc=32 hero=30/28 record=30 open=30 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=0.0
+month h=20 connected opts=Y frozen=Y n=3 long=n | disc=28 hero=28/26 record=28 open=28 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=1.2
+month h=20 connected opts=Y frozen=Y n=3 long=Y | disc=28 hero=28/26 record=28 open=28 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=1.2
+month h=20 connected opts=Y frozen=Y n=12 long=n | disc=32 hero=28/26 record=26 open=26 gap=2 losses=own options→count frozen→label row dropped=monthOf spare=1.2
+month h=20 connected opts=Y frozen=Y n=12 long=Y | STEP 11 · disc=32 hero=30/26 record=26 open=26 gap=2 losses=own options→count frozen→label row dropped=frozen+monthOf spare=0.8
+month h=20 failed opts=n frozen=n n=1 long=n | disc=35 hero=40/30 record=30 open=30 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=20 failed opts=n frozen=n n=1 long=Y | disc=35 hero=40/30 record=30 open=30 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=20 failed opts=n frozen=n n=3 long=n | disc=35 hero=32/26 record=28 open=28 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=20 failed opts=n frozen=n n=3 long=Y | disc=35 hero=32/26 record=28 open=28 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=20 failed opts=n frozen=n n=12 long=n | disc=35 hero=32/30 record=26 open=26 gap=2 losses=count note:1row dropped=monthOf spare=2.0
+month h=20 failed opts=n frozen=n n=12 long=Y | disc=32 hero=28/26 record=26 open=26 gap=2 losses=count note:1row dropped=monthOf spare=0.8
+month h=20 failed opts=n frozen=Y n=1 long=n | disc=32 hero=30/28 record=30 open=30 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=20 failed opts=n frozen=Y n=1 long=Y | disc=32 hero=30/28 record=30 open=30 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=20 failed opts=n frozen=Y n=3 long=n | disc=28 hero=28/26 record=28 open=28 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=20 failed opts=n frozen=Y n=3 long=Y | disc=28 hero=28/26 record=28 open=28 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=20 failed opts=n frozen=Y n=12 long=n | disc=32 hero=28/26 record=26 open=26 gap=2 losses=count note:1row frozen→label row dropped=monthOf spare=1.2
+month h=20 failed opts=n frozen=Y n=12 long=Y | STEP 11 · disc=28 hero=28/26 record=28 open=28 gap=2 losses=count frozen→label row dropped=note1+note0+frozen+monthOf spare=0.4
+month h=20 failed opts=Y frozen=n n=1 long=n | disc=32 hero=32/26 record=30 open=30 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=20 failed opts=Y frozen=n n=1 long=Y | disc=32 hero=32/26 record=30 open=30 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=20 failed opts=Y frozen=n n=3 long=n | disc=32 hero=26/26 record=26 open=26 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=20 failed opts=Y frozen=n n=3 long=Y | disc=32 hero=26/26 record=26 open=26 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=20 failed opts=Y frozen=n n=12 long=n | disc=32 hero=26/26 record=26 open=26 gap=2 losses=own note:1row dropped=monthOf spare=1.2
+month h=20 failed opts=Y frozen=n n=12 long=Y | STEP 11 · disc=32 hero=28/26 record=26 open=26 gap=2 losses=own dropped=note1+note0+monthOf spare=0.8
+month h=20 failed opts=Y frozen=Y n=1 long=n | disc=28 hero=28/26 record=28 open=28 gap=2 losses=own note:1row frozen→label row dropped=monthOf spare=1.6
+month h=20 failed opts=Y frozen=Y n=1 long=Y | disc=28 hero=28/26 record=28 open=28 gap=2 losses=own note:1row frozen→label row dropped=monthOf spare=1.6
+month h=20 failed opts=Y frozen=Y n=3 long=n | STEP 11 · disc=35 hero=30/28 record=28 open=28 gap=2 losses=own frozen→label row dropped=note1+note0+frozen+monthOf spare=0.8
+month h=20 failed opts=Y frozen=Y n=3 long=Y | STEP 11 · disc=35 hero=30/28 record=28 open=28 gap=2 losses=own frozen→label row dropped=note1+note0+frozen+monthOf spare=0.8
+month h=20 failed opts=Y frozen=Y n=12 long=n | STEP 11 · disc=35 hero=36/30 record=26 open=26 gap=2 losses=own frozen→as-of row dropped=note1+note0+frozen+monthOf spare=0.8
+month h=20 failed opts=Y frozen=Y n=12 long=Y | STEP 11 · disc=32 hero=30/26 record=26 open=26 gap=2 losses=own frozen→label row dropped=note1+note0+frozen+monthOf spare=0.8
 ```
 </details>
 
@@ -520,7 +590,9 @@ account flagged paper later keeps its rows until the next read. The writers stay
 | Down colour from the F-20 table | Unit: the down span's colour is `IMAGE_PALETTE.strip.down` / `.card.down`. `colour-literals.test.ts` stays green with no new allowlist entry |
 | Pane at 360 and 320 | e2e, §7 |
 | One producer | Source scan in `f34-open-line.test.ts`: outside the `openLine` block, no `app/` or `lib/` source contains "Still open", "open, unrealized" or "avg unrealized" (apart from `OPEN.line` under `app/t/**`), and `SHARE_CARD.openFull` is read only by `openLine`. The retired keys are gone. **Banned words** (BL6): no `openLine` output for any §2 state contains "all positions", "every", "holdings" or "portfolio" |
-| Fit (BL4, EN1) | New `lib/f34-open-band.test.ts`: the §3a matrix of 192 states. Each fits with the disclaimer at 28 px or more and `o ≥ r`. "losses included" is at least 26 px, at least 4.5:1 and inside x 309–891. Every open part and the as-of are present. Only step 11 drops a frozen line or a failed note |
+| Fit (BL4, EN1, BL-R2-2, EN-R2-1/2) | New `lib/f34-open-band.test.ts` imports the real `tradeHero`, `monthHero` (newly exported), `stripImageLines`, `tradeBand` and `monthBand`, and runs the §3a matrix of 192 states. **All 192 fit.** Each has the disclaimer at 28 px or more, `o ≥ r`, "losses included" at least 26 px and at least 4.5:1 inside x 309–891, and every open part and the as-of. **Every frozen state shows "record frozen".** "Disconnected ‹date›" is kept in every frozen state except the step-11 states listed by name in the test (§3a). Step 11 runs only after steps 1–10 fail at every size |
+| Image rows (BL-R2-1) | `f34-open-line.test.ts`: test A (content) and test B (equality) from §2b, over every §2 state plus 1,204, and a source scan: `imageRows` is the only caller of `packRows` for open rows, the unfurl, trade and month code paths call `imageRows`, and the literals "Still open" and "as of" appear only in `lib/copy.ts` |
+| Feed card at 320 px (BL-R2-3) | `e2e/f34-open-line.spec.ts` at 375 and 320 px: no horizontal scroll. At 320 px the open line has at most 3 line boxes (height ÷ computed line-height ≤ 3). "-15.0%" and "down" share one line box. The card's trade return has the largest computed `font-size` on the card |
 
 ### States
 
@@ -643,19 +715,25 @@ Main is merged in as #100 and #102 land.
 - Q5: stock and compare pages get the filter only.
 - Q6: options gate is a ponytail.
 - Q9: pane headroom is an e2e assertion only (BL2).
-- Q10: replaced by the §3a matrix, which fits.
+- Q10: replaced by the §3a matrix, which fits 192/192 (round 3, real functions).
 
 **Still open:**
 - **Q7 (owner, OD 2.7):** move `fetched_at` into the record-state fields? Recommend yes. It is already printed publicly.
 - **Q8 (owner, a note, not a blocker):** with the failed note moved, the worst 2-row unfurl is at 15.0%. The extreme
   3-row case (flats with two-digit counts or long values, with failed, options and wide) is at 12.5%. Recommend accept:
   the 35 px floor cannot shrink, and F-4's rule puts a row of text ahead of a sliver of chart.
-- **Q11 (committee): the image form.** Do the AC's words "the three images' text" accept `Still open: ‹n›` and
-  `as of ‹date›` on the 1200×630 images? Recommend yes. The full title cannot fit 44 of the 192 states (§3a). Every fact
-  and the dated year stay, the same producer makes it, a unit-tested mapping relates it to `withAsOf`, and the alt
-  carries the full words.
-- **Q12 (business lead): step 11.** In 8 extreme month states, may a frozen line or a failed note give way on the image,
-  while the label row ("Import did not finish"), the page and the alt keep it? Recommend yes. It extends today's rule
-  that the frozen line gives way beside a failed note, and it never drops a figure, the open line or the disclaimer.
+- **Q11 (committee): the image form and the record-row size (EN-R2-3).** Two image changes need the committee:
+  - Do the AC's words "the three images' text" accept `Still open: ‹n›` and `as of ‹date›` on the 1200×630 images?
+    Recommend yes. With the full title, 8 of the 192 states do not fit at all, and 36 more need step 11 (§3a). Every fact
+    and the 4-digit year stay, one producer (`imageRows`) makes the rows, tests A and B tie them to `withAsOf`, and the
+    alt carries the full words.
+  - **Record rows on images:** while an open block is present, the trade and month images draw the record's count,
+    average and range at 30, 28 or 26 px instead of 35 px (104, 38 and 50 states). The open values are never smaller than
+    those rows, and the disclaimer stays at 28 px or more. Images with no open positions keep 35 px, byte for byte. The
+    orchestrator accepts this on the business lead's TR-4 reasoning, and the PR body names it.
+- **Q12 (business lead): step 11, as narrowed by BL-R2-2.** In 14 month states (§3a), the image drops only the
+  "Disconnected ‹date›" row and/or the failed-note row. "record frozen" stays on the label row, and "Import did not
+  finish" stays as the label. The page and the alt keep both lines in full. Recommend yes. No figure, open value,
+  "record frozen" or disclaimer is ever dropped.
 - **Q13 (business lead): the 1-row failed note on images** (`This record may be incomplete.`, step 6). It is the second
   clause of the existing sentence, under the label "Import did not finish". Recommend yes.
