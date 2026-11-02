@@ -27,7 +27,7 @@ every shown figure and every other count is unchanged (fuzz-checked against the 
   (`{version, shown, excluded, corporate, transfer, held}`). **Not wired yet; see the blocking item.**
 
 ## Merge order (blocking)
-- [ ] **Merge after chore C5-43(b)** (matcher catch-up, `claude/chores-cycle5-matcher-catchup`). This PR bumps
+- [ ] **Merge after #107** (chore C5-43(b), matcher catch-up). This PR bumps
       MATCHER_VERSION, and the bump ships only once C5-43(b) is on main.
 - [ ] **Before merge, wire the report.** Once C5-43(b) is on main, I merge main into this branch and call
       `reasonCounts` before and after each record in its rebuild loop, with `addMoves`, then log `movesLine` once per
