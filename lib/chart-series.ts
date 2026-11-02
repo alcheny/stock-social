@@ -10,13 +10,17 @@ import { RANGES, curveDomain, equityCurve, maxDrawdown, pct, rangeTrades, type R
 import { downsampleIndices, FEED_CHART_POINTS, FEED_LITE_POINTS, PANE_EAGER_CLOSES } from './downsample.ts';
 import { byListOrder, noteDaysOf, withNoteDays, type ChartPoint, type PackInput } from './paging.ts';
 import { wireDay, wireHold, wirePct } from './public-wire.ts'; // F-23
+import { boundedIndices, PROFILE_CHART_POINTS } from './chart-bounded.ts'; // FIXES-CYCLE5 (F5-14)
 
 const DAY = 86_400_000;
 
 export type SeriesPt = { value: number; at: number; trade: ChartPoint | null };
 export type Series = { pts: SeriesPt[]; t0: number; t1: number; last: number; n: number; drawdown: number; min: number; max: number };
 
-export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxPoints = Infinity): Series {
+// FIXES-CYCLE5 (F5-14): `pick` chooses the kept points of a range longer than maxPoints (the feed's min/max slices by
+// default; the profile's first/last/min/max slices, lib/chart-bounded.ts). Every figure below still uses every close.
+export type PickIndices = (xs: number[], ys: number[], max: number) => number[];
+export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxPoints = Infinity, pick: PickIndices = downsampleIndices): Series {
   const spec = RANGES.find((r) => r.key === key)!;
   // F-23 (user test, UX 1): closes at the same instant run in list order, oldest row first (the list's tie-break: the
   // larger id is newer), so the last key step and the right edge land on the list's top row. equityCurve's sort is
@@ -29,7 +33,7 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
   let pts: SeriesPt[] = [{ value: 0, at: t0, trade: null }, ...curve.map((p) => ({ value: p.cumulative, at: p.trade.closedAt.getTime(), trade: p.trade }))];
   if (pts.length > maxPoints) {
     const all = pts;
-    pts = downsampleIndices(all.map((p) => p.at), all.map((p) => p.value), maxPoints).map((i) => all[i]);
+    pts = pick(all.map((p) => p.at), all.map((p) => p.value), maxPoints).map((i) => all[i]); // FIXES-CYCLE5 (F5-14)
   }
   const { min, max } = curveDomain(curve);
   return { pts, t0, t1, last, n: curve.length, drawdown: maxDrawdown(curve), min, max };
@@ -61,10 +65,10 @@ export type PackedChart = { v: typeof PAYLOAD_V; base: number; trades: PackedTra
 // Kept for its callers: a chart value at the printed precision (F-23: wirePct; it was 6 decimals).
 export const packValue = (v: number): number => wirePct(v);
 
-export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, lite = false): PackedChart {
+export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, lite = false, pick: PickIndices = downsampleIndices): PackedChart {
   const out: PackedTrade[] = [];
   const ref = new Map<string, number>();
-  const series = RANGES.map(({ key }) => [key, chartSeries(trades, key, now, maxPoints)] as const);
+  const series = RANGES.map(({ key }) => [key, chartSeries(trades, key, now, maxPoints, pick)] as const); // FIXES-CYCLE5 (F5-14): pick
   const base = wireDay(Math.min(...series.flatMap(([, s]) => s.pts.map((p) => p.at))));
   const ranges = {} as Record<RangeKey, PackedSeries>;
   for (const [key, s] of series) {
@@ -134,9 +138,14 @@ export const chartPoints = (trades: PaneInput): ChartPoint[] =>
 
 // The feed pane's chart (fix round 7), from a trader's whole record.
 export const paneChart = (trades: PaneInput, now: Date): PackedChart => packChart(chartPoints(trades), now, FEED_CHART_POINTS);
-// F-23: the profile's chart, every close (full resolution, F-1 fix round 7), ranges computed on the server from stored
-// values: the browser compounds nothing, so rounded returns never move a printed total or scrub value.
-export const profileChart = (trades: PaneInput, now: Date): PackedChart => packChart(chartPoints(trades), now, Infinity);
+// F-23: the profile's chart, ranges computed on the server from stored values: the browser compounds nothing, so rounded
+// returns never move a printed total or scrub value.
+// FIXES-CYCLE5 (F5-14, C5-12): every close while a range has at most PROFILE_CHART_POINTS points; a longer range keeps
+// each time slice's first, last, lowest and highest point (lib/chart-bounded.ts), so every printed figure is unchanged
+// and an 80,000-close record no longer ships every close to the browser.
+// ponytail: a scrub on a range longer than PROFILE_CHART_POINTS steps through the kept closes only (about 2,000 of them)
+// — the rest are reached through the paged closed-trade list; a per-slice fetch on zoom would reach each from the chart.
+export const profileChart = (trades: PaneInput, now: Date): PackedChart => packChart(chartPoints(trades), now, PROFILE_CHART_POINTS, false, boundedIndices);
 // Fix round 8 (tester re-run 4, Medium): what the feed page carries per trader. A record longer than PANE_EAGER_CLOSES
 // ships only the stand-in line (`lite`); the pane fetches `paneChart` from `paneChartSrc` (app/u/[handle]/pane-chart)
 // on its first swipe-open. Every number the pane shows (header, label, tabs, summary, stats) is in the page either way.
