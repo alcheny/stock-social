@@ -17,7 +17,8 @@ those reports.
 
 **Wording rules (POLICY T1/T2).** This document names no real people or private companies. Court decisions are cited by
 reporter citation, court and year only, never by party name. Government bodies, statutes, regulations, release
-numbers, form numbers and government web addresses are named, as the owner's brief allows.
+numbers, form numbers and government web addresses are named, as the owner's brief allows. So is the broker-dealer self-regulatory
+organization, following the precedent in `docs/COMPLIANCE.md`.
 
 **How it was made (§A).**
 - Five research agents with fresh context, one per source category plus one on cross-cutting risks, each citing
@@ -44,23 +45,32 @@ dates and bands plus outside market prices.
 
 | # | Source | Actual return | Estimated return | Facts only (no return) | Confidence |
 |---|---|---|---|---|---|
-| 1a | Federal legislators' periodic transaction reports | **Not possible** (no prices filed) | **Go-with-limits, launch-gated**: attorney opinion on 5 U.S.C. § 13107(c), owner rule changes, a licensed price source, a passed back-test | **Go-with-limits, launch-gated**: the same attorney opinion | Medium on the statute's text; low on how a court would class this product |
+| 1a | Federal legislators' periodic transaction reports | **Not possible** (no prices filed) | **Go-with-limits, launch-gated**: attorney opinion on 5 U.S.C. § 13107(c), owner rule changes, a licensed price source, a passed back-test | **Go-with-limits, launch-gated**: the same attorney opinion, or the owner's written risk acceptance against the committee's recommendation | Medium on the statute's text; low on how a court would class this product |
 | 1b | Executive-branch reports posted online (top officials) | Not possible | Same as 1a | Same as 1a | Medium |
 | 1c | Executive-branch reports available only by written application | Not possible | **No-go** | **No-go** | High |
 | 1d | State officials' disclosures | Not possible | **No-go by default** (no dated trades); state-by-state statute check first | **No-go by default** | Medium-high |
 | 1e | Federal judges' reports | Not possible | **Not at launch** | **Not at launch** | Medium |
-| 2 | Institutional managers' quarterly holdings reports (Form 13F) | **No-go** as "the firm's return" | **Go-with-limits**: a firm-level "hypothetical holdings return" from the firm's own reported values. Entity filers only, unranked at launch, no vendor needed | Go | Medium-high |
+| 2 | Institutional managers' quarterly holdings reports (Form 13F) | **No-go** as "the firm's return" | **Go-with-limits**: a firm-level "hypothetical holdings return" from the firm's own reported values and other filers' values. Registered firms only, unranked at launch, no market-data vendor; the owner's calls in OD-4 come first | Go | Medium-high |
 | 3a | Company insiders' reports (Forms 3, 4 and 5) | **Go-with-limits**, as built in F-7 (re-confirmed) | **No-go** | Go (F-7) | High |
-| 3b | Beneficial-ownership reports, Schedule 13D | **Narrow go-with-limits**: only chains where both legs carry Item 5(c) prices | **No-go** | Go-with-limits (holdings as filed) | High |
+| 3b | Beneficial-ownership reports, Schedule 13D | **Narrow go-with-limits**: only chains where both legs carry Item 5(c) prices, entity filers only, as a later step with its own owner decision (OD-14); not in F-37 | **No-go** | Go-with-limits (holdings as filed) | High |
 | 3c | Beneficial-ownership reports, Schedule 13G | **No-go** (no transactions, dates or prices) | **No-go** | Holdings as filed only | High |
 | 4 | "Private holdings": exempt-offering notices (Form D, Form C), private fund data (Form PF, Form ADV Schedule D), the broker-registration lookup, property, court and probate records | **No-go** for any holdings or returns profile of a natural person or private fund | **No-go** | Entity-level facts only, in their filed business role; not a profile | High |
+
+Not reviewed, so no verdict: insiders' proposed-sale notices (Form 144), public pension funds' holdings published
+under state records laws, nonprofits' annual information returns, and foreign regulators' per-manager net
+short-position disclosures. Each needs its own review before any use.
 
 ### 1.2 What this means
 
 - The owner's profile type can exist in a limited form now. The first step is a firm-level **holdings report** profile
-  built from Form 13F. Its number is a clearly labeled hypothetical return computed from the firm's own reported
-  values. It needs no market-data vendor, no change to the "never guessed" rule and no attorney.
-- **Politicians' profiles wait for one legal question.** Federal law makes it unlawful to "obtain or use" these reports
+  built from Form 13F. Its number is a clearly labeled hypothetical return computed from the filings' own reported
+  values. It needs no market-data vendor and no attorney. It does need four owner calls first (OD-4):
+  - that P3's consent rule covers connected traders only (F-7 finding 10);
+  - that T1 and T2 allow filer names in production data;
+  - that this method satisfies F-7 finding 4 and is "computed, not guessed";
+  - the F-7 switch-on checklist.
+- **Politicians' profiles wait for two attorney answers** (A1 on the commercial-use bar, A2 on defamation), media
+  liability insurance and owner calls. Federal law makes it unlawful to "obtain or use" these reports
   "for any commercial purpose, other than by news and communications media for dissemination to the general public"
   (5 U.S.C. § 13107(c)(1)(B)). The exception is undefined, no court has read it, and the federal government enforces
   it. The committee unanimously recommends a licensed attorney's written opinion before any production use, including
@@ -82,9 +92,11 @@ dates and bands plus outside market prices.
 2. **Defamation and false light from a wrong estimate or a transcription error** about a named person. Two points
    shape this:
    - The fair-report privilege protects the record, not the platform's derived figure.
-   - The opinion defense holds only if the inputs, method and range are disclosed and correct (497 U.S. 1 (U.S.
-     1990)). Spouses, other family members and lower-level filers may be private figures, who need show only
-     negligence (418 U.S. 323 (U.S. 1974)).
+   - Under 497 U.S. 1 (U.S. 1990) there is no separate opinion privilege: a statement that implies a provably false
+     fact is actionable. An estimate is best defended as a computation on fully disclosed, accurate inputs
+     (Restatement (Second) of Torts § 566 and state law). That defense fails if any input is wrong.
+   - Spouses, other family members and lower-level filers may be private figures. Depending on the state, they may
+     need to show only negligence: 418 U.S. 323 (U.S. 1974) sets that as the constitutional floor.
 
    Medium-high.
 3. **Misleading estimates through selection.** Keeping only "clean" matches can drop losing trades (the committee's own
@@ -104,13 +116,20 @@ dates and bands plus outside market prices.
 - **OD-1.** Adopt these verdicts and the three-step sequence.
 - **OD-2.** Put the § 13107 question into the staged attorney review (item 2.54).
 - **OD-3.** Keep officials' and institutions' data permanently out of paid features, ads and upsells.
-- **OD-4.** Confirm that F-7's "names in production data" reading covers 13F firm names and adopt the tightened T2
-  text.
+- **OD-4.** Before step 1: names in production data under T1 and T2, "computed, not guessed", the P3 consent reading,
+  and the F-7 switch-on checklist.
 - **OD-5.** Choose the indexing and removal policy.
 - **OD-6.** Exclude filers resident in the EU or UK.
 - **OD-7** (later). The "never guessed" carve-out, the new F3d rule, the P3 band exception and a price source, only
   before step 3.
 - **OD-8.** Two follow-ups found during the review: a label on F-7 and a TR-9 gap in `confidence()`.
+- **OD-9.** Media liability insurance and audit trails before step 2.
+- **OD-10.** Posted executive officials only.
+- **OD-11.** Price positions exited during a quarter from other filers' values.
+- **OD-12.** Whether POLICY F4's interval rule applies to holdings returns.
+- **OD-13.** The dispute review time.
+- **OD-14.** Schedule 13D as a later step, or out of scope.
+- **OD-15.** Whether a holdings page may list securities.
 
 ### 1.5 Questions for the attorney (detail in §6)
 
@@ -138,7 +157,8 @@ dates and bands plus outside market prices.
 **Enforcement and penalty.**
 - The remedy is in § 13107(c)(2): "The Attorney General may bring a civil action against any person who obtains or
   uses a report for any purpose prohibited in paragraph (1)". The court "may assess against such person a penalty in
-  any amount not to exceed $10,000", in addition to other remedies. There is no private right of action (high).
+  any amount not to exceed $10,000", in addition to other remedies (high). The statute provides no private right of
+  action (medium: inferred from enforcement by the Attorney General only).
 - For executive-branch reports, OGE's adjusted figure is $25,132 for violations after 2 Nov. 2015 (5 CFR 2634.703(a);
   90 FR 3612, 15 Jan. 2025) (high). No adjustment was found for legislative-branch reports. The Department of
   Justice's penalty table, 28 CFR 85.5, has no row for this provision (medium).
@@ -149,7 +169,8 @@ dates and bands plus outside market prices.
   address, the person or organization the request is for, and a statement that the requester knows the prohibitions.
   The applications are themselves public (§ 13107(b)(2)).
 - **Retention.** Reports stay public for six years. For a Member of Congress the six years run from leaving office.
-  After that the reports are destroyed (§ 13107(d)) (high).
+  After that the reports are destroyed (§ 13107(d)) (high). Some nominees' and candidates' reports are destroyed after
+  one year (§ 13107(d)(3)).
 - **The upper chamber's search site** requires each user to accept "I understand the prohibitions on obtaining and use
   of financial disclosure reports" before searching (https://efdsearch.senate.gov/search/home/) (high).
 - **The lower chamber's site** states that "It is unlawful to use the information contained in these Financial
@@ -173,10 +194,11 @@ category of value" of each purchase, sale or exchange over $1,000. There is no p
   requirement that the databases be searchable, sortable and downloadable.
 - Neither that law nor the STOCK Act amended the commercial-use bar.
 - The 2022 recodification (Pub. L. 117-286) moved the text to § 13107.
-- **Bills from 2023 to 2026 (medium).** None of them would loosen the bar. A House bill restricting members' trading
-  passed on 22 July 2026 (232-198). In the Senate, a cloture vote on proceeding failed on 30 Sept. 2026, so it is not
-  law. Sources: https://www.congress.gov/bill/119th-congress/house-bill/7008; the press tallies were not confirmed
-  against the official journal.
+- **Bills from 2023 to 2026 (medium).** None of them would loosen the bar.
+  - A House bill restricting members' trading passed on 22 July 2026, 232-198 (House Clerk Roll Call 280; high).
+  - It was placed on the Senate calendar on 6 Aug. 2026 and is not law (medium-high).
+  - A report that a Senate cloture vote failed on 30 Sept. 2026 was not confirmed (low).
+  - Source: https://www.congress.gov/bill/119th-congress/house-bill/7008.
 
 **Interpretation of "commercial purpose" and "news and communications media" (low; a negative finding).**
 - No court decision interpreting either phrase in § 13107(c) or its predecessor (5 U.S.C. app. § 105(c)) was found.
@@ -272,8 +294,10 @@ six business days after a denial or expiry. Amendments can restate the original.
 versioned and rebuilt, never patched, and the page must say that positions can be withheld.
 
 **Short positions.** Rule 13f-2 and Form SHO (Release 34-98738) will publish short data only in aggregate across
-managers, never per manager. Compliance has been postponed to 2 Jan. 2028 (medium, from secondary summaries of the
-2025 order).
+managers, never per manager. The Fifth Circuit remanded the rule in Aug. 2025, and the Commission's order of
+3 Dec. 2025 set compliance for 2 Jan. 2028 (medium-high).
+
+**Units.** Values have been reported in whole dollars, not thousands, only since 3 Jan. 2023 (high).
 
 **Related public holdings sources (medium).**
 - **Form N-PORT.** Registered funds' monthly holdings. Only the third month of each quarter is public, 60 days after
@@ -297,8 +321,8 @@ legal member read it as "computed, not guessed". The owner confirms that reading
 - **Timing.** Form 4 is due within two business days (§ 78p(a)(2)(C)).
 - **Prices.** The form requires prices "in U.S. dollars on a per share basis", one line per transaction, with
   transaction codes (https://www.sec.gov/files/form4.pdf).
-- **2022 amendments** (Release 33-11138, effective 27 Feb. 2023). A box marks a trade made under a trading plan, and
-  gifts are reported on Form 4.
+- **2022 amendments** (Release 33-11138). The rules took effect on 27 Feb. 2023, and the Form 4 and 5 changes applied
+  from 1 Apr. 2023. A box marks a trade made under a trading plan, and gifts are reported on Form 4.
 - **New in 2026.** A 2025 statute (Pub. L. 119-60, § 8103, 18 Dec. 2025) and Release 34-104903 bring directors and
   officers of foreign private issuers under § 16(a) from 18 Mar. 2026. Their 10% holders stay exempt, and an exemptive
   order (34-104931) covers some jurisdictions (medium).
@@ -360,6 +384,12 @@ compilations need a licence (https://www.finra.org/rules-guidance/rulebooks/finr
 **Conclusion (C11, high).** There is no holdings or returns profile of any natural person or private fund. Entity-level
 facts may appear only in their filed business role, with a link to the official source, and are out of scope for this
 feature.
+
+**Not reviewed.** These sources are not covered here, and each needs its own review before any use:
+- insiders' proposed-sale notices (Form 144, filed electronically since 2023);
+- public pension funds' holdings published under state records laws;
+- nonprofits' annual information returns and their investment schedules;
+- foreign regulators' per-manager net short-position disclosures, which would also raise OD-6.
 
 ---
 
@@ -426,7 +456,10 @@ Other rules:
 - **Indexing.** Officials' pages are noindex at launch.
 - **Removal.**
   - Elected and posted officials: not removed on request. They are hidden only for an error, a dispute or expiry.
-  - Other filers: removed on request.
+  - Other officials: removed on request.
+  - Holdings-report firms: removed only for an error or a dispute, like posted officials, so weaker firms can't remove
+    themselves. If the owner allows removal on request instead, /how states how many firm pages were removed
+    (OD-5(d)).
 
 Where even facts-only is barred (verdicts 1c and 4), nothing is shown.
 
@@ -444,17 +477,63 @@ R_q = Σ w_i r_i,   w_i = V_start,i / Σ V_start (included positions)
 - **Sub-line:** "Computed from the firm's own reported quarter-end values, which the regulator does not review. Trades
   inside the quarter, short positions, cash and fees are not reported, and options lines and dividends are left out,
   so none are included."
-- **Excluded positions** are counted, and their share of start value is shown:
-  - positions exited during the quarter;
-  - positions affected by a split or other corporate action without documented split data;
-  - outlier implied prices, judged against other filers' values for the same security and quarter;
-  - options lines.
-- **Excluded share** = start value of excluded positions ÷ start value of all non-option positions. **No figure for a
-  quarter when it exceeds 20%.**
-- **Other omissions.** Opened positions are counted, not valued. Quarters with confidential-treatment omissions carry
-  a caveat and stay outside the ratio, because their value is unknown.
-- **Positions exited during the quarter** are where sold losers hide. They can be included only with an approved
-  price source and the owner's "never guessed" amendment, under a stated "held to quarter end" assumption.
+- **Cards.** If the owner allows a figure on a holdings-report card (§4.5), the full label goes on the card and in its
+  alt text.
+**Data preparation.**
+- Rows with the same identifier and class are summed first.
+- Principal-amount (PRN) rows are excluded.
+- A quarter is computed only when both its start and end filings were made on or after 3 Jan. 2023, when values moved
+  from thousands to whole dollars.
+
+**Positions sold during the quarter.** A position in the start filing but not the end filing was exited. It is where
+sold losers hide, so it is never silently dropped.
+- **With OD-11 (recommended).** It is priced at the end date from the median value per share that at least five other
+  filers report for the same identifier. That uses filings only, follows R_q's own buy-and-hold definition, and is
+  stated on /how.
+- **Without OD-11, or with fewer than five other holders.** It is excluded. Its own mandatory line sits beside the
+  figure: **"Positions sold during the quarter: X% of starting value, not included."**
+
+**Other excluded positions.** Each is counted, with its share of start value shown:
+- **Possible splits and corporate actions.** The filer's share ratio s1/s0 is within 0.5% of a standard split ratio
+  (2, 3, 4, 5, 10, 1/2, 1/3, 1/5, 1/10, 3/2) and its value-per-share ratio is within 15% of the inverse, or the
+  identifier changed. A split moves every filer's price together, so a cross-filer check can't catch it; this test
+  can.
+- **Price mismatches.** The filer's value per share is more than 2% from the median of at least five other filers for
+  the same identifier and date. With fewer than five, there is no check, and the position is counted as unchecked.
+
+**Ratios and the cap.**
+- **Excluded share** = start value of excluded non-option positions ÷ start value of all non-option positions.
+- **Options lines** are reported as the underlying. They are not included, and a separate line shows "Options lines
+  not included: X% of reported start value".
+- **No figure for a quarter** when the excluded share plus the options share exceeds 20%.
+- **Opened positions** are counted, not valued.
+- **Confidential treatment.** Quarters with confidential-treatment omissions carry a caveat and stay outside the
+  ratio, because their value is unknown.
+
+**Multi-quarter figures.** None is shown at launch. If one is added later, it spans only consecutive quarters that
+all have a figure, and the page states how many quarters had none. Whether POLICY F4's interval rule applies is
+OD-12. If it does, a TR-9-style interval is computed over the quarterly R_q, with K = quarters ≥ 5. If it does not,
+the page says "One computed figure per quarter; no interval."
+
+**What the page shows (OD-15).**
+- The filer name as filed, the type line, each quarter's figure with its exclusion lines, and links to each filing.
+- No list of securities, no weights, no "added", "new", "increased", "sold" or "exited" labels, and no sorting of
+  securities by any change. A list of what a firm bought is the classic way people copy institutional holdings
+  (F-7 finding 14; POLICY F1, F3b).
+- If the owner wants a holdings list, the limit is issuer names only, as filed, in alphabetical order, with no change
+  markers.
+
+**Which firms get a page.**
+- A rule set in production settings chooses them, for example entity filers with an adviser file number whose latest
+  filing falls in the last two quarters. No list of firms is hard-coded (F-7 finding 9).
+- Filers whose name matches a personal-name rule, or that state family-office status, are excluded. They can be one
+  person's portfolio under an entity name.
+- Signature, contact and "other included managers" person fields are never stored.
+
+**Identifiers.** No security identifier is shown or exported. Whether storing or matching on the licensed identifier
+needs a licence is A5. Key on the open identifier where it is filed.
+
+**Also:**
 - **Amendments** supersede the original and trigger a rebuild.
 - **No ranking at launch.**
 - **Indexing.** Firm pages may be indexed with metadata that carries no figures.
@@ -470,6 +549,9 @@ estimated only when all of the following hold. Otherwise it is excluded and coun
 - **U2.** No earlier holding of it appears in the annual report.
 - **U3.** The sale is not proven larger than the lot:
   `Σ over the lot's sales of (sale_band_lower / sale_day_high) ≤ purchase_band_upper / purchase_day_low`.
+  The lowest band's lower bound is $1,001, since smaller lines aren't reported. Open-ended top bands (over
+  $50,000,000, and a spouse's "over $1,000,000") have no upper bound. A small residual bias remains: a same-band loss
+  deeper than 1 − lower/upper (about −70% in the $15,001-$50,000 band) is still excluded. The §4.4(c) test reports it.
 - **U4.** No family lines exist in that security.
 - **U5.** It is not a same-day round trip.
 - **U6.** The asset maps to one listed share.
@@ -489,36 +571,56 @@ best_i  = sell_day_high / buy_day_low  - 1
 Each range shows its inputs: the date, the band once P3 allows it, and the filing link. Beside it: "Estimate from
 public disclosures".
 
-**Open positions.** Each open self purchase is priced and included as an unrealized trade. Its range runs from the
-buy-day range to the latest close. If any open self purchase cannot be priced, no profile range is shown.
+**Open positions.** A purchase can go unreported when it is later sold below $1,000, sold through a family account,
+or sold after the report's window, so it is never assumed to be still held.
+- Each open self purchase is valued at the date of the filer's latest annual report that lists the holding, and
+  included as an unrealized trade. Beside it: "Assumes the purchase was still held on ‹date›".
+- If no annual report lists the holding, the purchase is excluded and the profile range is withheld.
 
 **Profile range (shown only after the gates below).** Use the analytic envelope
 
 ```
 [ mean(x_lo) - t·SE⁺ ,  mean(x_hi) + t·SE⁺ ]
+SE⁺ = √( K/(K−1) · Σ_c ( |X_c(mid) − n_c·m_mid| + H_c + n_c·H̄ )² ) / n
+h_i = (x_hi,i − x_lo,i) / 2,   H_c = Σ_{i∈c} h_i,   H̄ = Σ h_i / n
 ```
 
 where:
 - `x = ln(1 + r)` for each trade's worst and best case;
-- `SE⁺` is the largest cluster-robust standard error over prices inside the day ranges;
-- clusters merge transitively: trades in the same symbol with overlapping holds, and trades on the same date;
+- "mid" means the midpoints of those log values;
+- `SE⁺` is an explicit upper bound, by the triangle inequality, on the TR-9 standard error of every in-range price
+  path;
+- clusters merge transitively: same-symbol trades with overlapping holds, trades whose buy legs or sell legs share a
+  transaction date, and trades from one report;
 - `t` is Student's t with K−1 degrees of freedom, as in TR-9.
 
-This envelope contains the exact range of the equal-weight average and the TR-9 interval of every in-range price path.
-It is one pure function with property tests, like `confidence()`.
+**Properties.** The envelope contains the range of the equal-weight mean of log returns, and the TR-9 interval of
+every in-range price path. Legs shared by partial sales make it a superset. It is one pure function with property
+tests, like `confidence()`. Copy calls it an "estimated range", not an "average return".
 
 **Gates per filer.** All four must hold. Otherwise the page shows per-trade ranges and the reason.
 - K ≥ 5 clusters.
 - At least 50% of reported sales are estimated. Family and joint lines count in the denominator.
 - Every open self purchase is priced.
-- The envelope's half-width is at most 10 points.
+- `tooWide` (`lib/confidence.ts`) is false on `[expm1(lo), expm1(hi)]`, a simple-return half-width of at most 0.10:
+  the same constant as TR-9.
+
+**What unlocks what (§4.4).**
+- No estimate of any kind ships until §4.4 parts (a), (b) and (d) pass.
+- No profile range ships until part (c) also passes.
+- Probability or coverage wording ships only with part (a)'s published lower bound.
+
+**Required context lines on step 3 pages** (red team round 2):
+- "Includes overall market moves over the same days; not compared with any index."
+- "Filings can be late, amended or missing." This line also appears on step 2 pages.
+- "Trades may have been made by an account manager."
 
 **What is never shown.**
 - A point value.
 - An Edge verdict, tier words such as "thin" or "strong", or a trust line. Plain sample facts only: "Based on N round
   trips over D days."
 - Colour on a range that crosses 0%: it is never coloured as a gain or a loss.
-- "Confidence", "likely" or "90%", until the back-test in §4.4 passes and is published.
+- "Confidence", "likely" or "90%", until §4.4(a) passes, is published, and the owner amends the banned list.
 - A ranking.
 
 ### 4.4 Back-test that unlocks estimates (P8)
@@ -528,12 +630,14 @@ All four parts are pre-registered before running:
   must be at least 98%, over at least 1,000 trips from at least 100 filers over 3 years. Day-range coverage is near
   100% by construction, so this tests the pipeline: dates, symbols, matching.
 - **(b) Date shifts.** A stress run with the date moved ±1 and ±2 days.
-- **(c) Selection bias.** Take insider filers with K ≥ 5 and apply U1-U8 to their trades. The full record's
-  equal-weight average must fall inside the selected subset's range for filers at a Wilson 95% lower bound of at
-  least 90%. A sign test at the 5% level must also show no skew of misses toward a higher subset average. This merges
-  the engineer's and the business lead's amendments, keeping the stricter of each.
-- **(d) Hand-checked audit of officials' reports.** At most 1% error per field, and zero mapping errors in at least
-  200 checked trades. This runs only after the § 13107 gate (G41).
+- **(c) Selection bias.** Take at least 100 insider filers with K ≥ 5 and apply U1-U8 to their trades. The full
+  record's equal-weight mean must fall inside the selected subset's envelope, with a Wilson 95% lower bound of at least
+  90% of filers. A sign test at the 5% level must also show no skew of misses toward a higher subset average. This
+  merges the engineer's and the business lead's amendments, keeping the stricter of each. The run also reports the U3
+  residual bias.
+- **(d) Hand-checked audit of officials' reports.** Check a random sample of at least 400 parsed self lines by hand.
+  For each field that feeds an estimate, the Wilson 95% upper bound on the error rate must be at most 1%, with zero
+  mapping errors. This runs only after the § 13107 gate (G41).
 
 Results are published on /how only.
 
@@ -549,8 +653,9 @@ Results are published on /how only.
 
 ### 4.6 Sequence (P3)
 
-1. **Step 1.** 13F holdings reports. They need no vendor, no rule change and no attorney (the committee's findings
-   stand in, owner decision 2026-11-01). Business gate after four weeks.
+1. **Step 1.** 13F holdings reports. They need no market-data vendor and no attorney (the committee's findings stand
+   in, owner decision 2026-11-01). They need no change to POLICY text if the owner confirms OD-4 (a) to (d). Business
+   gate after four weeks.
 2. **Step 2.** Legislators' and posted executive officials' facts-only pages. Only after the § 13107 attorney opinion
    (A1), or the owner's written risk acceptance against the committee's recommendation. Also needed: the source flag
    (F-7 L2), the owner's acceptance of F-7 finding 3 (a profile with no computed return), A2 and media liability
@@ -575,32 +680,62 @@ decides. Each line is testable.
   with a link, the type's not-joined line before any figure, and the disclaimer. It links to Terms, Privacy and /how.
 - **AC4.** No disclosure page renders an upsell, sign-up or join prompt, display ad, donate or fundraising content, or
   third-party tracker.
-- **AC5.** A copy test fails on any banned word on disclosure surfaces: insider (as conduct), suspicious, timed,
-  well-timed, ahead of, beat, outperform, cashed in, dumped, profited, windfall, conflict, violation, illegal, late
-  (as a label), top, best, worst, ranking, leaderboard, confidence, likely, probably, copy, mirror, trade like, follow
-  their trades, made or earned with a percent, Verified, plus the POLICY F2 list.
+- **AC5.** A copy test fails on any of these patterns on disclosure surfaces (case-insensitive):
+  - `\binsider\b`;
+  - `\blate\b`;
+  - suspicious, suspiciously, timed, well-timed, ahead of, beat, outperform, cashed in, dumped, profited, windfall,
+    conflict, violation, illegal, top, best, worst, ranking, leaderboard, copy, mirror, trade like, follow their
+    trades, Verified;
+  - `/(made|earned|gained|lost)\s+[-+]?\d/`;
+  - confidence, likely, probably, until AC33's back-test passes and the owner amends this list;
+  - the POLICY F2 list.
 - **AC6.** Each source's importer refuses to run without its flag and its contact settings. It keeps to at most 4
-  requests a second with backoff, and its logs hold counts and run ids only (no names).
+  requests a second with backoff, and its logs hold counts and run ids only (no names). The limit of 4 is
+  deliberately below F-7's 5 and the regulator's 10.
 - **AC7.** Amended filings supersede the original, and the derived record is rebuilt from raw. A test shows no derived
   row is patched in place.
 - **AC8.** Every disclosure page has a correction link. A filer's documented dispute withdraws the whole estimate
   (never single trades) within the stated review time, and the corrections log stores no requester details.
   Correcting a transcription error against the filing is a correction, not a dispute.
-- **AC9.** Filers resident in the EU or UK are excluded at import, and the exclusion is counted.
+- **AC9.** Natural-person filers whose stated business or residence country is in the EU or UK are excluded at
+  import, and the exclusion is counted.
 
 **Step 1: holdings reports (13F).**
-- **AC10.** Only entity filers get a profile. A natural-person filer is excluded and counted.
-- **AC11.** The quarter return follows §4.2 exactly. Hand-computed fixtures cover: weights by start value; an exited
-  position excluded with its share shown; a split without documented data excluded; an outlier implied price excluded;
-  an options line excluded; a quarter over the 20% cap showing no figure and the reason; a confidential-treatment
-  caveat; an amendment rebuild.
+- **AC10.** Only filers that carry an adviser file number or CRD number on the filing get a profile.
+  - Filers whose name matches a personal-name rule, or that state family-office status, are excluded and counted.
+  - Signature, contact and "other included managers" person fields are never stored.
+- **AC11.** The quarter return follows §4.2 exactly. Hand-computed fixtures cover:
+  - weights by start value;
+  - rows with the same identifier summed;
+  - a PRN row excluded;
+  - a quarter before 3 Jan. 2023 not computed;
+  - an exited position priced from five or more other filers' median (with OD-11), and excluded with its own "sold
+    during the quarter" line (without OD-11, or with fewer than five holders);
+  - a 2-for-1 split detected and excluded;
+  - a 2% price mismatch excluded, and an unchecked position counted;
+  - an options line on its own line;
+  - a quarter over the 20% cap (excluded plus options) showing no figure and the reason;
+  - a confidential-treatment caveat;
+  - an amendment rebuild.
 - **AC12.** The label "Hypothetical holdings return (not the firm's return)" and the §4.2 sub-line sit above the
   number at 375 px width, signed out.
 - **AC13.** Holdings-report pages have no ranking, no "top" list and no sort by return.
-- **AC14.** Percent only: no share counts, values or prices on any surface, card or payload (POLICY P3).
+- **AC14.** Percent only: no share counts, values, prices or security identifiers on any surface, card or payload
+  (POLICY P3).
 - **AC15.** Index metadata (title, description, preview) carries no figures.
 - **AC16.** The business-gate counters (views from outside referrers, opens of a trader record) are recorded with no
-  personal data (F-15 rules).
+  personal data (F-15 rules), and exclude internal and bot traffic.
+- **AC34.** The holdings-report source refuses to run in production unless the owner's OD-4 setting is present and
+  the F-7 switch-on checklist items 3 to 5 hold.
+- **AC35.** A holdings-report page shows the filer name as filed, the type line, each quarter's figure with its
+  exclusion lines, and links to each filing. It shows no list of securities and no weights. It shows no "added",
+  "new", "increased", "sold" or "exited" labels, and does not sort any security by a change. This stands unless the
+  owner decides otherwise in OD-15.
+- **AC36.** Pages exist for filers selected by a rule in production settings. No list of filers is hard-coded.
+- **AC37.** No multi-quarter figure is shown. If one is added later, it spans only consecutive quarters that have a
+  figure. The interval follows OD-12.
+- **AC38.** If a holdings-report card shows a figure (owner's call), the card and its alt text carry the full
+  "Hypothetical holdings return (not the firm's return)" label.
 
 **Step 2: facts-only officials (after the § 13107 gate).**
 - **AC17.** No environment fetches or parses a real official's report while the § 13107 gate setting is unset. A
@@ -611,8 +746,9 @@ decides. Each line is testable.
   never estimated. Exactly one "Family-member and joint transactions not shown: N" count appears, hidden at 0.
   Real-property lines, addresses and family fields are never stored.
 - **AC20.** Unsold purchases read "N reported purchases with no reported full sale", never "still held".
-- **AC21.** An entry drops out when its report's public period ends (6 years; for a member, 6 years after leaving
-  office).
+- **AC21.** An entry drops out when its report's public period ends: 6 years; for a member, 6 years after leaving
+  office; 1 year for the nominee and candidate reports covered by § 13107(d)(3).
+- **AC39.** Step 2 pages carry "Filings can be late, amended or missing."
 - **AC22.** Officials' pages are noindex. They are never ranked or sorted by any figure. The list is in name order as
   filed.
 - **AC23.** People's share cards and previews show no name, figure or chart.
@@ -625,17 +761,25 @@ decides. Each line is testable.
   and sold in the same band, and an excluded trade counted by its reason.
 - **AC27.** The per-trade range matches the §4.3 formulas on hand-computed fixtures, beside its inputs and "Estimate
   from public disclosures". No point value appears anywhere.
-- **AC28.** Open self purchases enter as unrealized trades. If any open self purchase is unpriced, no profile range is
-  shown.
-- **AC29.** The profile envelope contains the exact range and the TR-9 interval of every in-range path (a property
-  test). Same-date and overlap clusters merge transitively. There is no division by zero.
-- **AC30.** The four gates (K ≥ 5; ≥ 50% of sales estimated with family and joint lines in the denominator; open
-  purchases priced; half-width ≤ 10) each have a failing fixture that shows per-trade ranges and the reason.
+- **AC28.** Open self purchases enter as unrealized trades, valued at the date of the latest annual report that lists
+  the holding, beside "Assumes the purchase was still held on ‹date›". If any open self purchase is unpriced or
+  unlisted, no profile range is shown.
+- **AC29.** The profile envelope uses the §4.3 `SE⁺` bound and contains the mean range and the TR-9 interval of every
+  in-range path (a property test). Same-date, same-report and overlap clusters merge transitively. There is no
+  division by zero.
+- **AC30.** Each of the four gates has a failing fixture that shows per-trade ranges and the reason:
+  - K ≥ 5;
+  - at least 50% of sales estimated, with family and joint lines in the denominator;
+  - open purchases priced;
+  - `tooWide` false on the simple-return envelope.
 - **AC31.** A range that crosses 0% has no gain or loss colour. Screen readers hear "from minus X percent to plus Y
   percent". No information is carried by colour alone (WCAG 2.2 AA).
 - **AC32.** There is no Edge verdict, tier word or trust line, only "Based on N round trips over D days".
-- **AC33.** The back-test (§4.4 a-d) is pre-registered, its results are on /how, and no probability wording ships
-  before it passes.
+- **AC33.** The back-test (§4.4 a-d) is pre-registered, and its results are on /how.
+  - No estimate ships before (a), (b) and (d) pass.
+  - No profile range ships before (c) also passes.
+  - Probability or coverage wording ships only with (a)'s published lower bound.
+- **AC40.** Step 3 pages carry the three §4.3 context lines (market moves, filings late or missing, account manager).
 
 ---
 
@@ -646,11 +790,11 @@ buying a separate engagement. They are in priority order.
 
 | # | Question | Needed before | Priority |
 |---|---|---|---|
-| A1 | Does Stock Social, a free, signed-out public-disclosures section inside a for-profit social product that has a paid viewer tier elsewhere, qualify as "news and communications media for dissemination to the general public" under 5 U.S.C. § 13107(c)(1)(B)? Does a facts-only mode differ from estimates? Is obtaining reports through the lower chamber's bulk files lawful for this use? May a bot accept the upper chamber's per-search acknowledgment? What is the penalty exposure per report or per use? Should data be dropped after the six-year window? Is there any enforcement history (docket search)? | Any officials' page in production (step 2) | Must |
+| A1 | Does Stock Social, a free, signed-out public-disclosures section inside a for-profit social product that has a paid viewer tier elsewhere, qualify as "news and communications media for dissemination to the general public" under 5 U.S.C. § 13107(c)(1)(B)? Does a facts-only mode differ from estimates? Is obtaining reports through the lower chamber's bulk files lawful for this use? May a bot accept the upper chamber's per-search acknowledgment? What is the penalty exposure per report or per use? Should data be dropped after the six-year window? Is there any enforcement history (docket search)? | Any fetch or parse of a real official's report (G41), so before step 2 and before back-test part (d) | Must |
 | A2 | Is a range on disclosed inputs, with its method shown, non-actionable opinion under 497 U.S. 1 in the likely forums? Does the fair-report privilege reach derived computations? Which people named in filings are private figures? Is the dispute process and its review time adequate? Review the §5 copy list and the not-joined line | Real officials' names (step 2) | Must |
 | A3 | After 9th Cir. No. 24-3894 (2026) and Cal. Civ. Code § 3344(e), is keeping these pages free of upsells, prompts and ads enough separation while the product sells a viewer tier elsewhere? | Step 2 | Should |
 | A4 | Does the publisher's exclusion (472 U.S. 181) and its state analogs hold for unranked 13F hypothetical returns and officials' facts-only pages? What does the advisers' marketing rule (17 CFR 275.206(4)-1) require on cards that advisers might reuse? | Step 1 production, optional; step 2 | Should |
-| A5 | Market-data licence: do non-display and derived-data rights allow publishing percent ranges computed from licensed daily highs and lows, for people who are not users? Does SnapTrade's contract cover this? | Step 3 | Contract review |
+| A5 | Market-data licence: do non-display and derived-data rights allow publishing percent ranges computed from licensed daily highs and lows, for people who are not users? Does SnapTrade's contract cover this? Also: does storing, matching on or deriving data from the filings' licensed security identifiers need a licence? If yes, key on the open identifier where filed, and never display or export the licensed one | The identifier question before step 1 production; the rest before step 3 | Contract review |
 | A6 | Does compiling records of filers resident in the EU count as "monitoring" under GDPR Art. 3(2)(b)? | Only if OD-6 is not adopted | Optional |
 | A7 | Is an estimated range a privacy-law "inference" about a private filer, outside the public-records exclusion? | Only if private persons are ever in scope | Optional |
 
@@ -672,15 +816,27 @@ for the owner to apply.
    Their pages carry no upsell, join prompt, display ad or solicitation. **Rec: yes.** Suggested POLICY F5 addition:
    "Officials' and institutions' data never enter a paid feature, export or API." Suggested F1 addition: "Officials'
    and institutions' records are never ranked."
-4. **OD-4. Names and computed numbers.** (a) Confirm that F-7 legal finding 9 (names in production data from public
-   filings do not breach T1/T2) covers 13F firm names, and adopt the tightened T2 text from item 2.49/3.16. (b) Confirm
-   that a 13F hypothetical return at the filer's own values is "computed, not guessed". **Rec: yes to both.**
-   Suggested T2 addition: "Real people's names may appear in production data imported from public filings, shown only
-   on public-record pages and their share cards. They never appear in the repository, product copy, marketing, ads,
-   emails, logs or agent prompts."
-5. **OD-5. Indexing and removal.** (a) Firm-level 13F pages may be indexed with figure-free metadata. (b) Officials'
-   pages are noindex at launch. (c) Elected and posted officials are not removed on request (hidden only for error,
-   dispute or expiry); other filers are removed on request. **Rec: yes to all three.**
+4. **OD-4. Before step 1.** **Rec: yes to all four.**
+   - (a) Confirm that F-7 legal finding 9 covers 13F filer firms' names under both T1 (company names in product UI)
+     and T2. That finding says names in production data imported from public filings do not breach T1 or T2. Adopt a
+     tightened version of the 3.16 draft from item 2.49. Suggested T2 addition: "Real people's names may appear in
+     production data imported from public filings, shown only on public-record pages and their share cards. They
+     never appear in the repository, product copy, marketing, ads, emails, logs or agent prompts."
+   - (b) Confirm that §4.2 is the "honest, labeled number" F-7 finding 4 asks for, and that it is "computed, not
+     guessed". Turning on the holdings source under F-7 L2 is the owner's switch.
+   - (c) Confirm that P3's connect-time consent covers connected traders only, so public filers need none. The
+     percent-only rule still applies to every record (F-7 finding 10; item 2.49).
+   - (d) The F-7 switch-on checklist items 3 to 5 apply to holdings reports:
+     - the removal policy and a working contact;
+     - Terms and Privacy describing public-record profiles;
+     - the launch-to-real-users decision.
+5. **OD-5. Indexing and removal.** **Rec: yes to all four.**
+   - (a) Firm-level 13F pages may be indexed with figure-free metadata.
+   - (b) Officials' pages are noindex at launch.
+   - (c) Elected and posted officials are not removed on request (hidden only for error, dispute or expiry). Other
+     officials are removed on request.
+   - (d) 13F firm pages are removed only for error or dispute. If removal on request is allowed instead, /how states
+     the count of removed firm pages.
 6. **OD-6. EU and UK filers.** Exclude filers resident in the EU or UK from every disclosure profile. **Rec: yes.**
 7. **OD-7. Only before step 3.** **Rec: not now.**
    - (a) A "never guessed" carve-out in the CLAUDE.md product rules. Suggested: "The only estimates in the product are
@@ -707,6 +863,19 @@ for the owner to apply.
    launch" with the § 13107 item. **Rec: yes.**
 10. **OD-10. Executive officials.** Posted top officials only, and only with step 2. Application-only reports never.
     **Rec: yes.**
+11. **OD-11. Positions sold during a quarter.** Price them at the end date from the median value per share of at least
+    five other filers (filings only, stated on /how). Exclude and count them, with their own line, only when that is
+    unavailable. This shrinks the sold-loser bias without a vendor. The owner rules whether it counts as "computed".
+    **Rec: yes.**
+12. **OD-12. Intervals on holdings returns.** Does POLICY F4's confidence-interval rule apply to holdings returns? If
+    yes, show a TR-9-style interval over quarterly figures once K ≥ 5 quarters. If no, the page says "One computed
+    figure per quarter; no interval." **Rec: yes, it applies.** The owner asked for statistical confidence.
+13. **OD-13. Dispute review time.** Set the time AC8 and F3d refer to. **Rec: 5 business days.** The whole estimate
+    is withdrawn while under review, never hidden piecemeal.
+14. **OD-14. Schedule 13D.** Priced chains from entity filers become a later step with its own feature, or go out of
+    scope. **Rec: out of scope for now.** Few filings carry both legs' prices, and many filers are private persons.
+15. **OD-15. Holdings list.** May a holdings-report page list the firm's securities? **Rec: no** (AC35). If yes:
+    issuer names only, as filed, alphabetical, no change markers.
 
 ---
 
@@ -805,12 +974,51 @@ other members keep step 2 conditional on A1. The sequence makes step 2 wait for 
 
 ### A.4 Final red team on the combined result
 
-See §B below for its findings and how each was handled.
+A fresh-context red team reviewed the draft of this document and F-37. It spot-checked six load-bearing citations
+against primary text or official records and confirmed them:
+- 5 CFR 2634.703;
+- 9th Cir. No. 24-3894;
+- Pub. L. 119-60 § 8103 and Release 34-104903;
+- the Form SHO date;
+- § 13107(d);
+- the House roll call.
 
-## Appendix B. Final red team
+It found no invented citation and no POLICY breach. It raised 4 high, 12 medium and 13 low findings. Their
+disposition is in Appendix B.
 
-The final red team findings and their disposition are recorded in the PR body for this change and folded into the
-sections above.
+## Appendix B. Final red team findings and disposition
+
+| ID | Finding | Disposition |
+|---|---|---|
+| H1 | "Step 1 needs no rule change" was wrong: P3 consent (item 2.49, F-7 finding 10), T1 for firm names, F-7 L2 and finding 4, and the switch-on checklist all apply | Fixed: §1.2, §4.6, OD-4 (a)-(d), AC34 |
+| H2 | The 13F figure is biased by dropped exited positions, gaps over the cap and options outside the cap, and has no interval | Fixed: a "sold during the quarter" line; OD-11 cross-filer pricing; options line inside the cap; no multi-quarter figure at launch; OD-12 on F4; AC37, AC38 |
+| H3 | Holdings page content and firm selection were undefined (signal risk) | Fixed: §4.2 "What the page shows" and "Which firms get a page"; AC35, AC36; OD-15 |
+| H4 | Split, unit and outlier rules had been dropped; the outlier test can't catch splits | Fixed: §4.2 data preparation, split test, 2% mismatch, PRN, 2023 units; AC11 fixtures |
+| M1 | `SE⁺` defined as an intractable exact maximum; half-width unit unstated | Fixed: explicit bound in §4.3; gate on the simple-return scale via `tooWide`; AC29, AC30 |
+| M2 | Contradiction on what the back-test unlocks | Fixed: "What unlocks what" in §4.3; AC33 |
+| M3 | AC5 conflicted with AC33 and had untestable items | Fixed: literal patterns, time-limited confidence words; list copied into F-37 |
+| M4 | Back-test (c) and (d) thresholds weaker or vaguer than the council's | Fixed: ≥100 filers on the envelope; ≥400 lines with a Wilson upper bound ≤1% |
+| M5 | Open purchases priced as "still held" | Fixed: valued at the latest annual report listing the holding, with an "Assumes ... still held on ‹date›" line; AC28 |
+| M6 | 497 U.S. 1 misattributed; 418 U.S. 323 overstated | Fixed: §1.3 item 2 |
+| M7 | Excluded-share ratio inconsistent | Fixed: non-option numerator and denominator; options on their own line |
+| M8 | Dispute review time unset; 13F firms could remove themselves | Fixed: OD-13; §4.1 and OD-5(d) |
+| M9 | "Entity filers" can leak natural persons | Fixed: AC10 and §4.2 selection rules |
+| M10 | Security-identifier licensing not addressed | Fixed: A5; §4.2 "Identifiers"; AC14 |
+| M11 | OD list incomplete, placeholder appendix, "one legal question", misattributed T2 text, A1 timing, row 1a | Fixed: §1.4, §1.2, this appendix, OD-4(a), §6 A1, §1.1 |
+| M12 | Missing sources; 13D in limbo | Fixed: "Not reviewed" lists in §1.1 and §2.4; OD-14; 13D out of F-37 |
+| L1 | House vote citation; Senate cloture unconfirmed | Fixed in §2.1 |
+| L2 | Private right of action confidence | Fixed: medium |
+| L3 | One-year destruction rule | Fixed: §2.1, AC21 |
+| L4 | U3 band edges and residual bias | Fixed in §4.3 and §4.4(c) |
+| L5 | "Exact range of the average" wording | Fixed in §4.3 |
+| L6 | Same-date clustering definition | Fixed in §4.3 |
+| L7 | Dropped context lines | Fixed: §4.3; AC39, AC40 |
+| L8 | Naming the self-regulatory organization | Fixed: wording note at top |
+| L9 | F-37 "Decisions" held proposals; title fits step 3 only | Decisions fixed. The filename and title are kept as the owner's brief specified |
+| L10 | Form SHO remand | Fixed in §2.2 |
+| L11 | AC9 scope (entities aren't data subjects) | Fixed: natural-person filers, by stated country |
+| L12 | Form 4 checkbox date | Fixed in §2.3 |
+| L13 | Rate limits differ | Fixed: AC6 states 4 is deliberate |
 
 ## Appendix C. Primary sources (accessed 2026-11-02)
 
