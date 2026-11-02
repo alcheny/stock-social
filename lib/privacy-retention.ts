@@ -45,6 +45,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   unlisted_positions: { personal: true, retention: 'account', holds: 'private last-read open positions (symbol, unrealized percent, read time) of an account the broker no longer lists; deleted with the profile' },
   follows: { personal: true, retention: 'account', holds: 'private follows' },
   viewer_exclusions: { personal: true, retention: 'short', holds: 'private "not interested" and unfollow; rows the viewer ended and ended unfollows purged after a day; a "not interested" that ran its 90 days is kept until removed (F-2 PR-5)' },
+  // FIXES-CYCLE5 (F5-4): derived from closed_trades (percent returns and dates, no prices or quantities); public in aggregate only.
+  ticker_trader_sums: { personal: true, retention: 'account', holds: 'derived per-trader, per-symbol sums of the public record (closed count, wins, bets, sums of log returns and holding days, first and last dates; no prices or quantities), shown only summed per stock; deleted with the profile' },
   trade_likes: { personal: true, retention: 'account', holds: 'private likes (preference data, kept indefinitely); a like whose trade is gone for 30 days is purged' },
   trade_exclusions: { personal: true, retention: 'account', holds: 'private rejected trades (preference data, kept indefinitely); one whose trade is gone for 30 days is purged' },
   privacy_orphans: { personal: true, retention: 'short', holds: 'when a like or reject first had no trade; removed when the trade returns or the row is purged' },

@@ -3,7 +3,7 @@
 // generateSitemaps, app/sitemaps/sitemap.ts), and robots.txt lists every sitemap (one Sitemap line each; committee
 // 2026-11-01: Next's robots takes a list, so no hand-written index route).
 // Symbols and dates only, never ranked; the same rule as lib/ticker.ts#isIndexableTicker, applied in SQL so thin and
-// demo-only symbols take no slot. Chunks are cut in the database's default order (so the existing closed_trades_symbol
+// demo-only symbols take no slot. Chunks are cut in the database's default order (so the existing closed_trades_symbol_recent
 // index serves each chunk's range); within a chunk symbols are in byte order (collate "C"). On a database whose default
 // collation is C (the local one) that is byte order across chunks too. On another collation (e.g. en_US, which orders
 // punctuation like '.' and '-' at a lower level) symbols such as "BRK.B" and "BRKA" can sort into a different chunk than
@@ -39,7 +39,7 @@ export type SitemapOpts = { prefix?: string; limit?: number; waitMs?: number };
 
 // F-7: public filings never count. Only visible users' closes count (fix #4, lib/visible-users.ts: a profile being
 // deleted is never on a public aggregate surface). Both the rebuild and every chunk read go through this one query.
-// `lo`/`hi`: a chunk's range [lo, hi) in the default collation (served by closed_trades_symbol).
+// `lo`/`hi`: a chunk's range [lo, hi) in the default collation (served by closed_trades_symbol_recent).
 const indexable = (prefix?: string, lo?: string | null, hi?: string | null) => {
   // The test hook's range bounds the index scan to the prefix (test symbols are the prefix plus digits and letters).
   const scoped = prefix ? sql`and starts_with(symbol, ${prefix}) and symbol >= ${prefix} and symbol < ${prefix + 'Z'.repeat(32)}` : sql``;
