@@ -23,6 +23,7 @@ import { UserNote } from '../../../../user-note.tsx';
 import { HeldNote } from '@/lib/user-note.ts';
 import { loadOwnNote } from '@/lib/own-note.ts';
 import { generateMetadata as notFoundMetadata } from '../../not-found.tsx';
+import { withGate } from '@/lib/gate-key.ts'; // F-29 (D3): the unfurl image URL carries the gate state
 
 const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 
@@ -70,7 +71,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     title: `${t.symbol} ${pct(t.returnPct)} · @${t.handle} · Stock Social`,
     alternates: { canonical: href }, // F-15 second half: one spelling, untagged; F-25: the trade_key form
     description: tradeDescription(t, strip),
-    openGraph: { images: [{ url, width: 1200, height: 630, type: 'image/png', alt: tradeAlt(t, strip) }] },
+    openGraph: { images: [{ url: withGate(url) /* F-29 (D3): with the gate key */, width: 1200, height: 630, type: 'image/png', alt: tradeAlt(t, strip) }] },
     ...(isPublicRecord(t.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
   };
 }

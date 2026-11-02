@@ -5,6 +5,7 @@ import { ShareButton } from '../../share-button.tsx';
 import { counted } from '@/lib/format.ts';
 import { PUBLIC_SHORT } from '@/lib/copy.ts';
 import { PUBLIC_FIELDS } from '@/lib/privacy-fields.ts';
+import { withGate } from '@/lib/gate-key.ts'; // F-29 (D3): URL-keyed caches carry the gate state
 
 // range: the card's own "likely between" text (F-4 rework: the range around the average the card prints).
 // previewAlt: the card in words, from the card's own model (lib/record-card.ts#cardAlt; F-4 committee round 1, demand
@@ -35,7 +36,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew, preview
         <p className="muted">Preview unavailable. Your link still works.</p>
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
-        <img className="preview" src={`/u/${handle}/opengraph-image`} width={1200} height={630} loading="eager" onError={() => setImgFailed(true)}
+        <img className="preview" src={withGate(`/u/${handle}/opengraph-image`)} width={1200} height={630} loading="eager" onError={() => setImgFailed(true)}
           alt={previewAlt} />
       )}
       <p style={{ margin: 0 }}>{PUBLIC_SHORT.sharePrompt(PUBLIC_FIELDS.map((f) => f.words))}</p>
@@ -47,7 +48,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew, preview
         </p>
       )}
       <div className="actions">
-        <ShareButton url={`/u/${handle}`} title={`${displayName} on Stock Social`} label="Share my record" image={`/u/${handle}/story?format=square`}
+        <ShareButton url={`/u/${handle}`} title={`${displayName} on Stock Social`} label="Share my record" image={withGate(`/u/${handle}/story?format=square`)}
           onShared={(how, picture) => { setDone(true); best(recordSharePromptAction(how)); best(recordShareAction(`/u/${handle}`, how, picture)); }} />
         <button type="button" className="link" onClick={close}>{done ? 'Done' : 'Not now'}</button>
       </div>

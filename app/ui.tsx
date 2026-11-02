@@ -84,10 +84,11 @@ const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode, ownHeld
 // renders it outside Next).
 // F-10 follow-up #23: `now` dates the card (today by default), so a close in another UTC year shows its year.
 // F-13: `hint`, page 1's first card: the SW-1 line and the dismiss focus target; `notice`, the first-visit line.
+// F-29: `optionsLine`, the gated options count line (lib/options-view.ts#cardOptionsLine), set by the feed only.
 // F-26: `ownHeld`, set only on the author's own held card (its rule; HeldNote words it), never a status.
 // FIXES-LABELS: status: `status`, the card's status segments (lib/record-status.ts `card`, static mode: only a frozen or
 // idle record has any), between the hero and the thesis.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice, status, ownHeld }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode; ownHeld?: OwnHeld | null; status?: Segment[] }) {
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice, status, ownHeld, optionsLine }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode; ownHeld?: OwnHeld | null; status?: Segment[]; /* F-29 */ optionsLine?: string }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
@@ -109,6 +110,8 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={tc ? `ret ${tc}` : 'ret'} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>
         {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {closedDay(t.closed_at, now) /* FIXES-LABELS (D-05): the year when it is not this year */}</div>}
+        {/* F-29 (plan D6): the record's one count line, under the strip that carries its qualifier (feed only). */}
+        {strip && optionsLine && <p className="muted small card-options-count" data-options="card-count">{optionsLine}</p>}
       </div>
       {status && <StatusText segments={status} kind="card" />}{/* FIXES-LABELS: status */}
       {/* F-13: on page 1's first card the first-visit line takes the thesis slot until it is dismissed (F-10's one-screen budget). */}

@@ -3,6 +3,8 @@ import type { Metadata } from 'next';
 import { Disclaimer } from '../disclaimer.tsx';
 import Link from 'next/link';
 import { HOW, HOW_PERSONAL, OPEN, OPTIONS, PUBLIC } from '@/lib/copy.ts';
+import { optionsPublic } from '@/lib/options-gate.ts'; // F-29
+import { HowOptionsParagraph } from './options-paragraph.tsx'; // F-29
 
 // POLICY F3: what Verified means and what is excluded, in the words of lib/trades.ts. Static; linked from every page.
 export const metadata: Metadata = { title: `${HOW.title} · Stock Social` };
@@ -19,7 +21,7 @@ export default function How() {
       <Disclaimer />
       {/* OPTIONS (docs/features/logs/options/plan.md D8): the profile's gated count line links here. */}
       <h2 id="options">{OPTIONS.howTitle}</h2>
-      <p>{OPTIONS.how}</p>
+      <HowOptionsParagraph open={optionsPublic()} />{/* F-29 (D2): the interim words while the gate is closed */}
       <ul>{OPTIONS.howMath.map((l) => <li key={l}>{l}</li>)}</ul>
       <h2>{HOW.excludedTitle}</h2>
       {/* F-32 Part A: the profile's transfer line links to #transfers. */}

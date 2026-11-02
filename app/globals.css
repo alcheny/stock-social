@@ -956,6 +956,10 @@ html:not([data-ss-seen~="hint"]) .feed .card footer .swipe-hint { display: block
 .warn-notice [data-warn-icon] circle { stroke: none; }
 .warn-notice > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 /* ---- end F-27 ---- */
+/* F-29 (docs/features/logs/F-29/plan.md D6): the feed card's count line under its record strip, with its own class so
+   no rule for the profile pane's count line reaches it; token colours through .muted only. */
+.card-options-count { margin: 4px 0 0; }
+/* end F-29 */
 /* F-32 Part A: the profile's transfer-count line is a real link (44px tall, muted, underlined so it is not marked by colour
    alone); position: relative holds its sr-only suffix inside it; long counts wrap at 320px. */
 .excluded-link { position: relative; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }

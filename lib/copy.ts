@@ -855,7 +855,7 @@ export function allCopy(): string[] {
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
   [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy(), /* OPTIONS */ OPTIONS,
-    /* F-16 */ HIDDEN_NOTICE, RETIRED_NOTICE, HIDDEN_OWN, TRUST_LINE, TAKEDOWN].forEach(walk);
+    /* F-16 */ HIDDEN_NOTICE, RETIRED_NOTICE, HIDDEN_OWN, TRUST_LINE, TAKEDOWN, /* F-29 */ F29].forEach(walk);
   return out;
 }
 
@@ -1169,6 +1169,13 @@ export const FIXES_CYCLE4_PART2 = {
   homePublic: 'Records built from public filings are marked Public filing.',
 } as const;
 // end FIXES-CYCLE4-PART2
+// F-29 (docs/features/F-29-gated-options-wording.md; plan D1). Additive: OPTIONS.how stays the legal sentence for the open
+// gate. The interim /how sentence while optionsPublic() is false, signed by the AI legal committee at approval council
+// cycle 5 (docs/features/logs/F-29/legal-signoff.md). These words exactly: any change needs the committee's re-sign.
+export const F29 = {
+  howInterim: 'Option results are not shown on any record at present. Where option trades or open options were imported, the record shows how many, and its headline figures exclude options.',
+} as const;
+// end F-29
 
 // ---- F-21 · Exclusion counts beside the headline (docs/features/F-21-exclusion-counts-beside-the-headline.md; committee
 // docs/features/logs/F-21/committee-2026-11-02.md and the legal committee's conditions R1-R6). The only new copy: the

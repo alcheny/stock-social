@@ -76,6 +76,12 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
   const incomplete = trust.incomplete && <WarnNotice role="status">{RECORD_BODY.failed}</WarnNotice>;
   const long = open ? longValues(pct(p.avgReturn), pct(open.avg), String(open.n)) : undefined;
   const figures = <>
+    {/* F-29 (plan D5 fallback, QA M1): the one qualifier stays directly before the headline figures, as on the profile, so
+        it is in view whenever any figure is (below them it fell under the fold at 360x740 while the tiles showed). */}
+    {/* ponytail: cycle 5's pane line order (F-21's exclusions line, then F-34's open line, then the options qualifier) is
+        not applied to the qualifier, which stays before the tiles (D5 fallback); F-21's line follows the headline and F-34
+        is unbuilt — the F-34 builder owns the pane order and keeps the label in view whenever a tile is (extend
+        e2e/f29-gated-wording.spec.ts's real-pane test) */}
     {options && <ShareTradesLabel show={options.label} />}
     <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined} data-long={long}>
       {open && <RealizedLabel />}

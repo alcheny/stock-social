@@ -11,6 +11,7 @@ import { paneModel } from '@/lib/pane-model.ts'; // F-23
 import { feedPaneChart, PAYLOAD_V } from '@/lib/chart-series.ts'; // F-23
 import { exclusionInput, storedExclusions } from '@/lib/exclusions-load.ts'; // F-21
 import { exclusionTotal } from '@/lib/exclusions.ts'; // F-21 (paneModel keeps the one "0 while importing" rule)
+import { gateCacheControl } from '@/lib/gate-key.ts'; // F-29
 
 // F-2 PR-3b fix round 1 (business lead D2): a Similar trades row's pane, fetched when its sheet first opens
 // (app/lazy-pane.tsx), so the profile no longer renders three other traders' records. Public like the profile (signed
@@ -44,5 +45,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
   const chart = feedPaneChart(rows, now);
   // FIXES-LABELS: status (F-11): the pane's status as static segments (absolute dates; this JSON is cached 60 s).
   const status = paneSegments((await statusFor(user.id as number, state)) ?? undefined, now) ?? null;
-  return NextResponse.json({ v: PAYLOAD_V, state, model, chart, status, options: paneView(options.get(user.id as number)!) /* the flag and the line only (QA 2) */ }, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
+  return NextResponse.json({ v: PAYLOAD_V, state, model, chart, status, options: paneView(options.get(user.id as number)!) /* the flag and the line only (QA 2) */ }, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : gateCacheControl(new URL(req.url).searchParams.get('g'), 'public, max-age=60') } }); // F-7: never cached; F-29 (D3): cached only under the current gate key
 }

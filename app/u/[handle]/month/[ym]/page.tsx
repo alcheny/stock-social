@@ -26,6 +26,7 @@ import { dateText } from '@/lib/date-text.ts';
 import { recordRows, segments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
 import { generateMetadata as notFoundMetadata } from '../../not-found.tsx';
+import { withGate } from '@/lib/gate-key.ts'; // F-29 (D3): the unfurl image URL carries the gate state
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
@@ -52,7 +53,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     title: `${r.recap.label} · @${r.handle} · Stock Social`,
     alternates: { canonical: `/u/${r.handle}/month/${r.recap.ym}` }, // F-15 second half: untagged, one address
     description: monthDescription(r, whole),
-    openGraph: { images: [{ url: `/u/${r.handle}/month/${r.recap.ym}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: monthAlt(r, whole, month) }] },
+    openGraph: { images: [{ url: withGate(`/u/${r.handle}/month/${r.recap.ym}/opengraph-image`), width: 1200, height: 630, type: 'image/png', alt: monthAlt(r, whole, month) }] },
     ...(isPublicRecord(r.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
   };
 }
