@@ -3,6 +3,7 @@ import { isDemoUser } from './demo.ts';
 import { publicRecord } from './connections.ts';
 import { monthRecap, monthsOnRecord, parseYm, wholeRecord, type RecapView } from './recap.ts';
 import { filerVisibleSql } from './public-gate.ts';
+import { visibleId, visibleUser } from './visible-users.ts';
 import { openPercents } from './trade-share-load.ts';
 import { routeHandle } from './params.ts';
 import { statusForOrNull as statusFor } from './record-status-load.ts'; // FIXES-LABELS: status (QA round 2 N3: guarded, null on error)
@@ -12,9 +13,9 @@ import { monthOptionCloseCount, optionHeadline, paneView } from './options-load.
 // open positions' unrealized percents for the strip's open count on a connected or failed record (F-12).
 export async function loadRecap(handle: string, ym: string) {
   if (!routeHandle(handle)) return null; // F12: junk in the URL is a 404, not a database error
-  const [u] = await sql`select id, display_name, public_filer_id from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
+  const [u] = await sql`select id, display_name, public_filer_id from users u where handle = ${handle} and ${visibleUser('u')} and ${filerVisibleSql('u')}`; // F-16: a hidden profile has no recap
   if (!u) return null;
-  const rows = await sql`select sell_id, trade_key, symbol, verified, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${u.id} order by closed_at desc, id desc`; // F-12: the profile's order, so sums match it to the bit
+  const rows = await sql`select sell_id, trade_key, symbol, verified, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${u.id} and ${visibleId(Number(u.id))} order by closed_at desc, id desc`; // F-12: the profile's order, so sums match it to the bit
   const all = rows.map((r) => ({ sellId: r.sell_id as string, tradeKey: r.trade_key as string, symbol: r.symbol as string, openedAt: r.opened_at as Date, closedAt: r.closed_at as Date, returnPct: r.return_pct as number, holdingDays: r.holding_days as number }));
   const now = new Date();
   const recap = monthRecap(all, ym, now);

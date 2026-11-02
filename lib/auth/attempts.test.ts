@@ -102,6 +102,8 @@ dbTest('signInWithIdentity: new subject → new user with a provisional handle; 
     assert.equal((await sql`select display_name from users where id = ${u1.id}`)[0].display_name, `${tag}_blank`);
     // A display name the trader typed themselves is never overwritten by a handle change.
     await sql`update users set display_name = 'Typed Name' where id = ${u1.id}`;
+    // F-17 (plan §0.7, E14): one rename per 30 days; the fixture backdates the last rename instead of waiting.
+    await sql`update users set handle_renamed_at = now() - interval '31 days' where id = ${u1.id}`;
     await changeHandle(u1.id, `${tag}_again`);
     const [d2] = await sql`select handle, display_name from users where id = ${u1.id}`;
     assert.deepEqual(d2, { handle: `${tag}_again`, display_name: 'Typed Name' });
@@ -155,11 +157,17 @@ dbTest('changeHandle: the old handle is held ~365 days for others, the same trad
     // The same trader takes the old handle back; that reservation goes, and the handle they leave is held instead.
     assert.equal(await checkHandle(a, u.id), 'ok');
     assert.equal(await changeHandle(u.id, a), a);
-    assert.equal((await sql`select 1 from handle_reservations where handle = ${a}`).length, 0);
+    // F-17 (plan §R3, v2 B3): the taken-back hold is ended (until = now()), never deleted: no active hold on it, and the
+    // row still names this account.
+    const heldA = async () => {
+      assert.equal((await sql`select 1 from handle_reservations where handle = ${a} and until > now()`).length, 0);
+      assert.equal(Number((await sql`select user_id from handle_reservations where handle = ${a}`)[0].user_id), u.id);
+    };
+    await heldA();
     assert.equal(Number((await sql`select user_id from handle_reservations where handle = ${b}`)[0].user_id), u.id);
     // The same handle again is a no-op.
     assert.equal(await changeHandle(u.id, a), a);
-    assert.equal((await sql`select 1 from handle_reservations where handle = ${a}`).length, 0);
+    await heldA();
     // Deleting the account leaves only the bare reservation (handle and date), still binding everyone.
     await sql`delete from users where id = ${u.id}`;
     const [bare] = await sql`select user_id, until > now() as active from handle_reservations where handle = ${b}`;

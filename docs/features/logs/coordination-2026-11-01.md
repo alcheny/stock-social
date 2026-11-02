@@ -319,3 +319,11 @@ Not approved, with where each goes (no vote):
 - Fixes lane: MK-P6 (one /how sentence), C5-41 (legal words), C5-34 (preview equals the shared image), C5-4's
   zero-width step, and C5-5's "per closed trade" wording.
 - Waiting: C5-32, C5-35, C5-33, C5-10, MK-P5, MK-P3, MK-P4.
+
+## F-16/F-17 (`claude/f16-f17-trust-safety`) → F-26 note slots (2026-11-01)
+
+`lib/reports.ts#reportThesis` now accepts a close's stable `trade_key` (64 hex) as well as its row id, and the feed
+card sends the key. The note slots on `app/u/[handle]/page.tsx` (`reportId={String(t.id)}`) and
+`app/u/[handle]/trade/[sellId]/page.tsx` (`t.note?.tradeId`) still send the row id, so a report from a page rendered
+before a rebuild answers the neutral "not-found". F-26 owns those slots: please pass `tradeKey(t.sell_id)`
+(`lib/likes.ts`) there. No change is needed in `app/user-note.tsx` or `app/report-note.tsx`.
