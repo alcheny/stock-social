@@ -55,17 +55,20 @@ export function insights(trades: InsightTrade[]): Insights {
       : { enough: true, best, worst, takeaway: `Your best symbol was ${best.symbol} at ${desc(best)}; your weakest was ${worst.symbol} at ${pct(worst.avgReturn)} over ${worst.n}.` };
   }
 
+  // FIXES-CYCLE5 (legal committee 2026-11-02, B16): this takeaway prints a true minus ("−4.0%").
+  // ponytail: pct() prints an ASCII hyphen everywhere else — the F-19 sweep moves every surface to the true minus.
+  const signed = (x: number) => pct(x).replace(/^-/, '\u2212');
   const wins = trades.filter((t) => t.returnPct > 0).map((t) => t.returnPct);
   const losses = trades.filter((t) => t.returnPct < 0).map((t) => t.returnPct);
   const avgWin = wins.length >= MIN_TRADES ? mean(wins) : null;
   const avgLoss = losses.length >= MIN_TRADES ? mean(losses) : null;
   const winLoss = {
     enough: avgWin !== null || avgLoss !== null, wins: wins.length, losses: losses.length, avgWin, avgLoss,
-    takeaway: avgWin !== null && avgLoss !== null ? `Your average win was ${pct(avgWin)} and your average loss was ${pct(avgLoss)}.`
+    takeaway: avgWin !== null && avgLoss !== null ? `Your average win was ${signed(avgWin)} and your average loss was ${signed(avgLoss)}.`
       // FIXES-CYCLE5 (F5-9, C5-19): one side averaged names the other side's count, never that side alone. Flats (0)
       // are on neither side (filtered above). Both under MIN_TRADES: no takeaway.
-      : avgWin !== null ? FC5.winOnly(pct(avgWin), losses.length)
-      : avgLoss !== null ? FC5.lossOnly(pct(avgLoss), wins.length) : null,
+      : avgWin !== null ? FC5.winOnly(signed(avgWin), losses.length)
+      : avgLoss !== null ? FC5.lossOnly(signed(avgLoss), wins.length) : null,
   };
 
   let streak: Insights['streak'] = { enough: false, longestLosing: null, takeaway: null };

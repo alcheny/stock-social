@@ -107,6 +107,9 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
   earlier one." Why: decided by the committee under the owner's instruction of 2026-11-01; POLICY F3c and CLAUDE.md say "excluded and counted": every other exclusion has a public line, and a
   hidden count would let sells, losses included, leave the stats without trace (F4, TR-1). The wording is the
   committee's; the owner's final wording is an owner item.
+- 2026-11-02 (owner decision): the public line reads "N sells excluded while a possible duplicate is checked."
+  (`PROFILE.excludedHeld`; built in the cycle-5 fixes, `docs/features/logs/fixes-cycle5/committee-2026-11-01.md`). It
+  replaces the 2026-11-01 wording above.
 - 2026-11-01: The give-ups (`busy`, two failed widened reads, a multi-page widened read) stay held, not dropped. Why: decided by the committee under the owner's instruction of 2026-11-01; no
   read decided them, so a genuine fill, possibly a loss, may be among them (the orchestrator's recommended option). A
   flag on the row (`activity_reissues.undecided`) lets the matcher tell them apart from decided duplicates.

@@ -22,16 +22,16 @@ test('F5-9 (B15): 5 wins, 3 losses and 2 flats → the average win and "3 losses
 });
 
 test('F5-9: the mirror, 3 wins and 5 losses (with flats)', () => {
-  assert.equal(take(...rep(3, 0.02), ...rep(5, -0.04), 0), 'Your average loss was -4.0%; 3 wins, too few to average.');
+  assert.equal(take(...rep(3, 0.02), ...rep(5, -0.04), 0), 'Your average loss was −4.0%; 3 wins, too few to average.');
 });
 
 test('F5-9: singular forms and each "no ..." form, exact', () => {
   assert.equal(take(...rep(5, 0.065), -0.01), 'Your average win was +6.5%; 1 loss, too few to average.');
-  assert.equal(take(...rep(5, -0.04), 0.01), 'Your average loss was -4.0%; 1 win, too few to average.');
+  assert.equal(take(...rep(5, -0.04), 0.01), 'Your average loss was −4.0%; 1 win, too few to average.');
   assert.equal(take(...rep(5, 0.065)), 'Your average win was +6.5%; no losses.');
   assert.equal(take(...rep(5, 0.065), 0, 0), 'Your average win was +6.5%; no losses.', 'flats are not losses');
-  assert.equal(take(...rep(5, -0.04)), 'Your average loss was -4.0%; no wins.');
-  assert.equal(take(...rep(5, -0.04), 0), 'Your average loss was -4.0%; no wins.', 'flats are not wins');
+  assert.equal(take(...rep(5, -0.04)), 'Your average loss was −4.0%; no wins.');
+  assert.equal(take(...rep(5, -0.04), 0), 'Your average loss was −4.0%; no wins.', 'flats are not wins');
 });
 
 test('F5-9 (B14, B15): the floor is MIN_TRADES; under it on both sides there is no takeaway; at it on both, both averages', () => {
@@ -39,15 +39,15 @@ test('F5-9 (B14, B15): the floor is MIN_TRADES; under it on both sides there is 
   assert.equal(take(...rep(MIN_TRADES - 1, 0.02), ...rep(MIN_TRADES - 1, -0.02)), null);
   assert.equal(take(0.02, 0.02, -0.02, -0.02), null);
   assert.equal(take(), null);
-  assert.equal(take(...rep(MIN_TRADES, 0.065), ...rep(MIN_TRADES, -0.04)), 'Your average win was +6.5% and your average loss was -4.0%.');
+  assert.equal(take(...rep(MIN_TRADES, 0.065), ...rep(MIN_TRADES, -0.04)), 'Your average win was +6.5% and your average loss was −4.0%.');
   // 5W/0L and 0W/5L are the "no ..." forms above; "no" only for exactly 0.
   assert.doesNotMatch(take(...rep(5, 0.065), -0.01)!, /no losses/);
 });
 
 test('F5-9: the sentences come from FC5 and never name one side alone', () => {
   const src = readFileSync(new URL('./insights.ts', import.meta.url), 'utf8');
-  assert.match(src, /FC5\.winOnly\(pct\(avgWin\), losses\.length\)/);
-  assert.match(src, /FC5\.lossOnly\(pct\(avgLoss\), wins\.length\)/);
+  assert.match(src, /FC5\.winOnly\(signed\(avgWin\), losses\.length\)/);
+  assert.match(src, /FC5\.lossOnly\(signed\(avgLoss\), wins\.length\)/);
   assert.doesNotMatch(src, /`Your average win was \$\{pct\(avgWin\)\}\.`/);
   assert.doesNotMatch(src, /`Your average loss was \$\{pct\(avgLoss\)\}\.`/);
 });
@@ -97,4 +97,11 @@ test('F5-12 (Round 3 item 7): no literal U+00A0 byte in lib/chart-sub.ts or its 
     assert.ok(!readFileSync(new URL(f, import.meta.url), 'utf8').includes(String.fromCharCode(0xa0)), f);
   }
   assert.match(readFileSync(new URL('./chart-sub.ts', import.meta.url), 'utf8'), /\.replace\(\/ \/g, '\\u00a0'\)/);
+});
+
+// FIXES-CYCLE5 (legal committee 2026-11-02, B16): the takeaway prints a true minus, never an ASCII hyphen, on every form.
+test('F5-9 takeaway: losses print a true minus sign on every form (legal B16)', () => {
+  for (const t of [take(...rep(MIN_TRADES, 0.065), ...rep(MIN_TRADES, -0.04)), take(...rep(5, -0.04)), take(...rep(5, -0.04), 0.01)]) {
+    assert.ok(t && t.includes('\u2212') && !/-\d/.test(t), `true minus: ${t}`);
+  }
 });
