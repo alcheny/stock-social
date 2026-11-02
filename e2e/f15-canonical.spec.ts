@@ -18,12 +18,16 @@ test('profile, trade and month pages: an absolute untagged canonical; the trade 
   await page.goto(`/u/${HANDLE}?via=card`);
   expect(await canonical(page)).toBe(`${ORIGIN}/u/${HANDLE}`);
   await expect(page.locator('meta[property="og:url"]')).toHaveCount(0);
-  const [t] = await sql`select c.sell_id s, to_char(c.closed_at at time zone 'UTC', 'YYYY-MM') ym from closed_trades c join users u on u.id = c.user_id
+  const [t] = await sql`select c.sell_id s, c.trade_key k, to_char(c.closed_at at time zone 'UTC', 'YYYY-MM') ym from closed_trades c join users u on u.id = c.user_id
     where u.handle = ${HANDLE} order by c.closed_at desc limit 1`;
   const trade = `/u/${HANDLE}/trade/${encodeURIComponent(t.s)}`;
+  const keyed = `/u/${HANDLE}/trade/${t.k}`; // F-25: the canonical is the trade_key form; the old sell-id URL answers 308 to it
+  const old = await page.request.get(trade, { maxRedirects: 0 });
+  expect(old.status()).toBe(308);
+  expect(old.headers()['location']).toBe(keyed);
   await page.goto(`${trade}?via=trade&x=1`);
   const c = await canonical(page);
-  expect(c).toBe(`${ORIGIN}${trade}`);
+  expect(c).toBe(`${ORIGIN}${keyed}`);
   await page.getByRole('button', { name: 'Share' }).click();
   await expect(page.getByRole('button', { name: 'Link copied' })).toBeVisible();
   const shared = await page.evaluate(() => navigator.clipboard.readText());
@@ -33,14 +37,15 @@ test('profile, trade and month pages: an absolute untagged canonical; the trade 
 });
 
 test('an over-encoded trade address gives the same canonical; a missing page declares none', async ({ page }) => {
-  const [t] = await sql`select c.sell_id s from closed_trades c join users u on u.id = c.user_id where u.handle = ${HANDLE} order by c.closed_at desc limit 1`;
+  const [t] = await sql`select c.sell_id s, c.trade_key k from closed_trades c join users u on u.id = c.user_id where u.handle = ${HANDLE} order by c.closed_at desc limit 1`;
   const plain = `/u/${HANDLE}/trade/${encodeURIComponent(t.s)}`;
+  const keyed = `/u/${HANDLE}/trade/${t.k}`; // F-25
   const over = `/u/${HANDLE}/trade/${[...String(t.s)].map((ch) => /[A-Za-z]/.test(ch) ? `%${ch.charCodeAt(0).toString(16).toUpperCase()}` : encodeURIComponent(ch)).join('')}`;
   await page.goto(plain);
   const a = await canonical(page);
   const res = await page.goto(over);
   if (res?.status() === 200) expect(await canonical(page)).toBe(a);
-  expect(a).toBe(`${ORIGIN}${plain}`);
+  expect(a).toBe(`${ORIGIN}${keyed}`);
   const missing = await page.goto(`/u/${HANDLE}/trade/no-such-trade-f15`);
   expect(missing?.status()).toBe(404);
   await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);

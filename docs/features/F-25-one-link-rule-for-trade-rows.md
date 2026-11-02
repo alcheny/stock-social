@@ -1,6 +1,6 @@
 # F-25 · One link rule for trade rows
 
-Status: ready
+Status: built
 
 ## Why
 The trade page (the note, the record strip, Share) can't be reached from the feed card, the pane or the stock page's
@@ -124,58 +124,69 @@ the signed-out feed would widen the mismatch, so the URL changes in the same fea
   profile row, named for that destination), open-position rows (no trade page exists for an open position), and F-7
   filing links. Why: decided by the committee under the owner's instruction of 2026-11-01; they are not closed-trade
   rows.
-- 2026-11-02: Unblocked: F-9 (#65), F-11 (#85) and F-26 (#87) have merged. Being built on `claude/f25-one-link-rule`
-  (#102). Under OD 2.63 (accepted by the owner), the "never shown" wording for `sell_id` stays only once this feature
-  makes it true. Why: the stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02; OD 2.63.
+- 2026-11-01: `lib/share-actions.ts#pageExists` matches a trade share by `trade_key`, as `lib/views.ts` does for views. Why: decided by the committee under the owner's instruction of 2026-11-01; Share paths carry the key after F-25, so matching the old id would silently record no trade shares (the views decision's reason).
+- 2026-11-01: Tests that break only because the URL or footer form changed, outside the AC's list (`lib/f15-share-action.test.ts`, `lib/f15-share-action.db.test.ts`, `lib/f15-views.db.test.ts`, `lib/user-note.test.ts`, `lib/a11y-fixes.test.ts` #22, `lib/likes.test.ts`, `lib/thesis-review.test.ts`, `lib/f10-feed-card.test.ts`, `e2e/f15-canonical.spec.ts`, `e2e/f15-share.spec.ts`, `e2e/f26-held-like-none.spec.ts`, `e2e/f7-public-profile.spec.ts`), are rewritten to the new form with the same intent. Why: decided by the committee under the owner's instruction of 2026-11-01; never weaken a test; each keeps what it proves.
+- 2026-11-01: The pane's keys come from one column of `records1`'s statement as `id:key` pairs attached by row id; there is no loader filter for rows without a key (the column is generated from a non-null `sell_id`); a card given no key shows only the record link and a pane row without one stays text. Why: decided by the committee under the owner's instruction of 2026-11-01; a tie in `closed_at` can never move a key to the wrong row, and a filter could only hide trades (TR-1).
+- 2026-11-01: React keys and the moderator page carry no vendor id (keys ride in the page payload); Similar trades' one-link rule is checked per row, its sheet excluded. Why: decided by the committee under the owner's instruction of 2026-11-01; the no-`sell_id` rule covers every payload, and the sheet is a dialog outside the row.
+- 2026-11-01: The statement-count AC is proven on a one-trader page (the feed's per-trader cap shows 2 cards) and a 30-card page of more than 8 traders, each equal to main (17 and 13 statements). Why: decided by the committee under the owner's instruction of 2026-11-01; the feed never renders exactly one card for one trader.
+- 2026-11-01: The Verified glyph is a nested `aria-hidden` span (the DOM text stays "✓ Verified"), and Shape R focus rings use F-20's 2 px `:focus-visible` ring. Why: decided by the committee under the owner's instruction of 2026-11-01; F-20's ring test allows no other offset, and the rows sit inside the pane's padding.
+- 2026-11-01: The footer AC "no two footer profile links share an accessible name" is read per destination: two cards of one trader on a page both read "Record, wins and losses: @‹handle›" and go to the same profile, and no two different profiles share a name (e2e: each name maps to one href). Why: decided by the committee under the owner's instruction of 2026-11-01; WCAG 2.4.4 asks that links with the same name go to the same place, and the decided name pattern (the handle) gives one trader's cards one name.
+- 2026-11-01: On page 1's first card the swipe hint keeps its own line above the two footer links, 14 px clear of their hit boxes, instead of sharing their line; the footer's 36 px row gap keeps wrapped or stacked link boxes 8 px apart (also when a larger text size wraps them at 360 px or wider). The height checks pass unchanged. Why: decided by the committee under the owner's instruction of 2026-11-01; both links leave no room for the hint beside them at 360 px, and a hit box over the hint or the other link would let a tap open the wrong page (QA round 1).
+- 2026-11-01: Chromium joins a visually hidden span's text with a space ("This trade : TSLA Gain +5.0%"); the e2e name checks ignore spacing before punctuation, and the markup stays as decided. Why: decided by the committee under the owner's instruction of 2026-11-01; screen readers read the same words, and the visible words still begin the name (WCAG 2.5.3).
+- 2026-11-01: The pane's "Last 5 trades" links and the card's footer links render through small client components (`app/f25-links.tsx`) with compact props, not server element trees; the HTML and names are unchanged. Why: decided by the committee under the owner's instruction of 2026-11-01; as element trees they were serialised twice per card (HTML and the page payload) and pushed the F-2 heavy feed page past its 500 KB budget (547 KB); with compact props (the key, symbol and printed date, figure and tone; no raw return) the pages weigh 447, 421 and 459 KB (main: 432, 402, 446), threshold unchanged.
+- 2026-11-02: The swipe hint's words paint above the first footer link's overhang (as the disclaimer does) instead of keeping a 14 px gap; the hint line stays static (F-13). Why: decided by the committee under the owner's instruction of 2026-11-01; with a 280-character note and the open-positions line, page 1's first card needed 645 of 639 px at 320 with the gap; without it the F-10 budget holds unchanged, and a tap on the hint's words follows no link.
+- 2026-11-02: Unblocked: F-9 (#65), F-11 (#85) and F-26 (#87) have merged. Built in #102 (9c3aed94). Under OD 2.63
+  (accepted by the owner), the "never shown" wording for `sell_id` stays only once this feature makes it true. Why:
+  the stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02; OD 2.63.
 
 ## Acceptance criteria
-- [ ] On the feed, the pane, the profile, the month page, the stock page (trades and notes lists), similar trades,
+- [x] On the feed, the pane, the profile, the month page, the stock page (trades and notes lists), similar trades,
       likes, hidden trades and the new-trades prompt, each closed-trade row has exactly one `<a>` whose href is
       `tradePageHref` of that row, ending `/trade/<trade_key>` (e2e on demo data, one assertion per surface).
-- [ ] On the feed, pane, profile, month page and stock page, each trade link's accessible name contains the row's
+- [x] On the feed, pane, profile, month page and stock page, each trade link's accessible name contains the row's
       symbol, its signed % as printed, and "trade page" or "This trade" (e2e accessibility tree).
-- [ ] Each trade link's accessible name contains the sign word (Gain, Loss or Flat) that matches `tone()` of its
+- [x] Each trade link's accessible name contains the sign word (Gain, Loss or Flat) that matches `tone()` of its
       figure (e2e, one loss row per surface).
-- [ ] No trade row is nested inside another link, and no element that contains a trade link is itself a link (DOM
+- [x] No trade row is nested inside another link, and no element that contains a trade link is itself a link (DOM
       test on each surface).
-- [ ] No rendered href, `data-*` attribute, form field, feed paging response, `/u/<handle>/pane` or
+- [x] No rendered href, `data-*` attribute, form field, feed paging response, `/u/<handle>/pane` or
       `/u/<handle>/pane-chart` JSON, trade-page metadata, or `/me/record` HTML contains any row's `sell_id` (e2e with
       seeded sell ids carrying a unique marker).
-- [ ] `GET /u/<handle>/trade/<sell_id>` and `GET /u/<handle>/trade/<sell_id>/opengraph-image`, fetched with
+- [x] `GET /u/<handle>/trade/<sell_id>` and `GET /u/<handle>/trade/<sell_id>/opengraph-image`, fetched with
       `maxRedirects: 0`, answer 308 with `Location` equal to the `tradePageHref` form. Following that, the page answers
       200 and the image renders (200, `image/png`). An unknown segment in either form, another handle's `sell_id`, and
       the `sell_id` of a hidden or removed public filer or a deleted user answer 404 with no redirect (e2e).
-- [ ] `GET /u/<handle>/trade/<sell_id>?via=trade` with `maxRedirects: 0` answers 308 with `Location` equal to
+- [x] `GET /u/<handle>/trade/<sell_id>?via=trade` with `maxRedirects: 0` answers 308 with `Location` equal to
       `tradePageHref(...) + '?via=trade'`, and the landed page's view beacon records `via=trade` (e2e).
-- [ ] A view beacon for `/u/<handle>/trade/<trade_key>` counts one trade view for that trader, and one for
+- [x] A view beacon for `/u/<handle>/trade/<trade_key>` counts one trade view for that trader, and one for
       `/u/<handle>/trade/<sell_id>` counts none (db test beside `lib/f15-views.db.test.ts`).
-- [ ] The legacy lookup and its redirect live in the trade page body and the `opengraph-image` route, and in neither
+- [x] The legacy lookup and its redirect live in the trade page body and the `opengraph-image` route, and in neither
       `proxy.ts` nor `generateMetadata` (source test).
-- [ ] `lib/privacy-fields.ts` labels `closed_trades.trade_key` "key (hash of sell_id; shown in trade-page URLs)" and
+- [x] `lib/privacy-fields.ts` labels `closed_trades.trade_key` "key (hash of sell_id; shown in trade-page URLs)" and
       `closed_trades.sell_id` still "never shown"; the consent line is unchanged (`lib/privacy-fields.test.ts`).
-- [ ] On `/me/record`, the reflection form posts `tradeKey`, and saving and clearing a reflection still work for the
+- [x] On `/me/record`, the reflection form posts `tradeKey`, and saving and clearing a reflection still work for the
       user's own trade and fail for another user's `trade_key` (db test on the action, e2e on the page).
-- [ ] After `rebuildTrades` for a user, every trade-page URL captured before the rebuild still answers 200 with the
+- [x] After `rebuildTrades` for a user, every trade-page URL captured before the rebuild still answers 200 with the
       same symbol and figure (db test).
-- [ ] Every trade-page URL in `app/` and `lib/`, including the trade page's own canonical and `opengraph-image` URLs,
+- [x] Every trade-page URL in `app/` and `lib/`, including the trade page's own canonical and `opengraph-image` URLs,
       comes from `tradePageHref` (source test: no `/trade/${` template outside `lib/trade-href.ts`).
-- [ ] Feed card: the return figure (`.ret`) contains no link; the footer holds "This trade →" then "Record, wins and
+- [x] Feed card: the return figure (`.ret`) contains no link; the footer holds "This trade →" then "Record, wins and
       losses →", at 0.875rem; the name still links to `/u/<handle>` and the symbol to `/t/<SYMBOL>` (render test of
       `TradeCard`).
-- [ ] The profile link's text is one `lib/copy.ts` constant, used by `app/ui.tsx` and `PUBLIC.cardFooter`, so
+- [x] The profile link's text is one `lib/copy.ts` constant, used by `app/ui.tsx` and `PUBLIC.cardFooter`, so
       connected and F-7 public-record cards show the same footer string (source test).
-- [ ] At 360 px and 780 px the two footer links sit on one line; at 320 px they stack (e2e bounding boxes, e2e font).
-- [ ] Every trade link and both footer links have a computed hit box at least 44 px tall at 320, 360 and 780 px widths,
+- [x] At 360 px and 780 px the two footer links sit on one line; at 320 px they stack (e2e bounding boxes, e2e font).
+- [x] Every trade link and both footer links have a computed hit box at least 44 px tall at 320, 360 and 780 px widths,
       and every Shape C figure link is at least 44 × 44 px, including a "0.0%" figure (e2e), and the two footer links'
       hit boxes do not overlap, with at least 8 px between them side by side at 360 and 780 px and stacked at 320 px
       (e2e bounding boxes).
-- [ ] On a feed page with two or more traders, no two footer profile links share an accessible name, and each name
+- [x] On a feed page with two or more traders, no two footer profile links share an accessible name, and each name
       starts with "Record, wins and losses" (e2e accessibility tree).
-- [ ] `e2e/record-strip.spec.ts` AC8, the room and sign-in-bar checks in `e2e/fixes-cycle2-a11y.spec.ts` and the
+- [x] `e2e/record-strip.spec.ts` AC8, the room and sign-in-bar checks in `e2e/fixes-cycle2-a11y.spec.ts` and the
       footer check in `e2e/a11y-feed.spec.ts` pass with their thresholds unchanged, with a 280-character note. The
       same holds for page 1's first card after the first-visit line is dismissed (`data-ss-seen~="line"`), where the
       swipe hint shares the footer line.
-- [ ] Tests updated for the new footer text and the new URL form, each assertion otherwise unchanged:
+- [x] Tests updated for the new footer text and the new URL form, each assertion otherwise unchanged:
       - `lib/f7-trust.test.ts:96` expects the new constant;
       - `e2e/f7-public-feed.spec.ts:52` expects the new string;
       - `e2e/fixes-cycle2-a11y.spec.ts:288`, `e2e/f10-followups.spec.ts:79` and `e2e/record-strip.spec.ts:121` match
@@ -187,27 +198,27 @@ the signed-out feed would widen the mismatch, so the URL changes in the same fea
       - `e2e/similar.spec.ts:105` expects the similar-trades href in the `trade_key` form;
       - `e2e/app.spec.ts:519` expects the new-trades link's href in the `trade_key` form; `e2e/app.spec.ts:413-418`
         are unchanged and now exercise the legacy redirect and the 404.
-- [ ] `e2e/record-strip.spec.ts:168` asserts zero links matching `/(See t|T)heir record, wins and losses|Record, wins
+- [x] `e2e/record-strip.spec.ts:168` asserts zero links matching `/(See t|T)heir record, wins and losses|Record, wins
       and losses/` on the trade page, so it still fails if the duplicate profile link comes back.
-- [ ] Feed card gestures: F-2's SW-1, reject-swipe and double-tap e2e pass unchanged. A double tap on the card body
+- [x] Feed card gestures: F-2's SW-1, reject-swipe and double-tap e2e pass unchanged. A double tap on the card body
       still likes (signed in) or shows the sign-in line (signed out) and never navigates. One tap on "This trade →"
       opens the trade page (e2e).
-- [ ] A swipe that starts on "This trade →" or on a pane row link opens the pane, rejects, or scrolls as before and
+- [x] A swipe that starts on "This trade →" or on a pane row link opens the pane, rejects, or scrolls as before and
       never navigates. A pointer that moves off a link before release does not follow it (WCAG 2.5.2, e2e).
-- [ ] Shape R links carry no `aria-label`. Each accessible name starts with the row's visible text and contains the
+- [x] Shape R links carry no `aria-label`. Each accessible name starts with the row's visible text and contains the
       row's badge word when a badge sits inside the link ("Demo" on demo rows, "Verified" without "check mark") (e2e
       on the stock page, notes list, month page and pane).
-- [ ] Shape C and the feed's trade link: the visible text of the link is a substring of its accessible name (WCAG 2.5.3).
-- [ ] The pane's highlighted row has `aria-current="true"` on its `<a>`, not on the `<li>` (render test).
-- [ ] Each Shape R link shows its focus ring around the whole row, not clipped by its container, in light and dark
+- [x] Shape C and the feed's trade link: the visible text of the link is a substring of its accessible name (WCAG 2.5.3).
+- [x] The pane's highlighted row has `aria-current="true"` on its `<a>`, not on the `<li>` (render test).
+- [x] Each Shape R link shows its focus ring around the whole row, not clipped by its container, in light and dark
       (e2e screenshot on the stock page and the pane).
-- [ ] The pane's last-5 rows link to their trade pages both in the feed (server pane) and in the lazy pane.
+- [x] The pane's last-5 rows link to their trade pages both in the feed (server pane) and in the lazy pane.
       `/u/<handle>/pane` carries a trade key for at most 5 rows (unit test on the route payload).
-- [ ] The feed page issues the same number of SQL statements as before this feature, for 1 card and for 30
+- [x] The feed page issues the same number of SQL statements as before this feature, for 1 card and for 30
       (statement-count test on `loadFeedPage`), and the F-10 load test passes.
-- [ ] Signed out, each trade link returns 200, and the page shows the row's symbol and signed % exactly as printed on
+- [x] Signed out, each trade link returns 200, and the page shows the row's symbol and signed % exactly as printed on
       the row (e2e).
-- [ ] `TRADE_LINK` strings contain none of the scanner's advice, promotion or completeness words (copy test).
+- [x] `TRADE_LINK` strings contain none of the scanner's advice, promotion or completeness words (copy test).
 
 ## Out of scope
 - Chart points, the chart sheet and its "Go to trade in list" link (CH-1).
@@ -225,3 +236,4 @@ the signed-out feed would widen the mismatch, so the URL changes in the same fea
 ## Rework notes
 
 ## Build log
+- 2026-11-01: built on `claude/f25-one-link-rule` through the committee cycle (plan with two review rounds, tests first, tester QA, UX lead and business lead user tests at 360 and 320 px: PASS, independent code review: no blocking findings); every acceptance criterion has a unit, db or e2e test (`lib/f25-*.test.ts`, `e2e/f25-*.spec.ts`). Record: `docs/features/logs/F-25/committee-2026-11-01.md`.

@@ -60,5 +60,7 @@ export function SwipeHint({ text }: { text: string }) {
     return () => document.removeEventListener('scroll', onScroll, true);
   }, [seen]);
   if (seen) return null;
-  return <p className="swipe-hint small" data-swipe-hint>{text}</p>;
+  // F-25: the text sits in a span that paints above the first footer link's overhang (app/globals.css F-25 block); the
+  // line itself stays static (F-13: inline, never an overlay).
+  return <p className="swipe-hint small" data-swipe-hint><span className="f25-hint-text">{text}</span></p>;
 }
