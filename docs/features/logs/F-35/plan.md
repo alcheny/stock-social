@@ -153,3 +153,17 @@ Supersedes round 1 where they differ.
 16. AC5 (BL 9): the browser half under `timezoneId` UTC and Pacific/Kiritimati at 360 px (the orchestrator's brief),
     light and dark; the server-zone half a db test under `TZ=Pacific/Kiritimati`.
 17. AC6 (BL 10): the edited "fix round 6" test keeps every other assertion; the two changed ones are listed in the PR.
+
+## Round 3 changes (engineer's round-2 demands; business lead signed round 2 with three test conditions)
+1. The insert-side update never fills a null watermark: `update users set published_through = now() where id = $1
+   and published_through > now()` (a null stays null), only when a row actually stored (`returning` after
+   `on conflict do nothing`) is dated after now(). Test: a null-watermark user gets a future row from an import-step
+   insert; the pass still picks the user and removes the early close.
+2. The null-watermark branch is its own index-driven CTE per table (`executed_at > created_at and executed_at > now()`,
+   shard filter, scope, `group by user_id`) joined to users on `published_through is null`. AC7's EXPLAIN covers it.
+3. Those selections are counted as `maturedInitial` (apart from `matured`), inside the same `MATURED_PER_RUN` and
+   `MATURED_BOX_MS` budget. Test: a second tick selects 0 of them.
+Business lead's conditions (tests in the build): (a) an options-only record with an early option close: rebuilt once,
+close gone, line shows 1, watermark set; next tick not rebuilt; a null-watermark record with no row ahead never
+selected. (b) An insert that lowers the watermark plus two ticks gives exactly one rebuild. (c) The copy checked on the
+page at 360 px, light and dark, signed out: exact text, muted, beside the other exclusion lines, gone after maturity.
