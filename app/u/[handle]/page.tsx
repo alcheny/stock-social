@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db.ts';
+import { visibleUser } from '@/lib/visible-users.ts'; // F-16: the owner's referral list skips hidden accounts
 import { currentUser } from '@/lib/session.ts';
 import { confidence, edgeText, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
@@ -201,7 +202,7 @@ export default async function Profile({ params, searchParams }: Params) {
             exists(select 1 from activities d where d.user_id = u.id and d.source = 'demo') as is_demo,
             exists(select 1 from activities a where a.user_id = u.id and a.source = 'snaptrade') as has_snaptrade_activity,
             coalesce(u.referred_surface, u.referred_via) as surface
-          from users u where u.referred_by_user_id = ${user.id} order by u.id`).map((r) => ({
+          from users u where u.referred_by_user_id = ${user.id} and ${visibleUser('u')} order by u.id` /* F-16: a hidden referred account is not listed */).map((r) => ({
           id: r.id as number,
           handle: r.handle as string,
           isDemo: r.is_demo as boolean,

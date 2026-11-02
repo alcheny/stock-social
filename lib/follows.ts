@@ -202,7 +202,7 @@ export async function removeExpiredHide(viewer: number, trader: number): Promise
 // F-2 PR-5: personal ordering's inputs (lib/discovery/personal-load.ts), as of the feed session's asOf: the traders this
 // viewer followed by then (with handles, for reason lines), and their exclusions made after `since` and running at asOf.
 export async function followsAt(viewer: number, asOf: Date): Promise<{ trader: number; handle: string }[]> {
-  return (await sql`select f.trader_id, u.handle from follows f join users u on u.id = f.trader_id and u.deleted_at is null
+  return (await sql`select f.trader_id, u.handle from follows f join users u on u.id = f.trader_id and ${visibleUser('u')} -- F-16: a hidden trader names no reason
     where f.viewer_id = ${viewer} and f.created_at <= ${asOf}`).map((r) => ({ trader: r.trader_id as number, handle: r.handle as string }));
 }
 export async function exclusionsAt(viewer: number, since: Date, asOf: Date): Promise<{ trader: number; at: number; reason: 'not_interested' | 'unfollow' }[]> {
