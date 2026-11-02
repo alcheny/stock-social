@@ -98,20 +98,11 @@ for a zero-width range.
 | Tools card, `lib/record-tools.ts:229` | `range` null; `low` null too (it must not print the low end alone) |
 | Options, `lib/options-view.ts:35`, `app/u/[handle]/options-block.tsx:46` | range slot prints `RECORD_STRIP.early` (gate via `zeroWidth`) |
 
-**OD 2.32 wording.** The only producer of "likely between" is `SHARE_CARD.likely` (the card and, through it, the
-share prompt). The owner's phrase is carried by the card's label + range pair: new `SHARE_CARD.perTradeSoFar =
-'average per trade so far'` and `perClosedTradeSoFar = 'average per closed trade so far'` become the card's
-`headlineLabel`; `SHARE_CARD.likely` keeps "likely between X and Y". Text forms then read exactly the owner's words:
-description "+1.2% average per trade so far, likely between +0.4% and +2.0% · …", alt "The average per trade so far is
-+1.2%, a gain, likely between …", prompt "Right now your average per trade so far is likely between …". The strip, the
-profile ("avg return / trade") and `SHARE_CARD.perTrade` are not "likely between" producers and stay unchanged.
-Layout at 360 px (card shown 343 px wide, 10 CSS px floor unchanged, no font size changes):
-- Square and story: one label line, 24 or 31 glyphs at 32 px, inside the 968 / 936 px columns. Safe.
-- Unfurl, no open positions: the label always splits at "per " ("average per" / "trade so far"); "trade so far" is as
-  long as today's "closed trade" line, so no new width.
-- Unfurl with open positions: "closed trade so far" (19 glyphs) does not fit the 540 px column beside the number.
-  `unfurlWide` also returns true when the card has open positions, so the column takes the existing +100 px wide state
-  (chart about 20%, the state the orchestrator accepted on 2026-11-01). A test measures every unfurl state's label row.
+**OD 2.32 wording: struck from this build (orchestrator ruling 4, BL round 2 D3).** The card label change to the
+owner's words "average per trade so far, likely between X and Y" (the `perTradeSoFar` label, the unfurl label split,
+the open-positions column, the snapshot and image-hash updates) is not built here. It moves pinned image layouts
+(ENG demands 2-4) and is not an F-33 acceptance criterion. It is filed as a scheduled hand-off in the feature file
+(Hand-offs) with the owner's exact words, and the PR says in one line that it is not delivered.
 - "Too early to tell" (17 glyphs) is shorter than any printed range, so the zero-width state cannot overflow.
 
 ## 3. /how copy (lib/copy.ts)
@@ -172,7 +163,7 @@ dated line to §12's /how history (a doc line, not a protected path).
 | 9 cache | `F-33 AC9: the weight cache key carries the formula; an old-formula entry is never served` (new `lib/feed.f33-cache.test.ts`): set under `weightKey(id, p, 'f-old')`, `weightCacheGet(weightKey(id, p))` is undefined; `weights()` builds keys only through `weightKey` (source check); no SQL in lib/ writes a weight |
 | 10 readout | `F-33 AC10: ranked records print <5 from 1 to 4, exact from 5, 0 at 0, not loaded when missing` (`scripts/f15-readout.test.ts`) |
 | /how | `F-33: /how states the tier, the floor and near-edge from the constants, never "top/best/proven/skill/can't"` (new test in `lib/fixes-cycle3.test.ts`) |
-| layout | `F-33: every unfurl label row fits its column at the "so far" wording` (record-card tests) and a Playwright 360 px screenshot pass of unfurl/square/story with and without open positions and with a zero-width record |
+| layout (struck: card wording hand-off) | ~~`F-33: every unfurl label row fits its column at the "so far" wording`~~ (record-card tests) and a Playwright 360 px screenshot pass of unfurl/square/story with and without open positions and with a zero-width record |
 
 **Retargeted (same test, same intent, new rule):**
 - `lib/confidence.test.ts:109-120` → `rankWeight`, records of 40 bets over 120+ days, mirror at −5% with `assert.equal`.

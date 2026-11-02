@@ -41,3 +41,13 @@ section order). R2 accept. R3 accept only as a tracked hand-off.
    snapshot and nine test files. Keeping it out also answers ENG demand 13 (size) without splitting the PR. Recorded
    for the owner in the PR and the feature file.
 5. All other demands accepted as written (ENG 1, 5-12; BL /how demands).
+
+## Round 2 — rulings review
+**Business lead: sign off on rulings 1-5** (withdraws "then score"; weight then id is the only order that keeps both
+F-33 and F-2's fix rounds), with demands: D1 both section lines change ("Records with ranking weight come first, the
+rest in a fixed order. Losses count the same as gains."; the personal variant likewise) and the stale comments; D2 tests
+tie the line to the comparator, and the section links to /how; D3 the card-label work struck from the plan and filed
+as a scheduled hand-off with the owner's words; D4 the PR shows the 40 × +1% probe's measured weight and rank. Open
+point for the owner (not built): id order favours the earliest sign-ups once most rows weigh 0; a fixed hash of the id
+would be seniority-neutral. **Engineer:** building on the round-1 rulings (its demands accepted), so it signs off by
+building to them. D1, D2, D4 sent to the engineer; D3 done in plan.md by the orchestrator. Plan agreed: round 2.
