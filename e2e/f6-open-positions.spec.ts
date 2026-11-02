@@ -234,13 +234,16 @@ test('F-6 stock pages: the aggregate only, never who holds it; not counted for r
 });
 
 test('F-6: the Similar trades pane (/u/<h>/pane) carries open positions for a connected record only (review B2)', async ({ request }) => {
-  const mixed = await (await request.get('/u/f6_mixed/pane')).json();
-  expect([...mixed.open].sort()).toEqual([-0.3, 0, 0.1]);
-  expect(mixed.openAsOf).toBe(Date.parse('2026-10-30T12:00:00Z'));
-  const stray = await (await request.get('/u/f6_stray/pane')).json();
-  expect(stray.open).toEqual([]);
-  expect(stray.openAsOf).toBeNull();
-  expect((await request.get('/u/f6_importing/pane')).status()).toBe(404);
+  // F-23: the pane JSON carries the pane's model: the open block (counts by printed tone, the average at the printed
+  // precision) and the as-of UTC day, never the raw unrealized_pct values or a ms time.
+  const mixed = await (await request.get('/u/f6_mixed/pane?v=2')).json();
+  expect(mixed.model.open).toEqual({ n: 3, up: 1, down: 1, flat: 1, avg: -0.067 });
+  expect(mixed.model.openAsOf).toBe('2026-10-30');
+  expect(JSON.stringify(mixed)).not.toMatch(/unrealized|"open":\[/);
+  const stray = await (await request.get('/u/f6_stray/pane?v=2')).json();
+  expect(stray.model.open).toBeNull();
+  expect(stray.model.openAsOf).toBeNull();
+  expect((await request.get('/u/f6_importing/pane?v=2')).status()).toBe(404);
 });
 
 test('F-6 (business lead D5): at 360 px every big value sits on one line at one size in both grids, nothing widens the page', async ({ page }) => {

@@ -2,7 +2,7 @@
 // import (one vendor page per step, one transaction per step under the per-user advisory lock), expiry and staleness
 // clocks, and vendor cleanup. docs/features/F-1-broker-connection.md decisions; docs/features/logs/F-1/plan.md §1, §8.
 import { sql } from './db.ts';
-import { markGenuine, markTwins } from './reconcile.ts';
+import { bringForward, markGenuine, markTwins } from './reconcile.ts';
 import type { TransactionSql } from 'postgres';
 import * as vendor from './broker.ts';
 import type { BrokerUser, VendorAccount } from './broker.ts';
@@ -608,6 +608,10 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         // shown while importing is of new rows only.
         await markTwins(tx, c.user_id!);
         await markGenuine(tx, c.user_id!, page.activities.map((a) => a.externalId));
+        // F-24 follow-up (orchestrator, residual 1): a reconnect whose vendor re-issued ids holds them pending, and the
+        // pair's later sells are counted, not shown, until a pass decides them. So the account's next pass is due at once:
+        // it runs on the next due daily read (inside F-14's caps: a pass page replaces that read), not a period later.
+        await bringForward(tx, c.user_id!, tx`now()`);
         const [{ fresh }] = await tx`select count(*)::int as fresh from activities where user_id = ${c.user_id!} and xmin = pg_current_xact_id()::xid`; // rows this step stored
         return save(advanceCursor(cur, page.done, limit - importOverlap(limit)), true, c.imported_count + (fresh as number));
       }
