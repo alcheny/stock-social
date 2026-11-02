@@ -39,4 +39,25 @@ apply meanwhile.
 
 ## Build, QA, user test and review
 
-(appended as each step completes)
+- Build (engineer, tests first): lib/f29-gated-wording.test.ts and e2e/f29-gated-wording.spec.ts were written first, then
+  the implementation. Neither stop rule fired. At 320x740 the pane's disclaimer is below the fold both before and after
+  the move; AC 10 asks only for reflow at 320.
+- Code review (docs/features/logs/F-29/review.md): one Blocking finding. B1: once the gate opens, a short-only record's
+  open line ("Short options not shown: ...") reached the feed card. Fixed: `cardOptionsLine` returns nothing while the
+  view is open, with a unit test for that case. N1 (the share preview had no gate key) is fixed too. N2 to N4 are
+  carried to the PR.
+- Container restart mid-QA: the tester's full run was lost and re-run.
+- User test at 360 px (business lead, UX lead), from docs/features/logs/F-29/qa/:
+  - Both leads: the pane's "Excluding options" sat about 16 px under the figures but only about 4 px over the count line,
+    so it read as the count line's heading (business lead Low 2, UX lead Medium 1). Fixed: the label now sits 6 px
+    under the figures with 8 px below it. The e2e checks gap ≤ 8 px and that the gap below is larger.
+  - Business lead (Blocking 1): the count line's "Option results aren't shown on this record." can read as this trader
+    withholding; they propose "any record yet". Committee decision: not changed in this build. That sentence is the
+    options committee's signed `OPTIONS.gated` copy. F-29's signed words cover only /how and the qualifier, the feature
+    routes the count line's wording to the options and legal committees (Out of scope, C4-8), and the rule "any change
+    needs the committee's re-sign" binds the builder. The sentence is literally true for every record and does not
+    contradict /how. Routed as an open question to the legal committee and the owner (feature file, Open questions;
+    PR, Owner items).
+  - Low, recorded for later builders: on the pane the qualifier sits below the figures (D5), on the profile above them
+    (D4), for F-34 to align; the pane's figures are below the fold at 360 (the agreed bar is met); the card count line
+    has no "How options are counted" link, like the pane, for the next copy pass.

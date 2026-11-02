@@ -90,6 +90,9 @@ second-vote mean 3.87, final vote 15/15, all with conditions). Part (c) is with 
 - Owner Q3: once the re-consent prompt exists, should a gated record show the trader, privately, whether they have
   been asked? The council recommends yes, on the trader's own view only.
 - Owner: adopt the gate-opening checklist line above?
+- Legal committee and owner (user test 2026-11-02, business lead): the count line's "Option results aren't shown on this
+  record." can read as this trader withholding while every record is gated. Proposed: "... on any record yet."
+  `OPTIONS.gated` is signed options-committee copy, so F-29 did not change it. It needs the committee's re-sign.
 
 ## Rework notes
 
