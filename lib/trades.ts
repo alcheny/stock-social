@@ -140,7 +140,9 @@ export const MATCHER_VERSION = 4;
 // counted twin is 'twin' (counted once, under its twin's reason).
 // Production callers never pass it.
 export type SellReason = 'shown' | 'excluded' | 'corporate' | 'transfer' | 'held' | 'twin';
-export type MatchOptions = { orderKnown?: boolean; reasons?: Map<string, SellReason> };
+// `lastDrawn` (test hook, F-22 engineer review): each priced sell's latest drawn-lot opening time, so a property can tell
+// a sell that drew only lots older than a transfer. Production callers never pass it.
+export type MatchOptions = { orderKnown?: boolean; reasons?: Map<string, SellReason>; lastDrawn?: Map<string, number> };
 export function matchTrades(activities: Activity[], actions: CorporateAction[] = [], opts: MatchOptions = {}): MatchResult {
   return replay(activities, actions, opts).result;
 }
@@ -357,8 +359,9 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
               addGap(b, removeOldest(b.lots, -ca.units)); // C4-2: more out than held leaves the gap, as today
               if (whole) b.lots.length = 0; // engineer review: no sliver below the tolerance stays behind
               // ponytail: with mixed lots, moving even one share out leaves the rest counted (their sells "transfer"), so a
-              // trader holding a loser bought at several prices can still turn its close into a count — fix: the vendor's
-              // lot-level transfer detail (which shares left), when it exists.
+              // trader holding a loser bought at several prices can still turn its close into a count; so can one share
+              // moved in and then one out (the moved-in lot makes the lots mixed) — fix: the vendor's lot-level transfer
+              // detail (which shares left), when it exists.
               else if (!alike) taintBy(b.lots, ca);
             }
           }
@@ -421,6 +424,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         cost += take * lot.price;
         entryFees += take * lot.feePerUnit;
         openedAt ??= lot.at;
+        opts.lastDrawn?.set(a.externalId, Math.max(opts.lastDrawn.get(a.externalId) ?? -Infinity, lot.at.getTime()));
         verified &&= lot.verified;
         otherTaint ||= !!lot.tainted;
       }

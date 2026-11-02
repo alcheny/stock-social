@@ -196,3 +196,37 @@ test('COUNTED_KEYS and NOT_SUMMED_KEYS name every numeric key of MatchResult (F-
   assert.deepEqual([...COUNTED_KEYS, ...NOT_SUMMED_KEYS].sort(), Object.keys(every).sort());
   assert.deepEqual(countedSum({ trades: [], excluded: 1, excludedCorporate: 2, excludedHeld: 4, excludedTransfer: 8, transfersOut: 16, sellsPartlyTransferred: 32 }), { sells: 15, transfersOut: 16 });
 });
+
+test('property (3,000 seeded cases, engineer round 2): a transfer out (whole, beyond, partial on alike or mixed lots, unit-less _OUT) shows no sell the ledger alone does not, and a sell drawing only lots older than it keeps its return (its holding days change only when alike lots differ in date)', () => {
+  const seeds = process.env.FUZZ_SEED ? [Number(process.env.FUZZ_SEED)] : Array.from({ length: 3000 }, (_, i) => i + 1);
+  let compared = 0;
+  for (const seed of seeds) {
+    const rnd = prng(seed + 100_000);
+    const pick = <X>(xs: X[]) => xs[Math.floor(rnd() * xs.length)];
+    const rows: Activity[] = [];
+    for (let i = 0, k = 3 + Math.floor(rnd() * 10); i < k; i++) {
+      rows.push(act(rnd() < 0.6 ? 'BUY' : 'SELL', pick([5, 10, 20]), pick([100, 100, 40, 140]), Math.floor(rnd() * 60), { externalId: `o${seed}-${i}`, fee: pick([0, 0, 1]) }));
+    }
+    const d = Math.floor(rnd() * 60) + 0.5;
+    const units = pick([-1, -5, -10, -20, -40, -1000, undefined]);
+    const T = transfer(0, units, { externalId: `t${seed}`, executedAt: new Date(at(0).getTime() + d * DAY), ...(units === undefined ? { out: true } : {}) } as Partial<CorporateAction>);
+    const tAt = T.executedAt.getTime();
+    const ctx = `seed ${seed}: ${JSON.stringify({ rows: rows.map((r) => [r.externalId, r.side, r.units, r.price, r.fee, (r.executedAt.getTime() - at(0).getTime()) / DAY]), T })}`;
+    const without = new Map(matchTrades(rows).trades.map((t) => [t.sellId, t]));
+    const drawn = new Map<string, number>();
+    const withT = matchTrades(rows, [T], { lastDrawn: drawn });
+    assert.equal(withT.transfersOut, 1, `${ctx} counted once`);
+    const buysBefore = rows.filter((r) => r.side === 'BUY' && r.executedAt.getTime() < tAt);
+    const alikeDatesDiffer = buysBefore.some((x) => buysBefore.some((y) => x.price === y.price && x.fee / x.units === y.fee / y.units && x.executedAt.getTime() !== y.executedAt.getTime()));
+    for (const t of withT.trades) {
+      const w = without.get(t.sellId);
+      assert.ok(w, `${ctx} ${t.sellId} shown only with the transfer out`);
+      if (drawn.get(t.sellId)! < tAt) {
+        compared++;
+        assert.ok(Math.abs(t.returnPct - w!.returnPct) < 1e-12, `${ctx} ${t.sellId} drew only older lots: same return`);
+        if (!alikeDatesDiffer) assert.equal(t.holdingDays, w!.holdingDays, `${ctx} ${t.sellId} holding days change only when alike lots differ in date`);
+      }
+    }
+  }
+  if (!process.env.FUZZ_SEED) assert.ok(compared > 200, `the cases reach sells drawing only older lots (${compared})`);
+});
