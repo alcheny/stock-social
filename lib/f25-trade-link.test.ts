@@ -106,7 +106,8 @@ test('F-25: the legacy lookup and its 308 live in the page body and the image ro
   const img = code(read('app/u/[handle]/trade/[sellId]/opengraph-image.tsx'));
   assert.match(img, /legacyTradeKey\(handle, id\)/);
   assert.match(img, /permanentRedirect\(`\$\{tradePageHref\(\{ handle, tradeKey: legacy \}\)\}\/opengraph-image`\)/);
-  assert.ok(img.indexOf('permanentRedirect(') < img.indexOf('if (!t) notFound();'), 'the redirect comes before the 404');
+  // F-16 (orchestrator review item 3): the image's 404 is imageNotFound() (never cached); the redirect still comes first.
+  assert.ok(img.indexOf('permanentRedirect(') < img.indexOf('if (!t) return imageNotFound();'), 'the redirect comes before the 404');
   for (const f of ['proxy.ts', 'middleware.ts']) if (existsSync(new URL(f, ROOT))) assert.doesNotMatch(read(f), /trade|sha256|createHash|legacy/i, f);
   // A loading.tsx above the page would stream it, turning the 308 into a 200 with a meta refresh (permanentRedirect docs).
   for (const d of ['app', 'app/u', 'app/u/[handle]', 'app/u/[handle]/trade', 'app/u/[handle]/trade/[sellId]']) assert.ok(!existsSync(new URL(`${d}/loading.tsx`, ROOT)), `${d}/loading.tsx`);

@@ -7,12 +7,12 @@ import { routeHandle } from './params.ts';
 import { statusForOrNull as statusFor } from './record-status-load.ts'; // FIXES-LABELS: status (QA round 2 N3: guarded, null on error)
 import { optionHeadline, paneView } from './options-load.ts'; // OPTIONS: the strip's "Excluding options", gated per trader
 import { filerVisibleSql } from './public-gate.ts';
+import { visibleId, visibleUser } from './visible-users.ts';
 import { openingFilings, type PubRow } from './public-trades.ts';
 import { TRADE_KEY_RE } from './trade-href.ts';
 
 // F-25: who may see a trade page (a live user; a public filer only while shown), one rule for the page, the image and
 // the legacy redirect, so a 308 never reveals the trade_key of a page that then 404s.
-const visibleTrader = (u: string) => sql`u.deleted_at is null and ${filerVisibleSql(u)}`;
 
 // F-25: a trade page is addressed by its trade_key (lib/trade-href.ts#tradePageHref). The key is 64 lowercase hex.
 export async function loadTradeShareByKey(handle: string, tradeKey: string) {
@@ -31,7 +31,7 @@ export async function loadTradeShare(handle: string, sellId: string) {
 // an unknown segment, another handle's sell id, a deleted user or a hidden or removed public filer (all 404, no redirect).
 export async function legacyTradeKey(handle: string, sellId: string): Promise<string | null> {
   if (!routeHandle(handle) || sellId.includes('\0')) return null;
-  const [r] = await sql`select ct.trade_key from closed_trades ct join users u on u.id = ct.user_id and ${visibleTrader('u')}
+  const [r] = await sql`select ct.trade_key from closed_trades ct join users u on u.id = ct.user_id and ${visibleUser('u')} and ${filerVisibleSql('u')}
     where u.handle = ${handle} and ct.sell_id = ${sellId}`;
   return r ? (r.trade_key as string) : null;
 }
@@ -45,10 +45,10 @@ async function loadTrade(handle: string, match: ReturnType<typeof sql>) {
       case when ct.thesis_status = 'published' then ct.thesis_written_at end as thesis_written_at,
       case when ct.thesis_status = 'published' then ct.thesis_edited_at end as thesis_edited_at,
       u.display_name, u.public_filer_id, ct.filing_url, ct.opened_at, ct.trade_key
-    from closed_trades ct join users u on u.id = ct.user_id and ${visibleTrader('u')}
+    from closed_trades ct join users u on u.id = ct.user_id and ${visibleUser('u')} and ${filerVisibleSql('u')}
     where u.handle = ${handle} and ${match}`;
   if (!t) return null;
-  const all = await sql`select symbol, opened_at, closed_at, return_pct, holding_days, verified from closed_trades where user_id = ${t.user_id} order by closed_at desc, id desc`; // F-12: the profile's order, so sums match it to the bit
+  const all = await sql`select symbol, opened_at, closed_at, return_pct, holding_days, verified from closed_trades where user_id = ${t.user_id} and ${visibleId(Number(t.user_id))} order by closed_at desc, id desc`; // F-12: the profile's order, so sums match it to the bit
   const payload = tradeSharePayload({
     symbol: t.symbol, returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at,
     thesis: t.thesis, thesisStatus: t.thesis ? 'published' : null, demo: await isDemoUser(t.user_id),
@@ -72,7 +72,7 @@ async function loadTrade(handle: string, match: ReturnType<typeof sql>) {
 // for a connected or failed record, as on the profile; never while an import runs (TR-3) or with nothing consented.
 export async function openPercents(userId: number, state: RecordState): Promise<number[] | undefined> {
   if (state !== 'connected' && state !== 'failed') return undefined;
-  const rows = await sql`select unrealized_pct from open_positions where user_id = ${userId}`;
+  const rows = await sql`select unrealized_pct from open_positions where user_id = ${userId} and ${visibleId(userId)}`;
   return rows.map((r) => r.unrealized_pct as number);
 }
 

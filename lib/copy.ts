@@ -850,7 +850,8 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy(), /* OPTIONS */ OPTIONS].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy(), /* OPTIONS */ OPTIONS,
+    /* F-16 */ HIDDEN_NOTICE, RETIRED_NOTICE, HIDDEN_OWN, TRUST_LINE, TAKEDOWN].forEach(walk);
   return out;
 }
 
@@ -1086,6 +1087,61 @@ export const CHORES_3 = {
   backToFeed: 'Back to the feed',
 } as const;
 // end CHORES-3
+
+// ---- F-16 · Trust and safety slice (docs/features/F-16-trust-and-safety-slice.md; plan
+// docs/features/logs/F-16-F-17/plan.md §0.6, §5.4). Additive block. PRODUCT_NAME is used by the new F-16/F-17 copy
+// only (existing literals stay); a future rename (POLICY T5a) then changes one constant.
+export const PRODUCT_NAME = 'Stock Social';
+// The neutral 404 notices of app/u/[handle]/not-found.tsx (plan §2.1). Never "reported", "review" or a reason, no
+// name, figure or badge, no link to a new handle. Unknown handles keep app/not-found.tsx's generic page and title.
+export const HIDDEN_NOTICE = {
+  title: `Profile not available · ${PRODUCT_NAME}`,
+  h1: 'Profile not available',
+  line: 'This profile is not available right now.',
+  // Fix round 1 (review item 2): the name shown in a viewer's own lists (follows, Not interested, Record tools views)
+  // for a trader the owner hid, in place of their display name; the row and its unfollow or remove keep working.
+  name: 'Profile not available',
+} as const;
+export const RETIRED_NOTICE = {
+  title: `Handle no longer in use · ${PRODUCT_NAME}`,
+  h1: 'This handle is no longer in use',
+  line: 'Links to this address no longer lead to a profile.',
+} as const;
+// Q9 (plan §2.1): the one private line a hidden trader sees on their own profile's notice. Neutral: never "reported",
+// "review" or a reason. Rendered only to that signed-in trader, on a private, no-store 404.
+// Fix round 1 (review item 7): the download is Record tools' "Download my data" (/account/export: saved views, notes and
+// subscription status), so the line says what it holds and links to it, beside the settings link.
+export const HIDDEN_OWN = {
+  line: 'Only you see this: your profile is not shown to others right now. Your settings still work, and you can still download your saved views and notes.',
+  settings: 'Settings',
+  download: 'Download my data',
+} as const;
+// The anti-impersonation line (plan §5.4, v2 B7; app/trust-foot.tsx). Draft: the owner flips `approved` after approving
+// the wording (F-16 Open questions); until then it renders only in the sandbox (lib/takedown.ts#impersonationLineShown).
+// Plain text, names no platform, says nothing about identity or verification. Literally true while no record-based
+// message exists (the only mail is the sign-in link, LOGIN_MAIL).
+export const TRUST_LINE = {
+  approved: false,
+  text: `${PRODUCT_NAME} never messages anyone about a trading record. Anyone who contacts you elsewhere using this profile isn't acting for ${PRODUCT_NAME}.`,
+} as const;
+// The notices and takedown page (plan §5.7; app/takedown/page.tsx). Draft until the owner flips `approved` (and sets
+// TAKEDOWN_CONTACT, a role mailbox). No legal-status wording, agent title or reply time (lib/f16-static.test.ts).
+export const TAKEDOWN = {
+  approved: false,
+  title: `Notices and takedown requests · ${PRODUCT_NAME}`,
+  draft: 'Draft: this wording has not been approved yet.',
+  h1: 'Notices and takedown requests',
+  lines: [
+    `Use this page to tell us about something on ${PRODUCT_NAME} that you believe infringes your copyright, impersonates you or someone else, shares personal information or breaks the law.`,
+    'To report a profile, use "Report this profile" on it instead.', // fix round 2 (BL6)
+    'Include the page address, what is wrong and how we can reply. For a copyright notice, say which of your works it uses.',
+    'Sending a notice does not remove anything by itself. A person reads each one.',
+  ],
+  contactTitle: 'Where to send it',
+  unset: 'The contact address is not set yet.',
+  link: 'Notices and takedown requests',
+} as const;
+// end F-16
 
 // F-23 · Public payload precision (docs/features/F-23-public-payload-precision.md)
 export const F23_COPY = {
