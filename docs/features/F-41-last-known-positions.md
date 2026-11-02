@@ -1,8 +1,7 @@
 # F-41 · Last known positions on a disconnected record
 
 Status: blocked
-Blocked: builds after F-34 (`claude/f34-open-positions-line`, building) and F-40 merge, and rebases on F-16/F-17 (#100), which edits `app/t/open-positions.ts`, `lib/record-status-load.ts` and `lib/trade-share-load.ts` (merge order)
-Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
+Blocked: builds after F-34 (`claude/f34-open-positions-line`, building) and F-40 merge, and rebases on F-16/F-17 (#100), which edits `app/t/open-positions.ts`, `lib/record-status-load.ts` and `lib/trade-share-load.ts` (merge order); also development paused by the owner 2026-11-02 (resume: drop this clause)
 
 ## Why
 A disconnected or frozen account's open positions move to `unlisted_positions` and are shown nowhere

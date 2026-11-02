@@ -33,6 +33,10 @@ strongest signal after `docs/DESIGN.md`'s rules.
 
 ## Log
 
+### 2026-11-02 · Development paused
+
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** development pauses once the outstanding work is complete: in-flight work (open PRs and features already assigned to sessions) is finished, and nothing new starts. The new items from these decisions (fixes-list items F6-1 to F6-17 and features F-37 to F-48) stay queued until the owner resumes development; the new feature files carry `Status: blocked` with a `Blocked:` line naming the pause, so the feature pipeline cannot pick them up. To resume, the owner says so and each file goes back to its previous status.
+
 ### 2026-11-02 · Owner decisions brief 2026-11-01 (§2, items 2.1-2.63) and cycle-5 owner questions Q1-Q4 → accepted en bloc, with the exceptions in the entries below
 
 **Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** the owner accepted every council recommendation in `docs/direction/owner-decisions-2026-11-01.md` §2 and every recommendation in `docs/direction/cycle5-2026-11-01.md` §8. Where councils conflicted, the brief's recommended side wins. The work each item needs is mapped in `docs/direction/owner-decisions-2026-11-02-worklist.md`.
@@ -77,7 +81,7 @@ strongest signal after `docs/DESIGN.md`'s rules.
 
 ### 2026-11-02 · Protected-file changes → approved now; the orchestrator merges each one when green and independently reviewed
 
-**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** the owner approves the protected-file edits that follow from these decisions (brief §3). The orchestrator merges each protected-file PR once its CI is green and it has an independent review. A separate session prepares those PRs. This refines 2.57 Q6 (b). It does not cover anything POLICY H keeps with the owner beyond these edits: making the product public, real users, payments, deleting data, credentials and deploy settings.
+**Decided by:** human (the owner, @alcheny), given in chat to the orchestrator on 2026-11-02 · **Why:** protected-file PRs that follow from these decisions (brief §3) are merged by the orchestrator once their CI is green and they have an independent review. A separate session prepares those PRs. This refines 2.57 Q6 (b). It does not cover anything POLICY H keeps with the owner beyond these edits: making the product public, real users, payments, deleting data, credentials and deploy settings.
 
 ### 2026-11-02 · Development resumed
 

@@ -1,8 +1,7 @@
 # F-48 · The vendor connection is deleted when a record freezes
 
 Status: draft
-Blocked: waits for the vendor's written answer that derived percentages may stay public after a connection is deleted (OD 2.12; vendor letter), and for F-40
-Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
+Blocked: waits for the vendor's written answer that derived percentages may stay public after a connection is deleted (OD 2.12; vendor letter), and for F-40; also development paused by the owner 2026-11-02 (resume: drop this clause)
 
 ## Why
 After a freeze the vendor still holds the trader's connection. OD 2.12 deletes it once the vendor confirms the

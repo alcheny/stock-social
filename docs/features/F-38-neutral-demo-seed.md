@@ -1,7 +1,7 @@
 # F-38 · Neutral demo seed
 
-Status: ready
-Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
+Status: blocked
+Blocked: development paused by the owner 2026-11-02 (resume: set back to ready)
 Start conditions: none (`scripts/seed.ts`, `lib/demo.ts`, demo-handle references in tests).
 
 ## Why

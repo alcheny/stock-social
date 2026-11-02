@@ -140,6 +140,7 @@ protected-files session, merged by the orchestrator once green and independently
 | Held-sells wording | **F6-1** | copy |
 | Protected-file PRs merged by the orchestrator when green and reviewed | protected-files session | protected |
 | Development resumed; the 60% weekly cap applied to last week only | DECISIONS entry | none |
+| Development paused: finish in-flight work, start nothing new; new items stay queued | DECISIONS entry; new feature files `blocked` on the pause; F6 items queued | none |
 
 ## Hand-offs to in-flight work
 
@@ -155,8 +156,10 @@ protected-files session, merged by the orchestrator once green and independently
 
 ## Fixes list (cycle-5 format; no vote)
 
-**Queued:** development paused by the owner 2026-11-02 (relayed by the orchestrator). Every F6 item below, and every new
-feature F-37 to F-48, is ready, queued: none is built until the owner resumes development.
+**Queued:** development paused by the owner 2026-11-02 (`docs/DECISIONS.md`). Every F6 item below, and every new feature
+F-37 to F-48, is queued: none is built until the owner resumes development. The feature files carry `Status: blocked`
+with a `Blocked:` line naming the pause (the pipeline builds only `ready` files); on resume each goes back to the status
+shown in the table below.
 
 Ordered: record trust, launch gates, then copy. "Home" names the in-flight branch that already touches the files.
 Every test is added, never weakened; a pinned copy test changes only its expected value. Fictional data only.
@@ -318,10 +321,12 @@ Every test is added, never weakened; a pinned copy test changes only its expecte
 
 ## New features (approved by the committee check; numbers follow the business lead's build order)
 
-**Queued:** development paused by the owner 2026-11-02 (relayed by the orchestrator). Every F6 item below, and every new
-feature F-37 to F-48, is ready, queued: none is built until the owner resumes development.
+**Queued:** development paused by the owner 2026-11-02 (`docs/DECISIONS.md`). Every F6 item below, and every new feature
+F-37 to F-48, is queued: none is built until the owner resumes development. The feature files carry `Status: blocked`
+with a `Blocked:` line naming the pause (the pipeline builds only `ready` files); on resume each goes back to the status
+shown in the table below.
 
-| Feature | Covers | Status | Order and slot |
+| Feature | Covers | Status on resume | Order and slot |
 |---|---|---|---|
 | F-37 A finished connect link never signs a browser in | 2.16 | ready | 1: the live security gap; connect route and sign-up |
 | F-38 Neutral demo seed | 2.38 | ready | 2: seed only, no dependency |

@@ -82,8 +82,8 @@ brief C3-2 (rank 1). Approved by the approval council (`docs/ideas/approval-2026
 
 ## Open questions
 - Resolved 2026-11-02 (OD 2.28): yes, as conditioned above (Decisions).
-- Owner: amend POLICY's list of exclusion causes to name transfers out (brief 3.17; approved by the owner on 2026-11-02,
-  prepared by the protected-files session).
+- Owner: amend POLICY's list of exclusion causes to name transfers out (brief 3.17; prepared by the protected-files session,
+  merged by the orchestrator when green and independently reviewed).
 
 ## Rework notes
 

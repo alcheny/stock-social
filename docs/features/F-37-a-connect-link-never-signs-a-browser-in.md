@@ -1,7 +1,7 @@
 # F-37 · A finished connect link never signs a browser in
 
-Status: ready
-Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
+Status: blocked
+Blocked: development paused by the owner 2026-11-02 (resume: set back to ready)
 Start conditions: none. One builder; not in the connect-consent slot (it does not touch consent).
 
 ## Why

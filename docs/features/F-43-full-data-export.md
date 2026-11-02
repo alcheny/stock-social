@@ -1,7 +1,7 @@
 # F-43 · Export everything stored about the user
 
-Status: ready
-Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
+Status: blocked
+Blocked: development paused by the owner 2026-11-02 (resume: set back to ready)
 Start conditions: rebases on F-16/F-17 (#100), which edits `lib/record-tools.ts` and `lib/privacy-retention.ts`.
 
 ## Why

@@ -92,11 +92,11 @@ second-vote mean 3.67, final vote 15/15, all with conditions).
 - 2026-11-02: Owner decision (amends CH-1): above ±100% the chart's cumulative figure prints at about 3 significant
   figures (e.g. "+9,810%", not "+9,812.3%"); below ±100% it is unchanged. This covers every place the cumulative value
   appears: the chart's points and header, the scrub readout, the chart's accessible name and the public chart payloads
-  (`lib/format.ts#curvePct`, `lib/public-wire.ts#wireCurve`). The share and OG images draw the curve as a line and print
-  no cumulative figure. Why: the owner's call on the probe's curve channel (`docs/features/logs/F-23/probe.md`). Two
-  consecutive points printed to one absolute decimal gave a close's return back finer than the row prints once the curve
-  had grown; `lib/f23-chart-sigfigs.test.ts` decodes per-trade returns from the curve and shows they are no longer
-  recoverable beyond the row's printed precision.
+  (`lib/format.ts#curvePct`, `lib/public-wire.ts#wireCurve`). The share and OG images draw the curve as a line and
+  print no cumulative figure. Why: the owner's call on the probe's curve channel (`docs/features/logs/F-23/probe.md`).
+  Two consecutive points printed to one absolute decimal gave a close's return back finer than the row prints once the
+  curve had grown; `lib/f23-chart-sigfigs.test.ts` decodes per-trade returns from the curve and shows they are no
+  longer recoverable beyond the row's printed precision.
 
 ## Acceptance criteria
 - [x] For a fixture with an odd return and a 14:31:07 close, `/pane`, `/pane-chart` and the feed HTML contain no return
@@ -129,7 +129,9 @@ second-vote mean 3.67, final vote 15/15, all with conditions).
 ## Rework notes
 
 ## Build log
-- 2026-11-02: Owner decision on chart precision built on `claude/f23-chart-sigfigs`: `curvePct`/`wireCurve`, the chart header and name, the packed chart values; tests `lib/f23-chart-sigfigs.test.ts`, `e2e/f23-chart-sigfigs.spec.ts`, scan spec updated.
+- 2026-11-02: Owner decision on chart precision built on `claude/f23-chart-sigfigs`: `curvePct`/`wireCurve`, the chart
+  header and name, the packed chart values; tests `lib/f23-chart-sigfigs.test.ts`, `e2e/f23-chart-sigfigs.spec.ts`,
+  scan spec updated.
 - 2026-11-01: Built on `claude/f23-payload-precision` after F3-2 (#85), F-26 (#87), F-11 (#85) and F-20 (#77) merged.
   Committee record: `docs/features/logs/F-23/committee-2026-11-01.md` (plan `plan.md`, inventory `inventory.md`, probe
   `probe.md`). Tests: `lib/f23-public-wire.test.ts`, `lib/chart-series.f23.test.ts`, `lib/pane-model.test.ts`,

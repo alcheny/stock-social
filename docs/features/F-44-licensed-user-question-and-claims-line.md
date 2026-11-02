@@ -1,8 +1,7 @@
 # F-44 · The licensed-user question and the claims line at connect
 
 Status: blocked
-Blocked: builds after fixes-list item F6-2 (the new consent version, which edits the consent step) and F-43 (its export
-Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
+Blocked: builds after fixes-list item F6-2 (the new consent version, which edits the consent step) and F-43 (its export; also development paused by the owner 2026-11-02 (resume: drop this clause)
 AC), and rebases on F-25 (#102), which edits `lib/privacy-fields.ts` (merge order)
 
 ## Why

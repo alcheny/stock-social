@@ -32,9 +32,9 @@ conditions).
 - 2026-11-01: Changed figures arrive only through the normal rebuild. The trader gets no alert or "your return
   dropped" message. Why: approved by the approval council (cycle 5); TR.
 - 2026-11-02: The owner answered cycle-5 Q1 yes: a return divides by entry cost plus entry fees, with a
-  MATCHER_VERSION bump and a dated /how note. The DESIGN §2.5 text edit goes to the protected-files session (approved
-  by the owner on 2026-11-02), never in the build PR. Only the merge-order condition on chore C5-43(b) remains. Why:
-  the owner's decision of 2026-11-02 (cycle-5 Q1, accepted en bloc).
+  MATCHER_VERSION bump and a dated /how note. The DESIGN §2.5 text edit goes to the protected-files session, never in
+  the build PR. Only the merge-order condition on chore C5-43(b) remains. Why: the owner's decision of 2026-11-02
+  (cycle-5 Q1, accepted en bloc).
 
 ## Acceptance criteria
 - [ ] The probe (fictional: buy 2 @5, fee 10, sell @15) prints +50%.

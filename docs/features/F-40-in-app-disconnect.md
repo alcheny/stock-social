@@ -1,7 +1,7 @@
 # F-40 · In-app disconnect
 
-Status: ready
-Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
+Status: blocked
+Blocked: development paused by the owner 2026-11-02 (resume: set back to ready)
 Start conditions: none. F-41 (last known positions) follows it directly, so a disconnect never hides open losers for
 long.
 
