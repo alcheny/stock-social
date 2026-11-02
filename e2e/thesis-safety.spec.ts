@@ -138,6 +138,10 @@ test('fix round 4: a feed card with a note, its date and Report keeps the discla
   const sql = (await import('postgres')).default(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
   const { feedLock } = await import('./feed-lock.ts');
   const release = await feedLock('shared');
+  // F-33: the demo traders no longer carry ranking weight (under 90 days), so this test's trader can be feed card 1, whose
+  // note slot holds F-13's first-visit line for a new visitor. The test is about a card's note, so it reads as a returning
+  // visitor (the pattern of e2e/f25-gestures.spec.ts); the first-visit line on card 1 is e2e/f13-first-visit.spec.ts's.
+  await page.addInitScript(() => { try { localStorage.setItem('ss.firstVisitLine', 'dismissed'); } catch { /* blocked */ } });
   const tag = rand();
   const trader = `f9c${tag}`, reader = `f9d${tag}`;
   // About 120 characters, written today, so the caption carries a date line.

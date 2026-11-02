@@ -302,6 +302,10 @@ for (const height of [740, 640]) {
 test('AC14.1 (360×480, 360×420, 320×420, signed out): on a short viewport the card scrolls inside itself; the badge and the disclaimer stop ≥ 8 px above the sign-in line; no part is squeezed away', async ({ browser }) => {
   for (const [width, height] of [[360, 480], [360, 420], [320, 420]]) {
     const ctx = await touchContext(browser, width, height);
+    // F-33: the demo traders no longer carry ranking weight (under 90 days), so this test's trader is feed card 1, whose
+    // thesis slot holds F-13's first-visit line for a new visitor. The test is about the thesis, so it reads as a
+    // returning visitor (the pattern of e2e/f25-gestures.spec.ts); card 1's first-visit line is e2e/f13-first-visit.spec.ts's.
+    await ctx.addInitScript(() => { try { localStorage.setItem('ss.firstVisitLine', 'dismissed'); } catch { /* blocked */ } });
     const page = await ctx.newPage();
     await page.goto('/');
     const row = (await ownRows(page)).first();

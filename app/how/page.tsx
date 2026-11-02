@@ -27,7 +27,8 @@ export default function How() {
       <p>{HOW.freeze}</p>
       {/* F-2 PR-5 (Q12): the personal ordering, in words, from the same constants. */}
       <h2>{HOW_PERSONAL.title}</h2>
-      <p>{HOW_PERSONAL.text}</p>
+      {/* F-33 QA: three short paragraphs at 360 px (base order, ranking weight, signed out / in); the words are unchanged. */}
+      {HOW_PERSONAL.text.split('\n\n').map((p) => <p key={p}>{p}</p>)}
       {/* F-7 (legal C24): what public filing records are and what they leave out. */}
       <h2 id="public-filings">{PUBLIC.how.title}</h2>
       <ul>{PUBLIC.how.lines.map((l) => <li key={l}>{l}</li>)}</ul>

@@ -122,3 +122,22 @@ reads acceptably next to "Too early to tell" is the owner's question (R2).
   2.34 todo. Assertions unchanged.
 - Gates: tsc clean; npm test 2,431 tests, 2,401 pass, 0 fail, 4 todo; compliance auto ok (tree), with the extraneous
   node_modules/@img/sharp-wasm32 set aside for the run as in build 1; guard origin/main ok. No build, no .next touched.
+
+## Build 3 — engineer, 2026-11-02 (tester's e2e findings, docs/features/logs/F-33/qa.md)
+- **e2e/fixes-labels.spec.ts:119 (C1 at 360×740 and 320×740).** F-33's new HOW.math line said "a 95% range", which
+  became the first percent figure on /how, about 710 px above the disclaimer. The line now reads "The likely range
+  around the average return per trade is worked out from independent bets, at a 95 in 100 level. …": no percent
+  figure, same meaning. The spec is unchanged.
+- **e2e/fixes-cycle2-a11y.spec.ts:302 and e2e/thesis-safety.spec.ts:136.** On main, `dividend_dan` weighed 0.0251 under
+  the 10-bet floor and led the feed. Under F-33 the seeded demo traders (60 to 61 days) weigh 0, so each test's fresh
+  trader becomes feed card 1. For a new visitor, card 1's thesis slot holds F-13's first-visit line, which gave
+  thesis height 0 and no note. Both tests are about a card's thesis or note, which is what a returning visitor sees, so
+  each now sets the repo's returning-visitor flag (`localStorage 'ss.firstVisitLine' = 'dismissed'`, the pattern of
+  e2e/f25-gestures.spec.ts) before loading the feed. No assertion changed. Card 1's first-visit line stays covered by
+  e2e/f13-first-visit.spec.ts.
+- **/how layout.** HOW_PERSONAL.text is split into three paragraphs (base order; ranking weight; signed out/in) by
+  `\n\n`, which app/how/page.tsx renders as separate `<p>`. The words are unchanged.
+- Gates: tsc clean; npm test 2,431 tests, 2,401 pass, 0 fail, 4 todo. Seeded with `SEED=1 scripts/db-setup.ts`, then
+  `npm run build`; the three specs passed (4 tests). Compliance auto ok (tree), with the extraneous
+  node_modules/@img/sharp-wasm32 set aside for the run. Guard origin/main ok. The regenerated
+  docs/features/logs/F-2/screenshots PNGs are not committed.
