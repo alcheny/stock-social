@@ -69,7 +69,10 @@ test('invariant: the contrast floors in lib/a11y-contrast.test.ts never drop bel
   const src = readFileSync(new URL('../lib/a11y-contrast.test.ts', import.meta.url), 'utf8');
   const m = /^export const FLOORS = \{([^}]*)\} as const;$/m.exec(src);
   assert.ok(m, 'lib/a11y-contrast.test.ts declares `export const FLOORS = { … } as const;` on one line');
-  const floors = Object.fromEntries([...m[1].matchAll(/(\w+):\s*(\d+(?:\.\d+)?)/g)].map((x) => [x[1], Number(x[2])]));
+  // Each entry must be exactly `name: number` (no expression such as `4.5 / 2` can pass on its leading number).
+  const parts = m[1].split(',').map((p) => p.trim()).filter(Boolean);
+  for (const p of parts) assert.match(p, /^\w+:\s*\d+(?:\.\d+)?$/, `FLOORS entry "${p}" is a plain number`);
+  const floors = Object.fromEntries(parts.map((p) => p.split(':')).map(([k, v]) => [k.trim(), Number(v)]));
   assert.deepEqual(Object.keys(floors).sort(), Object.keys(CONTRAST_FLOORS).sort(), 'the same five floors');
   for (const [k, v] of Object.entries(CONTRAST_FLOORS)) assert.ok(floors[k] >= v, `FLOORS.${k} ${floors[k]} < cycle-2 ${v}`);
   // The pairs are really checked against FLOORS: the ΔE00 checks and the per-pair floor lookups stay.
