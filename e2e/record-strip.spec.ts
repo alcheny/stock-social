@@ -66,7 +66,7 @@ test('F-10 AC1/AC2/AC3/AC6: one strip per card in place of "held · closed"; Too
     await expect(cards.nth(k)).not.toContainText(/held [\d.]+[hd] · closed/);
   }
   const strip = cardOf(page, 'f10_strip').locator('[data-strip]');
-  await expect(strip).toContainText(/^(✓ Verified |Demo )?12 closed trades · \+\d+\.\d% average per trade \(.+ to .+\) · 95% range$/);
+  await expect(strip).toContainText(/^(✓ Verified |Demo )?12 closed trades · \+\d+\.\d% per closed trade \(.+ to .+\) · 95% range$/);
   const early = cardOf(page, 'f10_early').locator('[data-strip]');
   await expect(early).toHaveText(/^(✓ Verified |Demo )?5 closed trades · Too early to tell$/);
   // DS-22: the trust badge leads the record line, not the header.
@@ -159,7 +159,7 @@ test('F-12 AC1/AC4: the trade page shows the strip with "@handle\'s record", los
   await page.goto('/u/f10_strip/trade/f10_strip-0');
   const section = page.locator('section[aria-labelledby="whole-record"]');
   await expect(section.getByRole('heading', { name: "@f10_strip's record" })).toBeVisible();
-  await expect(section.locator('[data-strip]')).toContainText(/12 closed trades · \+[\d.]+% average per trade \(.+\) · 95% range · losses included · 2 open, unrealized/);
+  await expect(section.locator('[data-strip]')).toContainText(/12 closed trades · \+[\d.]+% per closed trade \(.+\) · 95% range · losses included · 2 open, unrealized/);
   const link = section.getByRole('link', { name: "@f10_strip's record" });
   await expect(link).toHaveAttribute('href', '/u/f10_strip');
   await expect(section.locator('[data-disclaimer]')).toHaveText(DISCLAIMER);
@@ -167,7 +167,7 @@ test('F-12 AC1/AC4: the trade page shows the strip with "@handle\'s record", los
   // One link per destination: the duplicate footer record link is gone.
   await expect(page.getByRole('link', { name: /See their record, wins and losses/ })).toHaveCount(0);
   const { alt } = await pageFacts(page);
-  expect(alt).toMatch(/12 closed trades, average per trade \+[\d.]+%, 95% range .+ to .+\./);
+  expect(alt).toMatch(/12 closed trades, average per closed trade \+[\d.]+%, 95% range .+ to .+\./);
   expect(alt).not.toMatch(/[·()]/);
 });
 
@@ -186,7 +186,8 @@ test('F-12 AC1/AC6: month pages show the same fields for a losing and a winning 
     expect(body).not.toMatch(/full record|whole record|every trade|win rate/i);
     await expect(page.getByText(new RegExp(`^${m.n} closed trades? this month$`))).toBeVisible();
     await expect(page.locator('[data-strip-scope="month"]')).toHaveCount(1);
-    await expect(page.locator('[data-strip-scope="month"]')).not.toContainText('closed trade');
+    // FIXES-CYCLE5 part 2: no count part (the average's label now says "per closed trade"), as lib/record-strip.test.ts.
+    await expect(page.locator('[data-strip-scope="month"]')).not.toContainText(/\b\d[\d,]* closed trades?\b/);
     const section = page.locator('section[aria-labelledby="whole-record"]');
     await expect(section.locator('[data-strip]')).toContainText('losses included');
     await expect(section.getByRole('link', { name: `@${m.handle}'s record` })).toHaveAttribute('href', `/u/${m.handle}`);

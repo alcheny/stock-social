@@ -315,7 +315,7 @@ test('AC8 + AC15: the trade and month pages carry one F3 line, right after the r
   await expect(month).not.toContainText('Past results');
   await expect(month).not.toContainText('Evidence');
   // F-12's month figures: the month's average with its 95% range, or Too early to tell; never a win rate.
-  await expect(month.locator('[data-strip-scope="month"]')).toHaveText(/^([+−-]?[\d.,]+% average per trade \(.+ to .+\) · 95% range|≈?[+−-]?[\d.,]+% average per trade \(.+ to .+\) · 95% range|Too early to tell)$/);
+  await expect(month.locator('[data-strip-scope="month"]')).toHaveText(/^([+−-]?[\d.,]+% per closed trade \(.+ to .+\) · 95% range|≈?[+−-]?[\d.,]+% per closed trade \(.+ to .+\) · 95% range|Too early to tell)$/);
   await expect(month).not.toContainText(/win rate/i);
   await expect(page.getByTestId('month-of')).toHaveText(/^(The only month on record|One of \d+ months on record)$/);
 });
