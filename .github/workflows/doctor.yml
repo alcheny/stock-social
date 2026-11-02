@@ -67,7 +67,7 @@ jobs:
         run: |
           npm ci
           node scripts/db-setup.ts
-          curl -fsSL https://claude.ai/install.sh | bash
+          curl -fsSL https://claude.ai/install.sh | bash -s 2.1.316
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       # ponytail: this agent runs in the same job as a GitHub token — split it like build.yml/features.yml: agents in a contents: read job, a verified hand-off, the token only in a separate job.
       - name: Treat (Claude, no GitHub credentials)
