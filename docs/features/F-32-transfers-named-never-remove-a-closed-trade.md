@@ -74,6 +74,15 @@ all with conditions).
   adjustments). Why: committee rounds 1-2 (UX lead, business lead, engineer); OD 2.28 answered yes (relayed by the
   orchestrator, 2026-11-02), F-22 follows as its own PR.
 
+- 2026-11-02: Part A build (committee `docs/features/logs/F-32/committee-2026-11-01.md`): transfers are recognised in
+  the loader from the stored vendor row's type, so nothing new is stored and older rows read the same; a lot keeps
+  "transfer" as its cause only while every taint on it came from a transfer; a non-transfer action that reaches the sell
+  (taint, window or day, the oversell path included) wins the reason; the gap a transfer leaves on an empty ledger stays
+  "no recorded entry". The label is `TRANSFER_REASON` ("a share transfer in the same stock"); /how says "close to the
+  sell's date" and does not print the 14-day window (owner item); the corporate line keeps "a share move" (unpaired
+  adjustments). Why: committee rounds 1-2 (UX lead, business lead, engineer); OD 2.28 answered yes (relayed by the
+  orchestrator, 2026-11-02), F-22 follows as its own PR.
+
 ## Acceptance criteria
 Part A:
 - [ ] The audit's p5 probe (fictional: WX bought 100 @100 and sold @40; YX bought 100 @100 and sold @140; a +1 WX

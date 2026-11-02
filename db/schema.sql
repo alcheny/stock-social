@@ -1242,3 +1242,9 @@ select schema_add_column('users', 'excluded_transfer', 'int not null default 0')
 select schema_add_column('users', 'excluded_future_sells', 'int not null default 0');
 -- excluded_shared: sells and option closes in accounts marked as another profile's (lib/options-sync.ts#rebuildRecord).
 select schema_add_column('users', 'excluded_shared', 'int not null default 0');
+-- F-22 (owner OD 2.28): transfer rows with units out of an account (lib/trades.ts `transfersOut`), each counted once. A
+-- count of transfers, not sells; no transfer units, date or account is stored.
+select schema_add_column('users', 'excluded_transferred_out', 'int not null default 0');
+-- F-22 (Q5): shown sells that also used shares that arrived by transfer; their return is for the recorded shares only. A
+-- count; no transfer units, date or account is stored.
+select schema_add_column('users', 'sells_partly_transferred', 'int not null default 0');

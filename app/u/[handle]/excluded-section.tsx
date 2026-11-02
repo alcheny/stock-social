@@ -20,6 +20,9 @@ function ReasonLine({ r }: { r: Reason }) {
   // F-32 Part A, moved into the section: the transfer line is a real link to the /how sentence, its name completed by a
   // visually hidden suffix.
   if (r.key === 'transfer') return <p className="muted" data-excluded-transfer {...data}><a className="tap44 excluded-link" href="/how#transfers">{r.text}<span className="sr-only"> {PROFILE.excludedTransferLink}</span></a></p>;
+  // F-22, in the section: the transfers-out and partly-transferred context lines, each a real link to its /how item.
+  if (r.key === 'transfersOut') return <p className="muted" data-excluded-transferred-out {...data}><a className="tap44 excluded-link" href="/how#transfers-out">{r.text}<span className="sr-only"> {PROFILE.excludedTransferredOutLink}</span></a></p>;
+  if (r.key === 'partly') return <p className="muted" data-sells-partly-transferred {...data}><a className="tap44 excluded-link" href="/how#transfers">{r.text}<span className="sr-only"> {PROFILE.excludedTransferLink}</span></a></p>;
   return <p className={CLASS[r.key] ?? 'muted'} {...data}>{r.text}</p>;
 }
 

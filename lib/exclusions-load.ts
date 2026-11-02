@@ -14,6 +14,7 @@ export const fromRow = (r: Record<string, unknown> | undefined, pub?: Record<str
   excluded_positions: Number(r.excluded_positions) || 0, excluded_future_sells: Number(r.excluded_future_sells) || 0,
   excluded_corporate: Number(r.excluded_corporate) || 0, excluded_held: Number(r.excluded_held) || 0, excluded_shared: Number(r.excluded_shared) || 0,
   excluded_transfer: Number(r.excluded_transfer) || 0,
+  excluded_transferred_out: Number(r.excluded_transferred_out) || 0, sells_partly_transferred: Number(r.sells_partly_transferred) || 0, // F-22
   public: pub ?? (r.public_excluded as Record<string, number> | null) ?? null,
 };
 

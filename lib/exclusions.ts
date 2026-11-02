@@ -13,6 +13,8 @@ import type { PublicReason } from './public-trades.ts';
 export type ShareCounts = {
   excluded_positions: number; excluded_future_sells: number; excluded_corporate: number; excluded_held: number; excluded_shared: number;
   excluded_transfer: number; // F-32 Part A
+  // F-22: named, never summed (context lines): transfer rows out, and shown sells partly from transferred shares.
+  excluded_transferred_out?: number; sells_partly_transferred?: number;
 };
 export type ExclusionInput = ShareCounts & {
   public?: Record<string, number> | null; // public_filers.excluded for an F-7 record
@@ -32,6 +34,7 @@ export const COUNTERS = {
   excluded_corporate: summed('sells a share move, corporate action or unusable broker row touches (F3-1 rows included)'),
   excluded_held: summed('sells counted while a possible re-issue in their pair is checked (F-24)'),
   excluded_transfer: summed('sells a share transfer row excludes (F-32 Part A, its own reason)'),
+  excluded_transferred_out: left('transfer rows out of an account (F-22): transfers, not sells, so never in the sells-only sum; named by its own context line'),
   excluded_shared: summed('sells and option closes in accounts marked as another profile\'s'),
   excluded_options_short: summed('closed short options (R2: every option close counts)'),
   excluded_options_other: summed('option closes the importer cannot price exactly (R2)'),
@@ -67,12 +70,13 @@ export const CAUSE_COUNTER: Record<Cause, Counter> = {
 
 /** The rebuild results' count keys and the counter each one is stored in (the guard's camelCase → column map). */
 export const RESULT_KEYS = {
-  MatchResult: { excluded: 'excluded_positions', excludedCorporate: 'excluded_corporate', excludedHeld: 'excluded_held', excludedTransfer: 'excluded_transfer' },
+  MatchResult: { excluded: 'excluded_positions', excludedCorporate: 'excluded_corporate', excludedHeld: 'excluded_held', excludedTransfer: 'excluded_transfer', transfersOut: 'excluded_transferred_out' },
   options: { short: 'excluded_options_short', other: 'excluded_options_other' },
   public: { excluded: 'public' },
 } as const;
 /** Result keys that are not counts. */
-export const RESULT_DATA = { MatchResult: ['trades'], options: ['trades', 'counts'], public: ['trades', 'openSymbols'] } as const;
+// F-22: sellsPartlyTransferred counts shown sells (users.sells_partly_transferred), not exclusions.
+export const RESULT_DATA = { MatchResult: ['trades', 'sellsPartlyTransferred'], options: ['trades', 'counts'], public: ['trades', 'openSymbols'] } as const;
 
 const pub = (c: ExclusionInput) => c.public ?? {};
 const publicSum = (c: ExclusionInput) =>
@@ -99,6 +103,9 @@ export function exclusionReasons(c: ExclusionInput): Reason[] {
   if (c.excluded_future_sells > 0) add('future', c.excluded_future_sells, PROFILE.excludedFuture(c.excluded_future_sells));
   if (c.excluded_corporate > 0) add('corporate', c.excluded_corporate, PROFILE.excludedCorporate(c.excluded_corporate));
   if (c.excluded_transfer > 0) add('transfer', c.excluded_transfer, PROFILE.excludedTransfer(c.excluded_transfer)); // F-32: among the lines the link lands on
+  // F-22: context lines (n = 0: transfers out are transfers, not sells; partly-transferred sells are shown).
+  if ((c.excluded_transferred_out ?? 0) > 0) add('transfersOut', 0, PROFILE.excludedTransferredOut(c.excluded_transferred_out!));
+  if ((c.sells_partly_transferred ?? 0) > 0) add('partly', 0, PROFILE.sellsPartlyTransferred(c.sells_partly_transferred!));
   if (c.excluded_held > 0) add('held', c.excluded_held, PROFILE.excludedHeld(c.excluded_held));
   if (c.excluded_shared > 0) add('shared', c.excluded_shared, EXCLUSIONS.excludedShared(c.excluded_shared));
   for (const k of Object.keys(PUBLIC.excluded) as PublicReason[]) {

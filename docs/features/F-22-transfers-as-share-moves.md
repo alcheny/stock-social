@@ -59,6 +59,13 @@ brief C3-2 (rank 1). Approved by the approval council (`docs/ideas/approval-2026
   count where both apply. F-32 Part B still waits for the vendor's written MRC2-10 answer. Why: the owner's decision
   of 2026-11-02; F-32's hand-off notes.
 
+- 2026-11-02: Build decisions (committee `docs/features/logs/F-22/committee-2026-11-02.md`): moved-in units are drawn
+  after every recorded lot; a sell using recorded and moved-in units is shown on its recorded units and counted
+  (`users.sells_partly_transferred`); "alike" lots for a partial transfer out are judged by price, fee, verified and
+  taint over recorded lots, not opening dates (unknown dates taint a later rename merge); a type that contradicts the
+  sign makes a row unit-less; F-32 Part B keeps the backward window and same-day rule. The merge waits for the vendor's
+  written MRC2-10 answer or the owner's written acceptance. Why: committee rounds 1-2, QA and independent review.
+
 ## Acceptance criteria
 - [ ] Fictional probe 1: buy 100, transfer 1 in, sell the 100 recorded units at -60% → a -60% close is shown and the
       moved-in unit is counted.
@@ -88,3 +95,4 @@ brief C3-2 (rank 1). Approved by the approval council (`docs/ideas/approval-2026
 ## Rework notes
 
 ## Build log
+- 2026-11-02: built on `claude/f22-transfers-share-moves`, stacked on F-32 Part A (#108); MATCHER_VERSION 4.

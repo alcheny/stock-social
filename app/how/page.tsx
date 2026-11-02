@@ -23,7 +23,7 @@ export default function How() {
       <ul>{OPTIONS.howMath.map((l) => <li key={l}>{l}</li>)}</ul>
       <h2>{HOW.excludedTitle}</h2>
       {/* F-32 Part A: the profile's transfer line links to #transfers. */}
-      <ul>{HOW.excluded.map((l) => <li key={l} {...(l === HOW.transfer ? { id: 'transfers' } : {})}>{l}</li>)}</ul>
+      <ul>{HOW.excluded.map((l) => <li key={l} {...(l === HOW.transfer ? { id: 'transfers' } : l === HOW.transferOut ? { id: 'transfers-out' } : {})}>{l}{l === HOW.transfer && <> <a className="tap44" href="#transfers-out">{HOW.transferOutPointer}</a></>}</li>)}</ul>
       <h2>{HOW.freezeTitle}</h2>
       <p>{HOW.freeze}</p>
       {/* F-2 PR-5 (Q12): the personal ordering, in words, from the same constants. */}
