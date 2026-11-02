@@ -71,7 +71,7 @@ export const TRANSFER_REASON = 'a share transfer in the same stock';
 // not printed (UX lead, committee): whether to state it is an owner item.
 // F-22: rewritten so it stays true once a transfer taints no recorded buy: a transfer reaches a sell only by its date,
 // by the shares that arrived, or by the shares left after part of a holding moved out.
-const TRANSFER_HOW = `Transfers in and out of an account. A sell is counted as \u201cexcluded: ${TRANSFER_REASON}\u201d, wins and losses alike, when a transfer of that stock into or out of its account falls close to the sell\u2019s date, when it sells only shares that arrived by transfer (their buy price is unknown), or when it sells shares left after part of a holding moved out by transfer (which shares left is unknown): a limit of how trades are matched, not a judgment of the trader. Shares that arrived by transfer are matched after every recorded buy; a sell that uses both is shown for its recorded shares only.`;
+const TRANSFER_HOW = `Transfers in. A sell is counted as \u201cexcluded: ${TRANSFER_REASON}\u201d, wins and losses alike, when a transfer of that stock into or out of its account falls close to the sell\u2019s date, when it sells only shares that arrived by transfer (their buy price is unknown), or when it sells shares left after part of a holding moved out by transfer. This is a limit of how trades are matched, not a judgment of the trader. Shares that arrived by transfer are matched after every recorded buy. A sell that uses both is shown, and its return covers the recorded shares only.`;
 // F-22 (owner OD 2.28): the /how item for transfers out; the profile's transferred-out line links to it.
 // Business lead (round 1): three sentences at most, with the limit in plain words.
 const TRANSFER_OUT_HOW = 'Transfers out of an account: shares that leave by transfer are not a closed trade, so each transfer out is counted and no return is shown for it. The shares that left are taken from the oldest buys first (first in, first out, this record\u2019s own matching method, not the broker\u2019s) only when that can\u2019t change a buy price: the whole holding moved, or every buy still held cost the same. Otherwise which shares left is unknown, so the later sells of that holding are counted, not shown.';
@@ -113,7 +113,7 @@ export const PROFILE = {
     : `${count(n)} transfers out of an account: not closed trades, so no returns are shown.`,
   excludedTransferredOutLink: 'How transfers out are counted',
   // F-22 (Q5): shown sells that also used shares that arrived by transfer (users.sells_partly_transferred).
-  sellsPartlyTransferred: (n: number) => `${counted(n, 'sell')} partly from shares that arrived by transfer: ${n === 1 ? 'its return is' : 'their returns are'} for the recorded shares only.`,
+  sellsPartlyTransferred: (n: number) => `${counted(n, 'sell')} used some shares that arrived by transfer: ${n === 1 ? 'its return covers' : 'their returns cover'} the recorded shares only.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
@@ -453,6 +453,8 @@ export const HOW = {
   // item of `excluded` (POLICY F3 names transfers in there).
   transfer: TRANSFER_HOW,
   transferOut: TRANSFER_OUT_HOW, // F-22: app/how/page.tsx renders it with id="transfers-out"
+  // F-22 (UX lead user test): the transfers item points to the transfers-out item (a link after its text).
+  transferOutPointer: 'How transfers out are counted',
   freezeTitle: 'Disconnecting and deleting',
   freeze: 'A record freezes when a brokerage is disconnected and stays public. Deleting the profile removes it; the handle is held for a year.',
 } as const;

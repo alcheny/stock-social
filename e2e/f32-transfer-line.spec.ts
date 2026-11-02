@@ -95,7 +95,9 @@ test('F-32 Part A: following the link lands on the /how sentence rendering the s
   await page.locator('[data-excluded-transfer] a').click();
   await expect(page).toHaveURL(/\/how#transfers$/);
   const item = page.locator('#transfers');
-  await expect(item).toHaveText(HOW.transfer);
+  // F-22 (UX lead user test): the item ends with a link to the transfers-out item.
+  await expect(item).toHaveText(`${HOW.transfer} ${HOW.transferOutPointer}`);
+  await expect(item.getByRole('link', { name: HOW.transferOutPointer })).toHaveAttribute('href', '#transfers-out');
   await expect(item).toContainText(TRANSFER_REASON);
   await expect(item).toContainText('not a judgment of the trader');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);

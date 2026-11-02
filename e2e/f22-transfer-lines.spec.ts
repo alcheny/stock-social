@@ -104,6 +104,16 @@ test('F-22: the transfers-out link lands on /how#transfers-out, which names FIFO
   await expect(page.locator('#transfers-out')).toContainText('not the broker');
 });
 
+test('F-22 (UX lead user test): the partly-transferred line\'s target states its rule in one short sentence', async ({ page }) => {
+  await page.goto(`/u/${HANDLE}`);
+  await page.locator('[data-sells-partly-transferred] a').click();
+  await expect(page).toHaveURL(/\/how#transfers$/);
+  const text = (await page.locator('#transfers').textContent())!;
+  const sentence = text.split(/(?<=\.)\s+/).find((x) => x.includes('recorded shares only'))!;
+  expect(sentence.split(/\s+/).length).toBeLessThanOrEqual(30);
+  await expect(page.locator('#transfers').getByRole('link', { name: HOW.transferOutPointer })).toHaveAttribute('href', '#transfers-out');
+});
+
 test('F-22 (P3): no transfer units, date or account in the profile HTML or any response it loads', async ({ page }) => {
   const bodies: string[] = [];
   page.on('response', async (r) => { if (/text|json|javascript|x-component/.test(r.headers()['content-type'] ?? '')) bodies.push(await r.text().catch(() => '')); });
