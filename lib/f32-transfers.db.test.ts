@@ -99,7 +99,7 @@ dbTest('the version rebuild reports per-reason moves, counts only: a p5 record c
     await s.sql`update users set excluded_corporate = excluded_corporate + excluded_transfer, excluded_transfer = 0 where id = ${s.u.id}`;
     const moves = noCounts();
     assert.deepEqual(await rebuildAllForMatcher(9000 + Math.floor(Math.random() * 900), [s.u.id], undefined, moves), { rebuilt: 1, failed: 0, left: 0 });
-    assert.deepEqual(moves, { shown: 0, excluded: 0, corporate: -1, transfer: 1, held: 0 });
+    assert.deepEqual(moves, { shown: 0, excluded: 0, corporate: -1, transfer: 1, held: 0, out: 0, partly: 0 }); // F-22 added out and partly
   } finally {
     await s.sql`delete from matcher_rebuilt where user_id = ${s.u.id}`;
     await s.cleanup();

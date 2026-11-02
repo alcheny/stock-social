@@ -71,7 +71,7 @@ async function rebuildEach(ids: number[], version: number, budgetMs: number, ski
 
 // The one report line per run: the version and the net change per reason (counts only; lib/privacy-logs.test.ts).
 const logMoves = (version: number, m: ReasonCounts) =>
-  console.log('matcher rebuild: moves per reason', JSON.stringify({ version, shown: m.shown, excluded: m.excluded, corporate: m.corporate, transfer: m.transfer, held: m.held }));
+  console.log('matcher rebuild: moves per reason', JSON.stringify({ version, shown: m.shown, excluded: m.excluded, corporate: m.corporate, transfer: m.transfer, held: m.held, out: m.out, partly: m.partly }));
 
 // A record the matcher has to rebuild for `version`: it has stored rows and no matcher_rebuilt row for that version or a
 // newer one (a record a newer deploy already rebuilt is never rebuilt back by older code).
