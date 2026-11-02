@@ -22,6 +22,10 @@ merged). MATCHER_VERSION 3 → 4.
   `db/schema.sql`); counts a transfer out of a pair with no stored activity, never in an account marked as another
   profile's.
 - `lib/matcher-report.ts`: the per-reason rebuild report adds `out` and `partly`.
+- **F-21 (#118, merged into this branch):** `lib/exclusions.ts` classifies `excluded_transferred_out` as left out of the
+  sells-only sum (transfer rows, not sells) and maps `transfersOut` to it; `sellsPartlyTransferred` is result data (shown
+  sells). Both are named in the profile's `#excluded` section as context lines (n = 0, linked to their /how items,
+  `app/u/[handle]/excluded-section.tsx`); the heading's sum is unchanged. Unit test in `lib/f22-transfers.test.ts`.
 - Copy (`lib/copy.ts`) and pages: profile lines "1 transfer out of an account: not a closed trade, so no return is shown."
   (→ `/how#transfers-out`) and "1 sell used some shares that arrived by transfer: its return covers the recorded shares
   only." (→ `/how#transfers`), muted underlined real links, 44 px, also on compare cards; /how: the transfers item leads
@@ -71,9 +75,9 @@ Committee record: `docs/features/logs/F-22/committee-2026-11-02.md`; plan: `docs
 - **QA:** tester (70,000 own ledgers, a reference model, a DB run): one defect found and fixed; its scripts re-run clean
   (0 of 20,000 mismatches). UX lead and business lead user test at 360/320 px: business lead PASS, UX lead copy changes
   taken. Independent review: two findings, both fixed.
-- **Gates:** `npx tsc --noEmit` ok; `npm test` 2,415 passed, 0 failed (before the final main merge; after it, the 85
-  touched unit/DB tests pass); compliance ok; guard ok; build ok; full `npx playwright test` 383 passed, 0 failed, 6
-  skipped; touched e2e specs pass after the final main merge.
+- **Gates** (after merging main with F-21 #118): `npx tsc --noEmit` ok; `npm test` 2,539 passed, 0 failed, 26 skipped;
+  compliance ok; guard ok; build ok; the F-21, F-22, F-32, F-24 and corporate-actions e2e specs pass (21/21). Before
+  that merge: full `npx playwright test` 383 passed, 0 failed, 6 skipped.
 
 ## Compliance
 1. **Performance shown, ranked or described?** Yes: sells a transfer used to remove are now shown when their recorded
@@ -100,7 +104,8 @@ Committee record: `docs/features/logs/F-22/committee-2026-11-02.md`; plan: `docs
 ## Owner items
 1. The merge hold (MRC2-10, both directions) and the deploy stop above.
 2. Confirm "alike" without the opening date (the committee's choice).
-3. F-21: its sum names two units (sells, transfers out); `countedSum` is its function.
+3. F-21 (merged): transfers out are named beside its sum, not summed (its sells-only unit rule); `countedSum` gives both
+   units if the owner wants them summed.
 4. The replaced acceptance criterion ("never improves") and the final wording of the lines and /how items; POLICY F3's
    edit (protected-files session); OD 2.7's consent version naming the counts.
 
