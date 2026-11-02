@@ -149,8 +149,8 @@ test('F-21 equality and the link: pane JSON, profile heading, trade and month st
     const line = page.locator('section[aria-labelledby="whole-record"] [data-exclusions]');
     await expect(line).toHaveCount(1);
     expect(countIn(await line.textContent()), path).toBe(countIn(heading));
-    // Between the figures and the F3 line.
-    expect(await line.evaluate((el) => [el.previousElementSibling?.matches('[data-strip]'), el.nextElementSibling?.matches('[data-disclaimer]')])).toEqual([true, true]);
+    // Right after the F3 line, which stays right after the figures (fixes-labels AC8: [data-strip] + [data-disclaimer]).
+    expect(await line.evaluate((el) => [el.previousElementSibling?.matches('[data-disclaimer]'), el.previousElementSibling?.previousElementSibling?.matches('[data-strip]')])).toEqual([true, true]);
     await noHScroll(page, 360);
   }
   await page.goto(`/u/${Z}/trade/${encodeURIComponent(sells[Z])}`);

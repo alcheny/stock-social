@@ -74,12 +74,12 @@ test('F-21 pane: the line sits right after the headline stats in both orders, is
   assert.ok(Number.isInteger(paneModel(trades, 'connected', now, [], null, 2.7).excluded));
 });
 
-test('F-21 strip: the line rides the page surface only, between the figures and the F3 line; never feed, image, figures or importing', () => {
+test('F-21 strip: the line rides the page surface only, right after the F3 line (which stays right after the figures); never feed, image, figures or importing', () => {
   const f = stripFigures(trades.map((t) => ({ ...t })), now);
   const base = { ...f, state: 'connected' as const, demo: false, verified: true, handle: 'f21_pane' };
   const page = renderToStaticMarkup(h(RecordStrip, { strip: recordStrip(base, 'page'), exclusions: { n: 1, handle: 'f21_pane' } }));
   const [fig, ex, f3] = order(page, ['data-strip', 'data-exclusions', 'data-disclaimer']);
-  assert.ok(fig < ex && ex < f3, page);
+  assert.ok(fig < f3 && f3 < ex, page); // fixes-labels AC8: [data-strip] + [data-disclaimer]
   assert.ok(page.includes(EXCLUSIONS.line(1)));
   for (const s of ['feed', 'figures'] as const) assert.doesNotMatch(renderToStaticMarkup(h(RecordStrip, { strip: recordStrip(base, s), exclusions: { n: 1, handle: 'x' } })), /data-exclusions/);
   assert.doesNotMatch(renderToStaticMarkup(h(RecordStrip, { strip: recordStrip({ ...base, state: 'importing' }, 'page'), exclusions: { n: 1, handle: 'x' } })), /data-exclusions/);

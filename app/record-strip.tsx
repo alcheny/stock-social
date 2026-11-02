@@ -36,9 +36,10 @@ export function RecordStrip({ strip, lead, exclusions }: { strip: Strip; lead?: 
       {strip.importing
         ? <p role="status" className="muted importing">{strip.importing}</p>
         : <p className="record-strip" data-strip><Figures parts={strip.figures} /></p>}
-      {!strip.importing && exclusions && <ExclusionsLine n={exclusions.n} handle={exclusions.handle} />}
-      {/* FIXES-LABELS (D-09): the F3 line directly after the figures it qualifies, then the link. */}
+      {/* FIXES-LABELS (D-09): the F3 line directly after the figures it qualifies, then the link. F-21: the exclusions
+          line follows the F3 line, so the F3 line stays right after the figures (fixes-labels AC8). */}
       {strip.disclaimer && <p className="muted small" data-disclaimer>{strip.disclaimer}</p>}
+      {!strip.importing && exclusions && <ExclusionsLine n={exclusions.n} handle={exclusions.handle} />}
       {strip.link && <p><Link href={strip.link.href}>{strip.link.text}</Link></p>}
     </div>
   );
