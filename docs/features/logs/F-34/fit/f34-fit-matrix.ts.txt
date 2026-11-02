@@ -1,12 +1,12 @@
 // F-34 plan round 3: fit matrix over the REAL stripImageLines / tradeHero / monthHero (month-card.real.ts is lib/month-card.ts
 // verbatim with `export` added to monthHero and absolute imports). The open-band rules are the plan's §3 model.
 // Run: /opt/node24/bin/node f34-fit-matrix.ts [image|full]   (argv[2], default image)
-import { recordStrip, stripImageLines, fitPx, STRIP_BAND, type ImageLine } from '/home/user/stock-social/lib/record-strip.ts';
-import { tradeHero, tradeSharePayload, tradeStripInput } from '/home/user/stock-social/lib/trade-share.ts';
-import { monthRecap, wholeRecord } from '/home/user/stock-social/lib/recap.ts';
+import { recordStrip, stripImageLines, fitPx, STRIP_BAND, type ImageLine } from '../../../../../lib/record-strip.ts';
+import { tradeHero, tradeSharePayload, tradeStripInput } from '../../../../../lib/trade-share.ts';
+import { monthRecap, wholeRecord } from '../../../../../lib/recap.ts';
 import { monthHero } from './month-card.real.ts';
-import { contrast } from '/home/user/stock-social/lib/colour-math.ts';
-import { IMAGE_PALETTE } from '/home/user/stock-social/lib/palette.ts';
+import { contrast } from '../../../../../lib/colour-math.ts';
+import { IMAGE_PALETTE } from '../../../../../lib/palette.ts';
 const MODE = process.argv[2] ?? 'image';
 const NOW = new Date(Date.UTC(2026, 9, 20, 12)), DAY = 864e5, t0 = Date.UTC(2025, 0, 1);
 let seq = 0;
