@@ -210,7 +210,7 @@ test('F-27 AC11: at 320×640, 360×640 and 780×360 a failed record\'s card keep
   }
 });
 
-test('F-27 AC3 (author): the author\'s own profile shows the one notice as an alert, the retry button inside its words at 44 px (light and dark)', async ({ page }) => {
+test('F-27 AC3 (author): the author\'s own profile shows the one notice (static, no live role), the retry button inside its words at 44 px (light and dark)', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await signIn(page, FAILED);
   for (const colorScheme of ['light', 'dark'] as const) {
@@ -218,7 +218,9 @@ test('F-27 AC3 (author): the author\'s own profile shows the one notice as an al
     await page.goto(`/u/${FAILED}`);
     await oneNotice(page, page.locator('main'), `${colorScheme} author profile`);
     const n = page.locator('.warn-notice');
-    await expect(n).toHaveAttribute('role', 'alert');
+    // FIXES-CYCLE5 (F5-25, F3-16): a static record note, read in place: no live-region role, even for its author.
+    await expect(n).not.toHaveAttribute('role', /./);
+    await expect(n).toBeVisible();
     const retry = n.locator(':scope > span a.button');
     await expect(retry).toHaveAttribute('href', '/connect');
     expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
