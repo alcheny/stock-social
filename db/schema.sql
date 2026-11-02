@@ -1245,3 +1245,6 @@ select schema_add_column('users', 'excluded_future_options', 'int not null defau
 select schema_add_index('activities_future_stored', 'create index activities_future_stored on activities (executed_at) where executed_at > created_at');
 select schema_add_index('option_activities_future_stored', 'create index option_activities_future_stored on option_activities (executed_at) where executed_at > created_at');
 select schema_add_index('corporate_actions_future_stored', 'create index corporate_actions_future_stored on corporate_actions (executed_at) where executed_at > created_at');
+-- F-32 Part A (council cycle 5, C5-1): sells a vendor transfer row excludes (lib/trades.ts `excludedTransfer`), counted
+-- under their own reason, never excluded_corporate. A count only: no transfer units, date or account is stored.
+select schema_add_column('users', 'excluded_transfer', 'int not null default 0');

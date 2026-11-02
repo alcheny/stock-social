@@ -92,7 +92,7 @@ const thesisMeta = (k: KeptThesis | undefined) => ({
 // way and repeated rebuilds give byte-identical rows (defect 3: the read had no order at all). Returns what it wrote and
 // the most activity rows it held at once.
 type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string; held: boolean };
-export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number }> {
+export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number; excludedTransfer: number }> {
   const run = async (tx: TransactionSql) => {
     // F-7: a public filer's trades come from its filings only (lib/public-trades.ts); this rebuild never touches them.
     if ((await tx`select 1 from users where id = ${userId} and public_filer_id is not null`).length) throw new Error('public filer: not a broker record');
@@ -111,7 +111,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const kept = [...aside, ...live] as unknown as KeptThesis[];
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
-    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0;
+    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0, excludedTransfer = 0;
     // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
     // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
     const actions = await loadCorporateActions(tx, userId, published(tx));
@@ -126,6 +126,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       excluded += m.excluded;
       excludedHeld += m.excludedHeld ?? 0; // F-24 RT-2
       excludedCorporate += m.excludedCorporate;
+      excludedTransfer += m.excludedTransfer ?? 0; // F-32 Part A
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
         await tx`insert into closed_trades ${tx(m.trades.slice(i, i + INSERT_CHUNK).map((t) => {
@@ -213,7 +214,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // F-24 RT-2: sells counted while a possible re-issue in their pair is held (owner-visible; shown nowhere yet).
     await tx`update users set excluded_held = ${excludedHeld} where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
-    return { trades: written, excluded, future: (future as number) + (unusable as number), maxHeld, excludedCorporate };
+    await tx`update users set excluded_transfer = ${excludedTransfer} where id = ${userId}`; // F-32 Part A: a count only
+    return { trades: written, excluded, future: (future as number) + (unusable as number), maxHeld, excludedCorporate, excludedTransfer };
   };
   return tx ? run(tx) : sql.begin(run);
 }
