@@ -68,9 +68,9 @@ by `lib/sync.ts#rebuildTrades`) → pages compute `stats()` on read.
 - `closed_trades` deliberately stores no quantities or prices. Keep it that way: traders publish
   percentages only.
 - Sync paths: `/connect/done` (right after a broker connects) and `POST /api/sync` (hourly cron,
-  `Authorization: Bearer $CRON_SECRET`). Both call `syncUser`, which re-reads the last 7 days. A
-  full-history pass per account, at most once every 7 days, inserts rows the 7-day re-read missed (insert-only; they
-  reach `closed_trades` only through the rebuild; F-24, `docs/SYNC.md` → Late postings).
+  `Authorization: Bearer $CRON_SECRET`). Both call `syncUser`, which re-reads the last 7 days. The
+  hourly path also runs a full-history pass per account, at most once every 7 days, which inserts rows the 7-day
+  re-read missed (insert-only; they reach `closed_trades` only through the rebuild; F-24, `docs/SYNC.md` → Late postings).
 
 **Vendor isolation:** `lib/broker.ts` is the only file that imports `snaptrade-typescript-sdk`. It also
 owns AES-256-GCM encryption of the SnapTrade user secret (`APP_SECRET_KEY`). Changing that key orphans
@@ -104,7 +104,7 @@ including the thesis moderation regex list. Styling is plain CSS tokens in `app/
 - Feed and profiles must work signed out (shared links land there).
 - DESIGN.md Stage 5 is the product design spec: every **Must** in CH-1/CH-2 (charts), TR-1..TR-8
   (record trust: no per-trade hiding, full history, open positions shown, records freeze on
-  disconnect, confidence intervals on performance and rankings by the interval's near end, TR-9) and SW-1 (swipe to profile) is a requirement. Charts are percent-only with 0% on the axis.
+  disconnect), TR-9 (confidence intervals on performance; rankings by the interval's near end) and SW-1 (swipe to profile) is a requirement. Charts are percent-only with 0% on the axis.
 
 ## Design sessions (the owner designs in the chat)
 
