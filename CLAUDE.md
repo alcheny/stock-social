@@ -68,9 +68,9 @@ by `lib/sync.ts#rebuildTrades`) → pages compute `stats()` on read.
 - `closed_trades` deliberately stores no quantities or prices. Keep it that way: traders publish
   percentages only.
 - Sync paths: `/connect/done` (right after a broker connects) and `POST /api/sync` (hourly cron,
-  `Authorization: Bearer $CRON_SECRET`). Both call `syncUser`, which re-reads the last 7 days. A weekly
-  full-history pass per account (at most once every 7 days) inserts activities that re-read missed, insert-only
-  (F-24, `docs/SYNC.md` → Late postings).
+  `Authorization: Bearer $CRON_SECRET`). Both call `syncUser`, which re-reads the last 7 days. A
+  full-history pass per account, at most once every 7 days, inserts rows the 7-day re-read missed (insert-only; they
+  reach `closed_trades` only through the rebuild; F-24, `docs/SYNC.md` → Late postings).
 
 **Vendor isolation:** `lib/broker.ts` is the only file that imports `snaptrade-typescript-sdk`. It also
 owns AES-256-GCM encryption of the SnapTrade user secret (`APP_SECRET_KEY`). Changing that key orphans
@@ -89,9 +89,10 @@ including the thesis moderation regex list. Styling is plain CSS tokens in `app/
 
 - **Verified** = every source activity has `source='snaptrade'`. There is no manual or self-reported
   trade path. Don't add one. Demo data always shows a **Demo** badge.
-- Rank losses equal to gains of the same size, by the one method documented on /how (DESIGN TR-9): the pace
-  interval's near-end distance from 0, weighted only from the moderate evidence tier, with a 1-point floor on the
-  spread (owner decisions OD 2.33 and cycle-5 Q3). Never hide losses.
+- Rank losses equal to gains of the same size, by the one method documented on /how (DESIGN TR-9): the distance
+  from 0 of the pace interval's near end. Ranking weight starts at the moderate evidence tier, with the per-trade
+  spread floored at 1 percentage point; records below the tier keep the base size-and-recency order and stay visible
+  (owner decisions OD 2.33 and cycle-5 Q3). Never hide losses.
 - Headline stats are win rate + avg return. Max drawdown is labeled "per-trade, equal-weight" because
   it is not account return.
 - Sells with no recorded entry are excluded and counted (`users.excluded_positions`), never guessed.
@@ -103,7 +104,7 @@ including the thesis moderation regex list. Styling is plain CSS tokens in `app/
 - Feed and profiles must work signed out (shared links land there).
 - DESIGN.md Stage 5 is the product design spec: every **Must** in CH-1/CH-2 (charts), TR-1..TR-8
   (record trust: no per-trade hiding, full history, open positions shown, records freeze on
-  disconnect, confidence intervals on performance and lower-bound rankings) and SW-1 (swipe to profile) is a requirement. Charts are percent-only with 0% on the axis.
+  disconnect, confidence intervals on performance and rankings by the interval's near end, TR-9) and SW-1 (swipe to profile) is a requirement. Charts are percent-only with 0% on the axis.
 
 ## Design sessions (the owner designs in the chat)
 
