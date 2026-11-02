@@ -72,7 +72,8 @@ export function runLines(text: string): string[] {
   let runIndent = 0;
   for (const line of text.split('\n')) {
     const indent = line.length - line.trimStart().length;
-    if (/^\s*(?:-\s*)?run:/.test(line)) { inRun = true; runIndent = indent; out.push(line); continue; }
+    // The block ends at the next line at or left of the run key's own column (after "- ", a sibling key of the step).
+    if (/^\s*(?:-\s*)?run:/.test(line)) { inRun = true; runIndent = indent + (/^\s*-\s/.test(line) ? 2 : 0); out.push(line); continue; }
     if (inRun && line.trim() !== '' && indent <= runIndent) inRun = false;
     if (inRun) out.push(line);
   }
@@ -87,27 +88,29 @@ test('no ${{ needs.* / steps.* / inputs.* / github.head_ref }} is interpolated i
   const sample = '      - run: gh workflow run gate.yml -f branch="${{ needs.review.outputs.branch }}"\n      - name: next';
   assert.equal(runLines(sample).filter((l) => RUN_INLINE.test(l)).length, 1, 'the detector works');
   assert.equal(runLines('      - env:\n          B: ${{ steps.pr.outputs.branch }}\n        run: echo "$B"').filter((l) => RUN_INLINE.test(l)).length, 0, 'env: values are allowed');
+  assert.equal(runLines('      - run: |\n          echo "$B"\n        env:\n          B: ${{ steps.pr.outputs.branch }}').filter((l) => RUN_INLINE.test(l)).length, 0, 'env: after a "- run:" block is allowed');
 });
 
 // An installer piped into a shell runs whatever the server sends that day; each one names the exact version it
 // installs (POLICY R3, owner patch O6).
-export const UNPINNED_PIPE = /\|\s*(?:ba|z)?sh\b(?!\s+-s\s+\d+\.\d+\.\d+\b)/;
+export const UNPINNED_PIPE = /\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:ba|z)?sh\b(?!\s+-s\s+\d+\.\d+\.\d+\b)/;
 test('every installer piped into a shell is pinned to an exact version (supply chain)', () => {
   let found = 0;
   for (const f of files) {
     for (const line of runLines(readFileSync(new URL(f, dir), 'utf8')).filter((l) => /\b(curl|wget)\b/.test(l))) {
-      if (/\|\s*(?:ba|z)?sh\b/.test(line)) found++;
+      if (/\|\s*(?:sudo\s+)?(?:ba|z)?sh\b/.test(line)) found++;
       assert.doesNotMatch(line, UNPINNED_PIPE, `${f}: an installer piped into a shell must name its exact version (| bash -s <x.y.z>):\n${line.trim()}`);
     }
   }
   assert.ok(found >= 4, `found ${found} piped installers (plan, build, features, doctor)`);
   assert.match('curl -fsSL https://example.test/install.sh | bash', UNPINNED_PIPE, 'the detector works');
+  assert.match('curl -fsSL https://example.test/install.sh | sudo bash', UNPINNED_PIPE, 'a piped sudo shell is caught');
   assert.doesNotMatch('curl -fsSL https://example.test/install.sh | bash -s 2.1.316', UNPINNED_PIPE, 'a pinned installer passes');
 });
 
 // The review and judge agents run in a job that also holds a GitHub token, so their checkouts keep none in
 // .git/config (owner patch O5). The judge hands git the token only in the step after its agent.
-test('review and judge checkouts keep no token; the judge gives git one only after its agent ran', () => {
+test('review and judge checkouts keep no token; the judge gives git one only after its agent ran, never in .git/config', () => {
   for (const f of ['review.yml', 'judge.yml']) {
     const checkouts = jobsOf(f).flatMap((j) => stepsOf(j)).filter((st) => st.includes('actions/checkout@'));
     assert.ok(checkouts.length >= 1, `${f}: has a checkout`);
@@ -115,9 +118,10 @@ test('review and judge checkouts keep no token; the judge gives git one only aft
   }
   const steps = jobsOf('judge.yml').flatMap((j) => stepsOf(j));
   const agent = steps.findIndex((st) => /anthropics\/claude-code-action@/.test(st));
-  const auth = steps.findIndex((st) => /http\.https:\/\/github\.com\/\.extraheader/.test(st));
+  const auth = steps.findIndex((st) => /GIT_CONFIG_KEY_0: http\.https:\/\/github\.com\/\.extraheader/.test(st));
   const post = steps.findIndex((st) => /autopilot\.ts judge-post/.test(st));
   assert.ok(agent >= 0 && auth > agent && post >= auth, `judge.yml: agent (${agent}) → token handed to git (${auth}) → judge-post (${post})`);
+  assert.doesNotMatch(readFileSync(new URL('judge.yml', dir), 'utf8'), /git config[^\n]*extraheader/, 'judge.yml: the token never goes into .git/config');
 });
 
 // Logs of a public repo are public: no workflow (or agent call) may turn on verbose output that could dump
