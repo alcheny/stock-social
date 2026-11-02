@@ -1,6 +1,6 @@
 # F-21 · Exclusion counts beside the headline (pane and record strip)
 
-Status: ready
+Status: built
 Start conditions: fix F3-2 merged in #85. It starts once #97 and #84 merge. It rides the pane/strip build slot with
 F-29 and F-34 (one builder owns the pane's line order). F-22 (draft, OD 2.28) joins the shared sum if it lands later.
 
@@ -76,27 +76,56 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
   F-34 and F-29, with one builder owning the pane's line order (exclusions, open, options qualifier). Why: the
   stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02.
 
+- 2026-11-02: Option exclusions are summed in both gate states, and their re-signed count lines move word for word into
+  the profile's `#excluded` section. The AI legal committee's sign-off on showing them while the gate is closed blocks the
+  PR. Why: decided by the committee under the owner's instruction of 2026-11-01; it follows the cycle-5 sum decision (engineer E5, business lead).
+- 2026-11-02: The shared-account reason reads "‹n› trades excluded: the account is part of another profile's record."
+  The line links with "· reasons on the profile". Why: decided by the committee under the owner's instruction of 2026-11-01; the count includes option closes, and the wording blames no one
+  (business lead, engineer).
+- 2026-11-02: Two new stored counters, written in the rebuild's own transaction: `excluded_future_sells` (sells only, from
+  the future-count query) and `excluded_shared` (written once in `rebuildRecord`: shares and option closes in marked
+  accounts, an OCC row counted once). Why: decided by the committee under the owner's instruction of 2026-11-01; the line counts sells and option closes only and reads stored counters (E1).
+- 2026-11-02: The guard reads runtime sources wherever they exist: `PUBLIC_REASONS`, the options `CAUSES`, an anchored
+  `MatchResult` scan that must find the known keys, and the schema parser plus `information_schema`. It is
+  mutation-checked in the test. Why: decided by the committee under the owner's instruction of 2026-11-01; engineer E3.
+- 2026-11-02: One PR with layered commits (counters and guard, then surfaces); no `PAYLOAD_V` bump; the owner runs
+  `scripts/rebuild-records.ts` once after deploy. Why: decided by the committee under the owner's instruction of 2026-11-01; the owner's instruction of 2026-11-02 is to finish to one open,
+  green PR; the layers meet the council's size concern (D5, E9).
+- 2026-11-02: AI legal committee sign-off on decision 1: SIGNED with conditions R1–R6, which apply as rules
+  (`docs/features/logs/F-21/committee-2026-11-02.md`):
+  - with the gate closed, only the signed gated line (plus exercise shares) explains options;
+  - n counts every option close (long ones included) and exercise shares once, never open options;
+  - with the gate open, a signed line explains the long closes;
+  - the reason lines sum to the heading in both gate states;
+  - the singular reads "1 trade";
+  - the shared-account line reads "their account is part of another profile's record" ("its account" in the singular).
+  Why: POLICY's owner decision of 2026-11-01 makes the legal committee's conditions rules; leaving the long option closes
+  out would understate the exclusions (F3a, F4).
+- 2026-11-02: The profile's future-dated line counts sells only (excluded_future_sells); future buys stay in Record tools.
+  Why: decided by the committee under the owner's instruction of 2026-11-01; the council's rule that one number never
+  mixes buys and sells under 'trades'.
+
 ## Acceptance criteria
-- [ ] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);
+- [x] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);
       a record with every count at 0 shows no line.
-- [ ] The line's count equals the profile's exclusion total for the same record (equality test over profile, pane and
+- [x] The line's count equals the profile's exclusion total for the same record (equality test over profile, pane and
       strip, fed by one function).
-- [ ] A test fails if an exclusion counter is added to the schema or the rebuild without being summed (or named as
+- [x] A test fails if an exclusion counter is added to the schema or the rebuild without being summed (or named as
       deliberately left out) in the shared function.
-- [ ] The count includes `notShared` exclusions (or names them as not an exclusion, with the reason), and a behavioural
+- [x] The count includes `notShared` exclusions (or names them as not an exclusion, with the reason), and a behavioural
       test proves a marked shared account in a rename chain does not feed the record (`lib/sync.ts:123-129`).
-- [ ] The line links to the profile's exclusion reasons; the link has a descriptive accessible name and a 44 px target.
-- [ ] Feed cards render exactly one record line (D22): a test fails if the exclusion line appears on a feed card.
-- [ ] The share card and the trade, month and stock image snapshots are unchanged.
-- [ ] At 360 px signed out, the disclaimer stays in view on the pane with the line present (e2e).
-- [ ] The line has no warning colour, no icon, and none of the words "hidden", "removed" or a cause that blames the
+- [x] The line links to the profile's exclusion reasons; the link has a descriptive accessible name and a 44 px target.
+- [x] Feed cards render exactly one record line (D22): a test fails if the exclusion line appears on a feed card.
+- [x] The share card and the trade, month and stock image snapshots are unchanged.
+- [x] At 360 px signed out, the disclaimer stays in view on the pane with the line present (e2e).
+- [x] The line has no warning colour, no icon, and none of the words "hidden", "removed" or a cause that blames the
       trader (copy test).
-- [ ] The line reflows without horizontal scroll at 320 px and passes the contrast test for muted text.
-- [ ] The equality fixture includes a future BUY, and the line's count does not move when it matures (sells and option
+- [x] The line reflows without horizontal scroll at 320 px and passes the contrast test for muted text.
+- [x] The equality fixture includes a future BUY, and the line's count does not move when it matures (sells and option
       closes only).
-- [ ] The guard is mutation-checked in the PR: a dummy `excludedX` key added to `MatchResult`, to the options result
+- [x] The guard is mutation-checked in the PR: a dummy `excludedX` key added to `MatchResult`, to the options result
       and to the public-filing result each fails the test.
-- [ ] The line links to the per-reason lines, and focus lands there; once F-32 lands, its "transfer" reason is among them.
+- [x] The line links to the per-reason lines, and focus lands there; once F-32 lands, its "transfer" reason is among them.
 - [ ] With F-29's qualifier and F-34's open line present (once built), the headline and disclaimer stay in view at
       360 px in the order exclusions, open, options qualifier (e2e).
 
@@ -104,6 +133,13 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 - The share card's treatment (owner question Q4).
 - A line on feed cards.
 - New exclusion kinds (F-22 adds its own count; this feature only sums).
+
+## Hand-offs from F-35 (2026-11-02)
+- F-35 publishes a row only once its date has passed. `users.excluded_future` still counts waiting share rows, buys and
+  sells; the sells-only sum must never read it (a maturing future BUY must never move this count, F-35 decision). Take
+  the sell part from the rebuild's future-count query (`lib/sync.ts#rebuildTrades`, `side = 'SELL'`).
+- F-35 adds `users.excluded_future_options` (option rows dated ahead, opens and closes): whether the sum counts its
+  closes is F-21's call; a waiting option row is not classed as a close until it is matched.
 
 ## Open questions
 - Owner (cycle-3 Q4): show "‹n› excluded" on the share card? The council recommends one muted line when n > 0.
@@ -113,3 +149,11 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 ## Rework notes
 
 ## Build log
+- 2026-11-02: Built on `claude/f21-exclusion-counts` in four layers (counters and guard; the option count lines moved to
+  `#excluded`; pane, strip and profile surfaces; e2e), applying the AI legal committee's conditions R1-R6. Owner steps:
+  run `scripts/rebuild-records.ts` once after deploy so frozen records fill `excluded_future_sells` and
+  `excluded_shared` (Q5); owner flag, must-fix before real users (R4/E6): an option-pair sell the share matcher counted
+  as corporate or held is counted again under options (pinned in `lib/f21-exclusions.db.test.ts`). The pane line's
+  vertical margins were compacted (Q6) to keep the disclaimer within 740 px with all three slot lines. The last AC (all
+  three slot lines together) waits for F-34's open line; the 360 px committee user test and the tester round were not
+  run (owner's token-saving pause of 2026-11-02); the independent code review ran and its findings are fixed or recorded.

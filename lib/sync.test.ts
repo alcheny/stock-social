@@ -846,7 +846,8 @@ dbTest('fix round 6: an activity dated 2 days ahead is quarantined: never matche
   const row = (id: string, symbol: string, side: 'BUY' | 'SELL', price: number, at: number) => ({
     externalId: `${tag}-${id}`, accountId: acc, symbol, side, units: 1, price, fee: 0, executedAt: new Date(at), verified: true, raw: {},
   });
-  const now = Date.now();
+  // F-35: dates relative to the database's clock (the rule compares executed_at with now()).
+  const now = Math.floor(Number((await sql`select extract(epoch from now()) * 1000 as t`)[0].t));
   const sinces: Date[] = [];
   const broker = (acts: ReturnType<typeof row>[]) => ({
     listAccounts: async () => [{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }],
@@ -860,9 +861,11 @@ dbTest('fix round 6: an activity dated 2 days ahead is quarantined: never matche
       row('b3', 'CCC', 'BUY', 100, now - 24 * H), row('s3', 'CCC', 'SELL', 90, now + 12 * H), // within the day of grace
     ]) as never);
     const trades = await sql`select symbol from closed_trades where user_id = ${user.id} order by symbol`;
-    assert.deepEqual(trades.map((t) => t.symbol), ['AAA', 'CCC']); // BBB is never published
+    // F-35 amends #62's 24 h grace: the +12 h sell (CCC) is no longer published early; it waits on the future line with
+    // BBB (two assertions changed: ['AAA', 'CCC'] → ['AAA'] and [1, 0] → [2, 0]; it publishes once its date passes, below).
+    assert.deepEqual(trades.map((t) => t.symbol), ['AAA']); // BBB is never published, CCC not before its date
     const [u] = await sql`select excluded_future, excluded_positions from users where id = ${user.id}`;
-    assert.deepEqual([u.excluded_future, u.excluded_positions], [1, 0]); // counted as future-dated, not as a missing entry
+    assert.deepEqual([u.excluded_future, u.excluded_positions], [2, 0]); // counted as future-dated, not as a missing entry
     // The raw row is kept (activities are immutable).
     assert.equal((await sql`select count(*)::int as n from activities where external_id = ${`${tag}-s2`}`)[0].n, 1);
     // The next sync re-reads the week before the newest non-future activity (+12 h), not before the quarantined one.
@@ -870,7 +873,53 @@ dbTest('fix round 6: an activity dated 2 days ahead is quarantined: never matche
     assert.equal(sinces[1].getTime(), new Date(now + 12 * H).getTime() - 7 * 24 * H);
     // The feed never sees it: no closed trade dated more than a day ahead exists for this trader.
     assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${user.id} and closed_at > now() + interval '1 day'`)[0].n, 0);
+    // F-35: none dated after now() at all; once 13 h pass for CCC's rows (moved back, the clock untouched) it is published.
+    assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${user.id} and closed_at > now()`)[0].n, 0);
+    await sql`update activities set executed_at = executed_at - interval '13 hours', created_at = created_at - interval '13 hours' where external_id in ${sql([`${tag}-b3`, `${tag}-s3`])}`;
+    const { rebuildRecord } = await import('./options-sync.ts');
+    await rebuildRecord(user.id);
+    assert.deepEqual((await sql`select symbol from closed_trades where user_id = ${user.id} order by symbol`).map((t) => t.symbol), ['AAA', 'CCC']);
+    assert.equal((await sql`select excluded_future from users where id = ${user.id}`)[0].excluded_future, 1, 'BBB still waits');
   } finally {
+    await cleanup([acc]);
+  }
+});
+
+// F-35 twin of the grace test above (docs/features/F-35-publish-once-the-date-has-passed.md, AC6): under the new rule a sell
+// dated 12 h ahead (inside the old grace) is not published, is counted on the future line, and is published by the first
+// sync tick at or after its date with no new activity (the matured pass, lib/sync-shard.ts). The re-read window still
+// uses the grace (unchanged).
+dbTest('F-35 twin of fix round 6: a sell dated 12 hours ahead waits (not published, counted) and the first tick after its date publishes it', async () => {
+  const { sql, tag, user, connected, cleanup } = await setup();
+  const { syncUser } = await import('./sync.ts');
+  const H = await import('./sync-shard.ts');
+  const acc = `${tag}-acc`;
+  await connected([acc]);
+  const HR = 3_600_000;
+  const now = Math.floor(Number((await sql`select extract(epoch from now()) * 1000 as t`)[0].t));
+  const row = (id: string, side: 'BUY' | 'SELL', price: number, at: number) => ({
+    externalId: `${tag}-${id}`, accountId: acc, symbol: 'CCC', side, units: 1, price, fee: 0, executedAt: new Date(at), verified: true, raw: {},
+  });
+  const sinces: Date[] = [];
+  const broker = (acts: ReturnType<typeof row>[]) => ({
+    listAccounts: async () => [{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }],
+    fetchActivities: async (_u: unknown, since: Date) => { sinces.push(since); return acts; },
+  });
+  const of = 41 + Math.floor(Math.random() * 59); // this file's own shard range (41..99; lib/f35-publish.test.ts 100..499)
+  try {
+    await syncUser(user, broker([row('b3', 'BUY', 100, now - 24 * HR), row('s3', 'SELL', 90, now + 12 * HR)]) as never);
+    assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${user.id}`)[0].n, 0, 'not published before its date');
+    assert.equal((await sql`select excluded_future from users where id = ${user.id}`)[0].excluded_future, 1, 'counted on the future line');
+    await syncUser(user, broker([]) as never);
+    assert.equal(sinces[1].getTime(), now + 12 * HR - 7 * 24 * HR, 'the grace still bounds the re-read window');
+    await sql`update activities set executed_at = executed_at - interval '13 hours', created_at = created_at - interval '13 hours' where user_id = ${user.id}`;
+    await sql`update users set published_through = published_through - interval '13 hours' where id = ${user.id}`;
+    const r = await H.runShard({ shard: { shard: user.id % of, of }, ids: [user.id], jitterMs: 0, config: { concurrency: 1, rps: 1000, burst: 1000, page: 500 }, log: () => {}, sync: async () => 0, mature: true });
+    assert.equal(r.matured, 1);
+    assert.deepEqual((await sql`select symbol from closed_trades where user_id = ${user.id}`).map((t) => t.symbol), ['CCC']);
+    assert.equal((await sql`select excluded_future from users where id = ${user.id}`)[0].excluded_future, 0);
+  } finally {
+    await sql`delete from sync_shards where of = ${of}`;
     await cleanup([acc]);
   }
 });

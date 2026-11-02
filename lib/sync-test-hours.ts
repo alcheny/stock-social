@@ -31,6 +31,10 @@ export const HOUR_RANGES: Record<string, HourRange> = {
   'lib/options-shard.test.ts': { from: 3000, to: 6000, claims: true },
   'lib/sync-cadence.db.test.ts': { from: 6100, to: 46000, claims: true },
   'lib/sync-test-hours.test.ts': { from: 46100, to: 48000, claims: true },
+  // F-35: their runs (the matured pass) use a fake sync that makes no vendor read, so they write no row and assert nothing
+  // on the table; the ranges keep the hours apart should they ever read it.
+  'lib/f35-publish.test.ts': { from: 48100, to: 48200, claims: false },
+  'lib/sync.test.ts': { from: 48300, to: 48400, claims: false },
 };
 
 /** Hours from T0, both inclusive: [-2, 100] is the two hours before T0 to the hundredth after. */

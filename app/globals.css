@@ -959,3 +959,13 @@ html:not([data-ss-seen~="hint"]) .feed .card footer .swipe-hint { display: block
 /* F-32 Part A: the profile's transfer-count line is a real link (44px tall, muted, underlined so it is not marked by colour
    alone); position: relative holds its sr-only suffix inside it; long counts wrap at 320px. */
 .excluded-link { position: relative; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+/* ---- F-21: the exclusions line (pane, trade and month strips) and the profile's #excluded section. Muted only (no
+   warning colour, no icon); the link is underlined, so it is not shown by colour alone; a 44 px target (.tap44); it
+   wraps at 320 px. F-20 tokens only. ---- */
+/* Compacted for the pane slot (Q6: the slot lines give way, never the disclaimer): the negative margins take 8 px off
+   each 16 px gap around the line and let the 44 px target overlap that spacing, so the line costs about its text. */
+.exclusions-line { margin: -8px 0; }
+.exclusions-line a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; max-width: 100%; margin: -4px 0; }
+.excluded h2 { margin: 16px 0 4px; }
+.excluded:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* ---- end F-21 ---- */

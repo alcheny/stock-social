@@ -68,7 +68,7 @@ dbTest('the same closes are left out as by the old filter, and the list is the s
     }
     await act(ids[3], `${tag}-${ids[3]}-nb`, 'BUY', 100, 1);
     await sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
-      values (${ids[3]}, 'snaptrade', ${`${tag}-${ids[3]}-ns`}, 'a', ${`${tag.toUpperCase()}${ids[3] % 3}`}, 'SELL', 1, 90, now() + interval '1 minute', '{}'::jsonb)`;
+      values (${ids[3]}, 'snaptrade', ${`${tag}-${ids[3]}-ns`}, 'a', ${`${tag.toUpperCase()}${ids[3] % 3}`}, 'SELL', 1, 90, now(), '{}'::jsonb)`; // F-35: dated after asOf at the insert's own clock (a row dated ahead now waits, unpublished, until its date)
     await rebuildTrades(ids[3]);
 
     // Row by row: the column equals the sell activity's import time, and the new test equals the old one.

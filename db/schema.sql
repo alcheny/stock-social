@@ -1231,9 +1231,32 @@ select schema_add_column('users', 'excluded_held', 'int not null default 0');
 -- duplicate: left out of the rebuild); one suspected by a give-up (a busy account, failed or multi-page widened reads)
 -- was never decided, so it stays held (its pair's later sells counted).
 select schema_add_column('activity_reissues', 'undecided', 'boolean not null default false');
+-- F-35 (docs/features/F-35-publish-once-the-date-has-passed.md): a trade is published once its date has passed
+-- (executed_at <= now()), never on the 24-hour grace. `published_through` is the database clock of the record's last
+-- committed rebuild (lib/options-sync.ts#rebuildRecord): every row dated at or before it was in that rebuild's published
+-- set. Null until the first rebuild after this change (the matured pass then rebuilds a record holding a row dated ahead
+-- once). An insert that stores a row dated ahead lowers it to the inserting transaction's clock (never fills a null).
+select schema_add_column('users', 'published_through', 'timestamptz');
+-- Option rows dated after now(), not paper, not shared: counted on the future line beside excluded_future (share rows,
+-- buys and sells; F-21's sells-only sum never reads it).
+select schema_add_column('users', 'excluded_future_options', 'int not null default 0');
+-- The matured pass (lib/sync-shard.ts#maturedQuery): only rows stored while dated ahead, a small set read by range on
+-- executed_at (the query repeats the predicate word for word so the planner can use these).
+select schema_add_index('activities_future_stored', 'create index activities_future_stored on activities (executed_at) where executed_at > created_at');
+select schema_add_index('option_activities_future_stored', 'create index option_activities_future_stored on option_activities (executed_at) where executed_at > created_at');
+select schema_add_index('corporate_actions_future_stored', 'create index corporate_actions_future_stored on corporate_actions (executed_at) where executed_at > created_at');
 -- F-32 Part A (council cycle 5, C5-1): sells a vendor transfer row excludes (lib/trades.ts `excludedTransfer`), counted
 -- under their own reason, never excluded_corporate. A count only: no transfer units, date or account is stored.
 select schema_add_column('users', 'excluded_transfer', 'int not null default 0');
+-- F-21 (docs/features/F-21-exclusion-counts-beside-the-headline.md, committee 2026-11-02 decisions 4-5): two stored
+-- counters for the one exclusion sum (lib/exclusions.ts), written in the rebuild's own transaction. Sells only, so the
+-- sum never mixes buys and sells under "trades". A record fills them on its next rebuild (owner step after deploy:
+-- scripts/rebuild-records.ts once, for frozen records).
+-- excluded_future_sells: the sell part of excluded_future (lib/sync.ts#rebuildTrades, the same future-count query).
+select schema_add_column('users', 'excluded_future_sells', 'int not null default 0');
+-- excluded_shared: sells and option closes in accounts marked as another profile's (lib/options-sync.ts#rebuildRecord).
+select schema_add_column('users', 'excluded_shared', 'int not null default 0');
+
 
 -- ---- F-16 follow-up (owner decision 2026-11-02, OD 2.22): the owner's audited account deletions (lib/owner-delete.ts) ----
 -- Append-only. Date, reason code and counts of what was deleted, and the actor role word; no user id, handle, email or
