@@ -38,16 +38,16 @@ conditions).
   dropped" message. Why: approved by the approval council (cycle 5); TR.
 
 ## Acceptance criteria
-- [ ] The probe (fictional: buy 2 @5, fee 10, sell @15) prints +50%.
-- [ ] A long share trade shows worse than −100% only when its exit fee exceeds its sale proceeds, and a test pins that
+- [x] The probe (fictional: buy 2 @5, fee 10, sell @15) prints +50%.
+- [x] A long share trade shows worse than −100% only when its exit fee exceeds its sale proceeds, and a test pins that
       case.
-- [ ] Zero-fee fixtures rebuild byte-identical.
-- [ ] A fixture check: every changed expectation belongs to a trade with an entry fee above 0. The PR's list of
+- [x] Zero-fee fixtures rebuild byte-identical.
+- [x] A fixture check: every changed expectation belongs to a trade with an entry fee above 0. The PR's list of
       changed expectations comes from the test run's output, not a hand-written list.
-- [ ] A lot with no basis or a zero price stays counted and is never priced from fees.
-- [ ] No trade changes sign. The rebuild report's sign-change count is 0 on the fixtures.
-- [ ] /how renders the formula and the worked example as text, with the dated note.
-- [ ] No page, payload or image shows a fee amount (source scan plus a render test).
+- [x] A lot with no basis or a zero price stays counted and is never priced from fees.
+- [x] No trade changes sign. The rebuild report's sign-change count is 0 on the fixtures.
+- [x] /how renders the formula and the worked example as text, with the dated note.
+- [x] No page, payload or image shows a fee amount (source scan plus a render test).
 
 ## Out of scope
 - Showing fees.
@@ -68,3 +68,6 @@ conditions).
 ## Rework notes
 
 ## Build log
+- 2026-11-02: built on `claude/f36-fees-denominator` through the committee cycle (`docs/features/logs/F-36/committee-2026-11-01.md`):
+  plan signed in round 2; tests first; tester QA pass; 360/320 px user test pass; independent review with no blocking
+  finding. MATCHER_VERSION 3 (provisional against F-32 Part A). Fixture audit: `docs/features/logs/F-36/audit.txt`.
