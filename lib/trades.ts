@@ -36,7 +36,10 @@ export type ClosedTrade = {
 // `movedIn` (F-22, engineer review): units that arrived by a transfer in. They stay at the end of the FIFO queue, after
 // every recorded lot (recorded buys made later are inserted before them), so a sell within the recorded holding draws
 // exactly what it would without the transfer, and moved-in units are drawn only beyond it.
-type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean; tainted?: boolean; cause?: 'transfer'; movedIn?: true };
+// `datesUnknown` (F-22, tester): left after part of an alike holding moved out, when the alike lots had different opening
+// dates. Their price is exact, but which dates are left is not, so a rename that merges them with other lots by date
+// taints them (see the symbol change).
+type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean; tainted?: boolean; cause?: 'transfer'; movedIn?: true; datesUnknown?: true };
 
 const EPS = 1e-9;
 const DAY = 86_400_000;
@@ -178,7 +181,9 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   const sideOrder = (side: 'BUY' | 'SELL') => (side === 'BUY' ? 2 : 3);
   const idOf = (e: Event) => (opts.orderKnown ? '' : e.act?.externalId ?? e.ca?.externalId ?? '');
   const events: Event[] = [
-    ...actions.map((ca, i) => ({ at: ca.executedAt.getTime(), order: ca.kind === 'symbol-change' ? 0 : isTradeRow(ca) ? sideOrder(ca.side) : 1, src: 0, i, ca })),
+    // F-22 (tester): at one instant a transfer out comes after the other actions (transfers in included), so the
+    // outcome never depends on which vendor id sorts first.
+    ...actions.map((ca, i) => ({ at: ca.executedAt.getTime(), order: ca.kind === 'symbol-change' ? 0 : isTradeRow(ca) ? sideOrder(ca.side) : isTransferOut(ca) ? 1.5 : 1, src: 0, i, ca })),
     ...activities.map((act, i) => ({ at: act.executedAt.getTime(), order: sideOrder(act.side), src: 1, i, act })),
   ].sort((a, b) => a.at - b.at || a.order - b.order || a.src - b.src || (idOf(a) < idOf(b) ? -1 : idOf(a) > idOf(b) ? 1 : 0) || a.i - b.i);
   const books = new Map<string, Book>();
@@ -332,6 +337,10 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         const toKey = `${ca.accountId}|${ca.newSymbol}`;
         if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && openedInWindow(b.lots, e.at))) taint(b.lots);
         const to = book(toKey);
+        // F-22 (tester): when lots whose opening dates a transfer out left unknown merge with recorded lots of the new
+        // symbol, the merged order (by date) is unknown too, so it would choose a basis: every lot of the merge is
+        // tainted (cause transfer where nothing else tainted it).
+        if (b.lots.some((l) => l.datesUnknown) && to.lots.some((l) => !l.movedIn)) for (const l of [...b.lots, ...to.lots]) if (!l.tainted) { l.tainted = true; l.cause = 'transfer'; }
         to.lots = [...to.lots, ...b.lots].sort((x, y) => (x.movedIn ? 1 : 0) - (y.movedIn ? 1 : 0) || x.at.getTime() - y.at.getTime()); // F-22: moved-in last
         if (unknownFrom.has(toKey)) taint(to.lots); // F3-1: lots moved into a pair whose ledger is unknown
         books.set(key, { lots: [] }); // a recycled ticker starts fresh lots
@@ -364,6 +373,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
               // trader holding a loser bought at several prices can still turn its close into a count — fix: the vendor's
               // lot-level transfer detail (which shares left), when it exists.
               else if (!alike) taintBy(b.lots, ca);
+              else if (rec.some((l) => l.at.getTime() !== f.at.getTime())) for (const l of b.lots) if (!l.movedIn) l.datesUnknown = true;
             }
           }
           continue;

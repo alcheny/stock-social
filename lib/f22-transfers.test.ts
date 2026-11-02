@@ -241,3 +241,20 @@ test('independent review: one share moved in and one moved out never turns a rec
   assert.deepEqual(tie('x1', 'x2'), tie('x2', 'x1'));
   assert.equal(tie('x1', 'x2').trades.length, 1);
 });
+
+test('tester: a partial transfer out of alike lots with different dates, then a rename merging them with another pair → the merged sell is counted, never priced on a basis the dates chose', () => {
+  const rename = { externalId: 'rn', accountId: 'A', symbol: 'WX', executedAt: at(60), kind: 'symbol-change', newSymbol: 'WY', outUnits: 50, inUnits: 50 } as CorporateAction;
+  const r = accounted([act('BUY', 50, 100, 0), act('BUY', 50, 60, 10, { symbol: 'WY' }), act('BUY', 50, 100, 20), act('SELL', 50, 90, 90, { symbol: 'WY' })], [transfer(40, -50), rename]);
+  assert.equal(r.trades.length, 0);
+  assert.equal(r.excludedTransfer, 1);
+  // Same dates: nothing is unknown, so it stays priced.
+  const same = accounted([act('BUY', 50, 100, 0), act('BUY', 50, 60, 10, { symbol: 'WY' }), act('BUY', 50, 100, 0), act('SELL', 50, 90, 90, { symbol: 'WY' })], [transfer(40, -50), rename]);
+  assert.equal(same.trades.length, 1);
+});
+
+test('tester: a transfer in and a transfer out at the same instant give the same result in either vendor-id order (the out applies last)', () => {
+  const run = (inId: string, outId: string) => matchTrades([act('BUY', 100, 100, 0, { externalId: 'b' }), act('BUY', 10, 50, 30, { externalId: 'b2' }), act('SELL', 10, 100, 40, { externalId: 's' })],
+    [transfer(20, 1, { externalId: inId }), transfer(20, -101, { externalId: outId })]);
+  assert.deepEqual(run('x1', 'x2'), run('x2', 'x1'));
+  assert.equal(run('x1', 'x2').trades.length, 1);
+});
