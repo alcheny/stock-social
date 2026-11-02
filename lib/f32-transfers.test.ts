@@ -154,7 +154,7 @@ const reachedByNonTransfer = (a: Activity, actions: CorporateAction[]) => action
   return (c > t && c - t <= 14 * DAY) || Math.floor(c / DAY) === Math.floor(t / DAY);
 });
 
-test('fuzz (2,000 seeded cases): order independence; every sell has exactly one reason and the totals match; a non-transfer action always wins the reason; against the old rule a sell only moves from a corporate count', () => {
+test('fuzz (2,000 seeded cases): order independence; every sell has exactly one reason and the totals match; a non-transfer action always wins the reason; a transfer in changes no shown figure on the pairs only transfers touch', () => {
   let named = 0, both = 0; // coverage: cases with a transfer count, and with a transfer and a corporate count
   const seeds = process.env.FUZZ_SEED ? [Number(process.env.FUZZ_SEED)] : Array.from({ length: 2000 }, (_, i) => i + 1);
   for (const seed of seeds) {
@@ -166,20 +166,25 @@ test('fuzz (2,000 seeded cases): order independence; every sell has exactly one 
     const again = new Map<string, SellReason>();
     assert.deepEqual(matchTrades(shuffle(rows), shuffle(actions), { reasons: again }), r, `${ctx} (a)`);
     assert.deepEqual(new Map([...again].sort()), new Map([...reasons].sort()), `${ctx} (a) reasons`);
-    // (b) Against the old rule (the transfer flag dropped: every transfer an unpriceable action). Part A only relabelled;
-    // F-22 (owner OD 2.28) also publishes sells the old rule counted. Per sell: shown stays shown at the same figure,
-    // "no recorded entry" and held keep their reason, and only an old corporate count may become shown, "no recorded
-    // entry" (an oversell no longer tainted), corporate or transfer.
-    const oldReasons = new Map<string, SellReason>();
-    const old = matchTrades(rows, actions.map(unflag), { reasons: oldReasons });
-    const fig = new Map(r.trades.map((t) => [t.sellId, t]));
-    for (const t of old.trades) assert.deepEqual(fig.get(t.sellId), t, `${ctx} (b) ${t.sellId} shown at the same figure`);
-    for (const [id, was] of oldReasons) {
-      const now = reasons.get(id);
-      if (was === 'excluded' || was === 'held' || was === 'twin' || was === 'shown') assert.equal(now, was, `${ctx} (b) ${id} ${was}`);
-      else assert.ok(['shown', 'excluded', 'corporate', 'transfer'].includes(now!), `${ctx} (b) ${id} corporate -> ${now}`);
+    // (b) F-22 (owner OD 2.28; engineer, committee round 1) replaced the old forward rule, so the reference is the same
+    // ledger without its transfers in. On pairs that only transfers touch: a sell shown in both is identical; one shown
+    // only with them is one the ledger alone had no recorded entry for; one shown only without them is in a transfer's window or day (Part B).
+    const isIn = (ca: CorporateAction) => isFlagged(ca) && ((ca as { units?: number }).units ?? 0) > 0;
+    const whyNoIn = new Map<string, SellReason>();
+    const noIn = new Map(matchTrades(rows, actions.filter((ca) => !isIn(ca)), { reasons: whyNoIn }).trades.map((t) => [t.sellId, t]));
+    // Pairs only transfers in touch (a transfer out after moved-in units taints the rest: which shares left is unknown).
+    const pure = (a: { accountId: string; symbol: string }) => !actions.some((ca) => ca.accountId === a.accountId && ((!isIn(ca) && (ca.symbol === a.symbol || (ca.kind === 'symbol-change' && ca.newSymbol === a.symbol))) || (ca.kind === 'unpriceable' && ca.scope === 'account')));
+    const ins = actions.filter(isIn);
+    for (const t of r.trades) if (pure(t)) {
+      if (noIn.has(t.sellId)) assert.deepEqual(t, noIn.get(t.sellId), `${ctx} (b) ${t.sellId} identical`);
+      else assert.equal(whyNoIn.get(t.sellId), 'excluded', `${ctx} (b) ${t.sellId} newly shown only where the ledger alone had no recorded entry`);
     }
-    assert.equal(old.excludedTransfer, undefined, `${ctx} (b) no transfer flag, no transfer count`);
+    const shownNow = new Set(r.trades.map((t) => t.sellId));
+    for (const [id, t] of noIn) if (pure(t) && !shownNow.has(id)) {
+      const sameDay = (x: Date, y: Date) => Math.floor(x.getTime() / DAY) === Math.floor(y.getTime() / DAY);
+      assert.ok(ins.some((ca) => ca.accountId === t.accountId && ca.symbol === t.symbol && ((t.closedAt.getTime() <= ca.executedAt.getTime() && ca.executedAt.getTime() - t.closedAt.getTime() <= 14 * DAY) || sameDay(t.closedAt, ca.executedAt)
+        || rows.some((b) => b.side === 'BUY' && b.accountId === t.accountId && b.symbol === t.symbol && sameDay(b.executedAt, ca.executedAt)))), `${ctx} (b) ${id} removed only by a transfer in's window or day (the sell's, or a buy's)`);
+    }
     // (c) every sell exactly one reason, and the totals are the reasons' counts
     const sellIds = [...rows.filter((a) => a.side === 'SELL').map((a) => a.externalId),
       ...actions.filter((ca) => ca.kind === 'unpriceable' && ca.reason === 'trade' && ca.side === 'SELL').map((ca) => ca.externalId)];

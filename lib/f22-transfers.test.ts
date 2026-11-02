@@ -4,7 +4,7 @@
 // unknown kinds keep today's taint. The backward window and same-day rule stay (F-32 Part B, vendor MRC2-10). Fictional.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { exclusionSum, matchTrades, type Activity, type MatchResult } from './trades.ts';
+import { exclusionSum, matchTrades, type Activity, type MatchResult, type SellReason } from './trades.ts';
 import type { CorporateAction } from './corporate-actions.ts';
 
 const DAY = 86_400_000;
@@ -47,9 +47,15 @@ test('probe 3: buy 100, transfer 100 out → no trade, and the transfer out is a
 test('the basis rule: two lots with different bases, part of the position transferred out with no lot named → the remaining lots stay tainted and the later sell is counted', () => {
   const r = accounted([act('BUY', 50, 100, 0), act('BUY', 50, 60, 5), act('SELL', 50, 40, 40)], [transfer(20, -50)]);
   assert.deepEqual(counts(r), { shown: 0, excluded: 0, corporate: 0, transfer: 1, held: 0, out: 1 });
-  // Same price and fee but different opening dates: oldest-first would choose the shown holding period, so tainted too.
+  // Same price and fee, different opening dates (business lead, committee round 1): which share left changes no return,
+  // only the holding period, which follows the record's own FIFO order. Shown, from the oldest lot left.
   const dates = accounted([act('BUY', 50, 100, 0), act('BUY', 50, 100, 5), act('SELL', 50, 40, 40)], [transfer(20, -50)]);
-  assert.equal(dates.trades.length, 0);
+  assert.equal(dates.trades.length, 1);
+  near(dates.trades[0].returnPct, -0.6);
+  assert.equal(dates.trades[0].openedAt.getTime(), at(5).getTime());
+  // Same price and date, one lot not verified (demo or unusable): not alike, so tainted.
+  const unverified = accounted([act('BUY', 50, 100, 0), act('BUY', 50, 100, 0, { verified: false }), act('SELL', 50, 40, 40)], [transfer(20, -50)]);
+  assert.equal(unverified.trades.length, 0);
   // The whole position moving out cannot change a basis: a later buy and sell are priced on their own.
   const whole = accounted([act('BUY', 50, 100, 0), act('BUY', 50, 60, 5), act('BUY', 10, 30, 30), act('SELL', 10, 45, 40)], [transfer(20, -100)]);
   assert.deepEqual(counts(whole), { shown: 1, excluded: 0, corporate: 0, transfer: 0, held: 0, out: 1 });
@@ -89,45 +95,96 @@ test('rebuilding twice from the same input gives identical results (and in any i
   assert.deepEqual(matchTrades([...acts].reverse(), [...actions].reverse()), r);
 });
 
-// ---- Property (seeded): inserting a transfer never invents or changes a shown figure ----
+test('Q5 (committee): buy 100, transfer 1 in, sell all 101 at −60% → shown −60% on the 100 recorded shares, and counted as a sell partly from transferred shares', () => {
+  const r = accounted([act('BUY', 100, 100, 0), act('SELL', 101, 40, 40, { fee: 1.01 })], [transfer(20, 1)]);
+  assert.equal(r.trades.length, 1);
+  near(r.trades[0].returnPct, (100 * 40 - 100 * 100 - 1) / (100 * 100)); // the exit fee prorated: 1.01 × 100/101
+  assert.equal(r.sellsPartlyTransferred, 1);
+  assert.equal(r.excludedTransfer ?? 0, 0);
+  // The same at a gain, alike.
+  const gain = accounted([act('BUY', 100, 100, 0), act('SELL', 101, 160, 40)], [transfer(20, 1)]);
+  near(gain.trades[0].returnPct, 0.6);
+  assert.equal(gain.sellsPartlyTransferred, 1);
+});
+
+test('moved-in units are drawn last (engineer): buy 100, transfer 1 in, buy 100 at another price, sell 150 → the figure the ledger gives without the transfer', () => {
+  const acts = [act('BUY', 100, 100, 0), act('BUY', 100, 60, 30), act('SELL', 150, 50, 40)];
+  const r = accounted(acts, [transfer(20, 1)]);
+  assert.deepEqual(r.trades, matchTrades(acts).trades);
+  assert.equal(r.sellsPartlyTransferred ?? 0, 0);
+});
+
+test('property seed 111: a share moved in shortly before a split never makes the split taint the recorded lots', () => {
+  const acts = [act('BUY', 10, 100, 0), act('SELL', 20, 40, 50)];
+  const r = accounted(acts, [transfer(23, 1), { externalId: 's', accountId: 'A', symbol: 'WX', executedAt: at(26), kind: 'split', ratio: { p: 2, q: 1 } } as CorporateAction]);
+  assert.equal(r.trades.length, 1);
+  near(r.trades[0].returnPct, (20 * 40 - 1000) / 1000);
+  assert.equal(r.sellsPartlyTransferred ?? 0, 0);
+});
+
+// Pinned (engineer and business lead, merge hold): if the vendor ever sends a split or reverse split as a transfer row
+// (the vendor's MRC2-10 answer is pending), F-22 publishes a wrong figure. These record what happens today, so the
+// vendor's answer or the owner's written acceptance decides the merge. ponytail in lib/trades.ts names it.
+test('pinned (MRC2-10 risk): a 1-for-2 reverse split sent as a transfer out of 50 → +100% published (true 0%); a 2:1 split sent as a transfer in of 100 → −50% published (true 0%)', () => {
+  const reverse = accounted([act('BUY', 100, 10, 0), act('SELL', 50, 20, 40)], [transfer(20, -50)]);
+  near(reverse.trades[0].returnPct, 1);
+  const split = accounted([act('BUY', 100, 20, 0), act('SELL', 200, 10, 40)], [transfer(20, 100)]);
+  near(split.trades[0].returnPct, -0.5);
+  assert.equal(split.sellsPartlyTransferred, 1);
+});
+
+// ---- Property (seeded): what a transfer in may change (engineer, committee round 1) ----
+// Against the same ledger without the transfer in: every sell shown in both has the identical figure (moved-in units are
+// drawn last, so a sell within the recorded holding draws what it would without them); a sell shown only with it is a
+// sell partly from moved-in units (priced on its recorded units); a sell shown only without it falls in the transfer's
+// backward window or on its day (F-32 Part B, vendor MRC2-10). A unit-less transfer only ever removes sells; a transfer
+// out leaves every sell before it as it was and is counted once.
 // Replay one case: FUZZ_SEED=<n> node --test lib/f22-transfers.test.ts (messages start "seed <n>:").
 const prng = (seed: number) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const inWindowOrDay = (closed: Date, tAt: number) => { const c = closed.getTime(); return (c <= tAt && tAt - c <= 14 * DAY) || Math.floor(c / DAY) === Math.floor(tAt / DAY); };
 
-test('property (3,000 seeded cases): a transfer in or a unit-less transfer only removes sells (its window or day, or a draw on the moved-in lot), never changes or adds a shown figure; a transfer out leaves every sell before it as it was, and is counted once', () => {
+test('property (3,000 seeded cases): a transfer in changes no shown figure: a sell shown with and without it is identical, one shown only with it is partly from moved-in units, one shown only without it is in its window or day; a unit-less transfer only removes sells; a transfer out leaves every earlier sell as it was and is counted once', () => {
   const seeds = process.env.FUZZ_SEED ? [Number(process.env.FUZZ_SEED)] : Array.from({ length: 3000 }, (_, i) => i + 1);
-  let removedByDraw = 0;
+  let partly = 0;
   for (const seed of seeds) {
     const rnd = prng(seed);
     const pick = <X>(xs: X[]) => xs[Math.floor(rnd() * xs.length)];
     const rows: Activity[] = [];
     for (let i = 0, k = 3 + Math.floor(rnd() * 10); i < k; i++) {
-      rows.push(act(rnd() < 0.55 ? 'BUY' : 'SELL', pick([5, 10, 20]), pick([40, 100, 140]), Math.floor(rnd() * 60), { externalId: `r${seed}-${i}`, symbol: pick(['WX', 'YX']) }));
+      rows.push(act(rnd() < 0.55 ? 'BUY' : 'SELL', pick([5, 10, 20]), pick([40, 100, 140]), Math.floor(rnd() * 60), { externalId: `r${seed}-${i}`, symbol: pick(['WX', 'YX']), fee: pick([0, 0, 1]) }));
     }
     const base: CorporateAction[] = rnd() < 0.3 ? [{ externalId: `s${seed}`, accountId: 'A', symbol: pick(['WX', 'YX']), executedAt: at(Math.floor(rnd() * 60)), kind: 'split', ratio: { p: 2, q: 1 } } as CorporateAction] : [];
     const d = Math.floor(rnd() * 60) + 0.5; // mid-day: never a trade's instant
     const T = transfer(0, pick([1, 10, undefined, -1, -10, -20]), { externalId: `t${seed}`, symbol: pick(['WX', 'YX']), executedAt: new Date(at(0).getTime() + d * DAY) });
-    const ctx = `seed ${seed}: ${JSON.stringify({ rows: rows.map((r) => [r.externalId, r.symbol, r.side, r.units, r.price, (r.executedAt.getTime() - at(0).getTime()) / DAY]), base, T })}`;
-    const without = new Map(matchTrades(rows, base).trades.map((t) => [t.sellId, t]));
+    const ctx = `seed ${seed}: ${JSON.stringify({ rows: rows.map((r) => [r.externalId, r.symbol, r.side, r.units, r.price, r.fee, (r.executedAt.getTime() - at(0).getTime()) / DAY]), base, T })}`;
+    const whyWithout = new Map<string, SellReason>();
+    const without = new Map(matchTrades(rows, base, { reasons: whyWithout }).trades.map((t) => [t.sellId, t]));
     const withT = matchTrades(rows, [...base, T]);
+    const shownWith = new Map(withT.trades.map((t) => [t.sellId, t]));
     const u = (T as { units?: number }).units ?? 0;
     const tAt = T.executedAt.getTime();
-    if (u >= 0) {
-      // A sell whose drawn lots predate the transfer (FIFO: its oldest drawn lot, openedAt, does) is unchanged. Moved-in
-      // units dated before the buys are FIFO's oldest units, so sells drawing only later lots may shift: exempt, as the
-      // acceptance criterion says ("a sell whose drawn lots predate it").
-      for (const t of withT.trades) if (t.openedAt.getTime() < tAt) assert.deepEqual(t, without.get(t.sellId), `${ctx} shown with the transfer, so shown without it at the same figure`);
-      const shownWith = new Set(withT.trades.map((t) => t.sellId));
-      for (const [id, t] of without) {
-        if (shownWith.has(id) || t.symbol !== T.symbol) continue;
-        const c = t.closedAt.getTime();
-        const windowOrDay = (c <= tAt && tAt - c <= 14 * DAY) || Math.floor(c / DAY) === Math.floor(tAt / DAY);
-        assert.ok(windowOrDay || c > tAt, `${ctx} ${id} removed only by its window or day, or by a later draw`);
-        if (!windowOrDay) removedByDraw++;
+    if (u > 0) {
+      let newlyShown = 0;
+      for (const [id, t] of shownWith) {
+        if (without.has(id)) assert.deepEqual(t, without.get(id), `${ctx} ${id} shown with and without the transfer: identical`);
+        else {
+          // Newly shown: the ledger alone could not price it ("no recorded entry": the moved-in units explain shares the
+          // history lacked); a sell partly from moved-in units is priced on its recorded units only.
+          newlyShown++;
+          assert.ok(t.closedAt.getTime() > tAt, `${ctx} ${id} newly shown only after the transfer`);
+          assert.equal(whyWithout.get(id), 'excluded', `${ctx} ${id} newly shown only where the ledger alone had no recorded entry`);
+        }
       }
+      partly += withT.sellsPartlyTransferred ?? 0; void newlyShown;
+      // Removed only by the window or day (Part B): the sell's own, or a buy of the pair on the transfer's day it may draw.
+      const buyOnDay = rows.some((r) => r.side === 'BUY' && r.symbol === T.symbol && Math.floor(r.executedAt.getTime() / DAY) === Math.floor(tAt / DAY));
+      for (const [id, t] of without) if (!shownWith.has(id)) assert.ok(t.symbol === T.symbol && (inWindowOrDay(t.closedAt, tAt) || (buyOnDay && t.closedAt.getTime() > tAt)), `${ctx} ${id} removed only by the window or day`);
+    } else if (u === 0) {
+      for (const [id, t] of shownWith) assert.deepEqual(t, without.get(id), `${ctx} ${id} a unit-less transfer only removes sells`);
     } else {
       assert.equal(withT.transfersOut, 1, `${ctx} counted once`);
       for (const t of withT.trades) if (t.closedAt.getTime() < tAt) assert.deepEqual(t, without.get(t.sellId), `${ctx} a sell before the transfer is unchanged`);
     }
   }
-  if (!process.env.FUZZ_SEED) assert.ok(removedByDraw > 0, 'the cases reach a sell drawing the moved-in lot');
+  if (!process.env.FUZZ_SEED) assert.ok(partly > 0, 'the cases reach a sell partly from moved-in units');
 });

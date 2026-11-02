@@ -33,7 +33,10 @@ export type ClosedTrade = {
 
 // `cause: 'transfer'` (F-32 Part A): the lot is tainted, and every taint on it came from a transfer row. A taint by any
 // other action clears it (a transfer never relabels a real corporate-action exclusion).
-type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean; tainted?: boolean; cause?: 'transfer' };
+// `movedIn` (F-22, engineer review): units that arrived by a transfer in. They stay at the end of the FIFO queue, after
+// every recorded lot (recorded buys made later are inserted before them), so a sell within the recorded holding draws
+// exactly what it would without the transfer, and moved-in units are drawn only beyond it.
+type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean; tainted?: boolean; cause?: 'transfer'; movedIn?: true };
 
 const EPS = 1e-9;
 const DAY = 86_400_000;
@@ -48,7 +51,10 @@ const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale
 // split, stock dividend or other action excludes the sell too, that action's reason wins.
 // `transfersOut` (F-22): transfer rows with units out of a pair, each counted once, present only when nonzero. It counts
 // transfers, not sells, so it is not an `excluded*` key (those partition the sells); F-21's sum names it in its own unit.
-export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number; excludedTransfer?: number; transfersOut?: number };
+// `sellsPartlyTransferred` (F-22, business lead and engineer, Q5): shown sells that also drew moved-in units; their
+// return is for the recorded units only, and the moved-in units are named by this count. They are shown, so the count is
+// in no sum (a sell is counted once).
+export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number; excludedTransfer?: number; transfersOut?: number; sellsPartlyTransferred?: number };
 // F-22: a transfer out with units (lib/sync.ts counts one in a pair with no activity, which is never replayed).
 // A unit-less row counts when its type says out (loader `out`); a unit-less TRANSFER has no direction, so it does not.
 export const isTransferOut = (ca: CorporateAction) => ca.kind === 'unpriceable' && ca.reason !== 'trade' && ca.transfer === true && ((ca.units ?? 0) < 0 || (!ca.units && ca.out === true));
@@ -59,7 +65,10 @@ export const exclusionSum = (r: MatchResult): number => EXCLUDED_KEYS.reduce((s,
 // F-22: every count a record keeps, in two units (sells, and share transfers out). F-21's shared sum reads this and
 // names both units, never "trades". lib/f22-transfers.test.ts fails (in tsc too) when a numeric key is not listed.
 export const COUNTED_KEYS = [...EXCLUDED_KEYS, 'transfersOut'] as const satisfies readonly (keyof MatchResult)[];
-export const countedSum = (r: MatchResult): number => COUNTED_KEYS.reduce((s, k) => s + (r[k] ?? 0), 0);
+// Two units, never one number (business lead): sells counted, and share transfers out.
+export const countedSum = (r: MatchResult): { sells: number; transfersOut: number } => ({ sells: exclusionSum(r), transfersOut: r.transfersOut ?? 0 });
+// Numeric keys deliberately in no sum, with the reason.
+export const NOT_SUMMED_KEYS = ['sellsPartlyTransferred'] as const satisfies readonly (keyof MatchResult)[]; // shown sells
 export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 
 // FIFO, long only. One closed trade per SELL, or one count: every SELL is a shown trade, `excluded`, `excludedCorporate`,
@@ -173,7 +182,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   const books = new Map<string, Book>();
   const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
   const trades: ClosedTrade[] = [];
-  let excluded = 0, excludedCorporate = 0, excludedHeld = 0, excludedTransfer = 0, transfersOut = 0;
+  let excluded = 0, excludedCorporate = 0, excludedHeld = 0, excludedTransfer = 0, transfersOut = 0, sellsPartlyTransferred = 0;
   const note = (id: string, r: SellReason) => opts.reasons?.set(id, r);
   // F-24 RT-2 (final review R2): the pairs a held row has been reached in, in the canonical order. Every later sell of
   // such a pair is counted, so no shown figure depends on how the held row is decided: a sell before it in the order is
@@ -228,7 +237,9 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   }
   for (const list of tradesAt.values()) list.sort((x, y) => x - y);
   const inWindowBefore = (list: number[] | undefined, at: number) => nextAfter(list, at - LATE_POSTING_DAYS * DAY - 1) < at;
-  const openedInWindow = (lots: Lot[], at: number) => lots.some((l) => l.at.getTime() >= at - LATE_POSTING_DAYS * DAY && l.at.getTime() < at);
+  // F-22 (property seed 111): a moved-in lot is tainted already, so it never makes a split taint the recorded lots (one
+  // share moved in before a split would otherwise turn every later sell of the pair into a count).
+  const openedInWindow = (lots: Lot[], at: number) => lots.some((l) => !l.movedIn && l.at.getTime() >= at - LATE_POSTING_DAYS * DAY && l.at.getTime() < at);
   // Pairs a rename emptied, by instant: an action on the old pair at that same instant is ambiguous (before or after the
   // rename?), so it taints the lots where the rename put them, never skips them.
   const movedTo = new Map<string, { at: number; to: string }>();
@@ -257,6 +268,8 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     }
     return tiny(left, units) ? 0 : left;
   };
+  // F-22: a recorded lot goes before any moved-in lot (they stay last in the queue); a moved-in lot goes at the end.
+  const addLot = (lots: Lot[], lot: Lot) => { const k = lot.movedIn ? -1 : lots.findIndex((l) => l.movedIn); if (k < 0) lots.push(lot); else lots.splice(k, 0, lot); };
   const addGap = (b: Book, units: number) => { if (units > 0) b.gap = (b.gap ?? 0) + units; };
   const scale = (lots: Lot[], r: Ratio) => { for (const l of lots) { l.units = (l.units * r.p) / r.q; l.price = (l.price * r.q) / r.p; l.feePerUnit = (l.feePerUnit * r.q) / r.p; } };
 
@@ -271,7 +284,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         if (ca.side === 'SELL') { excludedCorporate++; note(ca.externalId, 'corporate'); }
         if (ca.units !== undefined && !ca.undated) {
           if (ca.side === 'SELL') addGap(b, removeOldest(b.lots, ca.units)); // C4-2: an unusable oversell leaves a gap too
-          else b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
+          else addLot(b.lots, { units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
         } else {
           taint(b.lots);
           unknownFrom.add(key);
@@ -317,7 +330,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         const toKey = `${ca.accountId}|${ca.newSymbol}`;
         if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && openedInWindow(b.lots, e.at))) taint(b.lots);
         const to = book(toKey);
-        to.lots = [...to.lots, ...b.lots].sort((x, y) => x.at.getTime() - y.at.getTime());
+        to.lots = [...to.lots, ...b.lots].sort((x, y) => (x.movedIn ? 1 : 0) - (y.movedIn ? 1 : 0) || x.at.getTime() - y.at.getTime()); // F-22: moved-in last
         if (unknownFrom.has(toKey)) taint(to.lots); // F3-1: lots moved into a pair whose ledger is unknown
         books.set(key, { lots: [] }); // a recycled ticker starts fresh lots
         movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
@@ -328,7 +341,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
           if (ca.units > 0) {
             // In: one no-basis lot for the moved-in units; older recorded lots stay priced. (F-32 Part A: it names the
             // transfer as its cause only when no other action shares its day.)
-            b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true, ...(!sameDay(days, ca) ? { cause: 'transfer' as const } : {}) });
+            addLot(b.lots, { units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true, movedIn: true, ...(!sameDay(days, ca) ? { cause: 'transfer' as const } : {}) });
           } else {
             // Out: always counted. Units leave oldest first; the lots left stay priced only where that cannot change a
             // figure: the whole position moved, or every lot is alike (price, fee, opening date, state). Otherwise the
@@ -338,9 +351,15 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
             else {
               const h = held(b.lots), f = b.lots[0];
               const whole = Math.abs(h + ca.units) <= RATIO_TOLERANCE * Math.max(1, h);
-              const alike = b.lots.every((l) => l.price === f.price && l.feePerUnit === f.feePerUnit && l.at.getTime() === f.at.getTime() && l.verified === f.verified && !!l.tainted === !!f.tainted && l.cause === f.cause);
+              // Business lead (round 1): price, fee, state; not the opening date. Which alike lot left changes no return, only
+              // the holding period, which follows this record's own first-in-first-out order (/how says so).
+              const alike = b.lots.every((l) => l.price === f.price && l.feePerUnit === f.feePerUnit && l.verified === f.verified && !!l.tainted === !!f.tainted && l.cause === f.cause && !!l.movedIn === !!f.movedIn);
               addGap(b, removeOldest(b.lots, -ca.units)); // C4-2: more out than held leaves the gap, as today
-              if (!whole && !alike) taintBy(b.lots, ca);
+              if (whole) b.lots.length = 0; // engineer review: no sliver below the tolerance stays behind
+              // ponytail: with mixed lots, moving even one share out leaves the rest counted (their sells "transfer"), so a
+              // trader holding a loser bought at several prices can still turn its close into a count — fix: the vendor's
+              // lot-level transfer detail (which shares left), when it exists.
+              else if (!alike) taintBy(b.lots, ca);
             }
           }
           continue;
@@ -355,7 +374,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         if (u <= 0 && ca.scope !== 'account' && !b.lots.length && moved?.at !== e.at) addGap(b, Math.abs(u) || 1);
         // F-32 Part A (independent review): a transfer-in lot names the transfer as its cause only when no other action
         // shares its day (as a buy that day), so the reason never depends on which vendor id sorts first at a tie.
-        else if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true, ...(isTransfer(ca) && !sameDay(days, ca) ? { cause: 'transfer' as const } : {}) });
+        else if (u > 0) addLot(b.lots, { units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true, ...(isTransfer(ca) && !sameDay(days, ca) ? { cause: 'transfer' as const } : {}) });
         else if (u < 0) addGap(b, removeOldest(b.lots, -u));
       }
       continue;
@@ -372,7 +391,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     if (a.side === 'BUY') {
       // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
       // F-32 Part A: a buy on a transfer's day alone carries the transfer as its cause.
-      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDay(days, a) || unknownFrom.has(key) ? { tainted: true } : sameDay(transferDays, a) ? { tainted: true, cause: 'transfer' as const } : {}) });
+      addLot(open, { units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDay(days, a) || unknownFrom.has(key) ? { tainted: true } : sameDay(transferDays, a) ? { tainted: true, cause: 'transfer' as const } : {}) });
       continue;
     }
 
@@ -391,13 +410,20 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     let verified = a.verified;
     let tainted = false;
     let corporateTaint = false; // F-32 Part A: a drawn lot some non-transfer action tainted
+    let otherTaint = false; // F-22: a drawn tainted lot that is not a moved-in transfer lot
+    let moved = 0; // F-22: moved-in units drawn (their basis is unknown; priced on the recorded units only)
     while (!tiny(remaining, a.units) && open.length) {
       const lot = open[0];
       const take = Math.min(lot.units, remaining);
-      cost += take * lot.price;
-      entryFees += take * lot.feePerUnit;
-      openedAt ??= lot.at;
-      verified &&= lot.verified;
+      const movedLot = !!lot.movedIn && lot.cause === 'transfer';
+      if (movedLot) moved += take;
+      else {
+        cost += take * lot.price;
+        entryFees += take * lot.feePerUnit;
+        openedAt ??= lot.at;
+        verified &&= lot.verified;
+        otherTaint ||= !!lot.tainted;
+      }
       tainted ||= !!lot.tainted;
       corporateTaint ||= !!lot.tainted && lot.cause !== 'transfer';
       lot.units -= take;
@@ -416,17 +442,21 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       continue;
     }
     if (corporateTaint || inWindow(times, a) || sameDay(days, a)) { excludedCorporate++; note(a.externalId, 'corporate'); }
-    else if (tainted || inWindow(transferTimes, a) || sameDay(transferDays, a)) { excludedTransfer++; note(a.externalId, 'transfer'); } // F-32 Part A
+    // F-22: a sell drawing only moved-in units (no recorded unit) is counted "transfer"; one drawing both is shown below.
+    else if (otherTaint || inWindow(transferTimes, a) || sameDay(transferDays, a) || (moved > 0 && tiny(a.units - moved, a.units))) { excludedTransfer++; note(a.externalId, 'transfer'); } // F-32 Part A
     else if (gapped) { excluded++; note(a.externalId, 'excluded'); } // C4-2: a short or earlier history: no buy can be matched for certain
     else if (openedAt) {
-      const exitFee = a.fee;
+      // F-22 (Q5): priced on its recorded units; the exit fee is prorated by units (a broker reports one fee per sell).
+      const units = a.units - moved;
+      const exitFee = moved ? (a.fee * units) / a.units : a.fee;
+      if (moved) sellsPartlyTransferred++;
       const t: ClosedTrade = {
         sellId: a.externalId,
         accountId: a.accountId,
         symbol: a.symbol,
         openedAt,
         closedAt: a.executedAt,
-        returnPct: (a.units * a.price - cost - entryFees - exitFee) / cost,
+        returnPct: (units * a.price - cost - entryFees - exitFee) / cost,
         holdingDays: (a.executedAt.getTime() - openedAt.getTime()) / DAY,
         verified,
       };
@@ -443,7 +473,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     if (n > 0) { countedTwins.set(sig(h), n - 1); note(h.externalId, 'twin'); } // its twin is counted already
     else { excludedHeld++; note(h.externalId, 'held'); } // a possible further sell beyond a shown twin
   }
-  return { result: { trades, excluded, excludedCorporate, ...(excludedHeld ? { excludedHeld } : {}), ...(excludedTransfer ? { excludedTransfer } : {}), ...(transfersOut ? { transfersOut } : {}) }, books };
+  return { result: { trades, excluded, excludedCorporate, ...(excludedHeld ? { excludedHeld } : {}), ...(excludedTransfer ? { excludedTransfer } : {}), ...(transfersOut ? { transfersOut } : {}), ...(sellsPartlyTransferred ? { sellsPartlyTransferred } : {}) }, books };
 }
 
 export type Stats = {
