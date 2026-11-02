@@ -4,7 +4,7 @@
 // with no personal data. The two-step screen (S9) is PR-2a; this is the action behind it.
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
-import { deleteUser } from './broker.ts';
+import { deleteUser, VENDOR_TIMEOUT_MS } from './broker.ts';
 import { HANDLE_RESERVED_DAYS } from './handles.ts';
 import { endBillingForDeletion } from './billing.ts';
 import { logSafe } from './privacy-log.ts';
@@ -104,3 +104,57 @@ export async function notesLineApplies(userId: number): Promise<boolean> {
     return true;
   }
 }
+
+// FIXES-CYCLE5 (F5-18): the cron's pending deletions (app/api/sync/route.ts) are bounded so housekeeping never eats the
+// sync or privacy stages: at most DELETIONS_PER_CALL a call, oldest-untried first (`deletion_next_at nulls first, id`),
+// only those whose backoff has passed; each starts only while the call has a whole vendor timeout left before its
+// deadline, and a deletion still running at the deadline is left to finish on its own while the call moves on. A failed
+// (or cut) try backs off 1, 2, 4 … minutes, at most 24 h, so it goes later in line; no deletion is ever dropped (the
+// row stays marked until a try succeeds).
+// ponytail: the backoff is per user, so one vendor outage backs every pending deletion off together — fix: a shared
+// vendor health gate before the loop if outages ever make deletions wait long.
+export const DELETIONS_PER_CALL = 5;
+export const DELETION_BACKOFF_MAX_MIN = 24 * 60;
+export type DeletionClock = { now: () => number; timer: (ms: number) => { done: Promise<void>; clear: () => void } };
+const realClock: DeletionClock = {
+  now: () => Date.now(),
+  timer: (ms) => { let t: ReturnType<typeof setTimeout> | undefined; const done = new Promise<void>((r) => { t = setTimeout(r, Math.max(0, ms)); }); return { done, clear: () => clearTimeout(t) }; },
+};
+export class DeletionCutError extends Error { constructor() { super('deletion still running at the deadline'); this.name = 'DeletionCutError'; } }
+
+export async function pendingDeletions(at: Date = new Date(), ids?: number[]): Promise<DeletableUser[]> {
+  return sql<DeletableUser[]>`select id, handle, snaptrade_user_id, snaptrade_secret_enc from users
+    where deleted_at is not null and (deletion_next_at is null or deletion_next_at <= ${at})
+      ${ids ? sql`and id in ${sql(ids.length ? ids : [0])}` : sql``}
+    order by deletion_next_at nulls first, id limit ${DELETIONS_PER_CALL}`;
+}
+
+async function backOff(id: number, at: Date) {
+  await sql`update users set deletion_attempts = deletion_attempts + 1,
+      deletion_next_at = ${at}::timestamptz + least(power(2, least(deletion_attempts, 20)) * interval '1 minute', ${DELETION_BACKOFF_MAX_MIN} * interval '1 minute')
+    where id = ${id} and deleted_at is not null`;
+}
+
+// One step per pending deletion, for the route's syncAll (which counts and logs each failure by internal id and class).
+// A step past the start limit does nothing and is counted as deferred (still pending, never dropped).
+export function deletionSteps(deadline: number, o: { clock?: DeletionClock; del?: (u: DeletableUser) => Promise<void> } = {}) {
+  const clock = o.clock ?? realClock, del = o.del ?? ((u: DeletableUser) => deleteProfile(u));
+  const report = { started: 0, deferred: 0, stoppedAtDeadline: false };
+  const run = async (u: DeletableUser) => {
+    if (report.stoppedAtDeadline || clock.now() >= deadline - VENDOR_TIMEOUT_MS) { report.stoppedAtDeadline = true; report.deferred++; return; }
+    report.started++;
+    const p = del(u);
+    p.catch(() => {}); // a cut try may still fail later; its row stays marked for a later call
+    const t = clock.timer(deadline - clock.now());
+    let cut = false;
+    try {
+      await Promise.race([p, t.done.then(() => { cut = true; })]);
+      if (cut) { report.stoppedAtDeadline = true; throw new DeletionCutError(); }
+    } catch (e) {
+      await backOff(u.id, new Date(clock.now()));
+      throw e;
+    } finally { t.clear(); }
+  };
+  return { run, report };
+}
+// end FIXES-CYCLE5 (F5-18)

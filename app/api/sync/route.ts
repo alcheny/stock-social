@@ -1,12 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
-import { sql } from '@/lib/db.ts';
 import { syncAll, syncDeadline, syncRouteEnd } from '@/lib/sync.ts';
 import { coverage, runShard, type Coverage } from '@/lib/sync-shard.ts';
 import { parseCall } from '@/lib/sync-limits.ts';
 import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 import { tick } from '@/lib/connections.ts';
-import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
+import { deletionSteps, pendingDeletions } from '@/lib/delete.ts';
 import { purgeDiscovery, type PurgeReport } from '@/lib/discovery/purge.ts';
 import { reconcileIfDue } from '@/lib/billing.ts';
 import { logSafe } from '@/lib/privacy-log.ts';
@@ -58,8 +57,12 @@ export async function POST(req: NextRequest) {
     // F-1: clocks (pending → expired, stale importing → failed), every importing row advanced, cleanups retried.
     const connections = await tick(undefined, undefined, deadline);
     // Deletions a failed vendor call left marked (lib/delete.ts) are finished here.
-    const pendingDeletes = await sql<DeletableUser[]>`select id, handle, snaptrade_user_id, snaptrade_secret_enc from users where deleted_at is not null`;
-    const deletions = await syncAll(pendingDeletes, (u) => deleteProfile(u));
+    // FIXES-CYCLE5 (F5-18): at most 5, oldest-untried first, each started only with a vendor timeout left before the
+    // deadline and never waited on past it; a failure backs off (lib/delete.ts#deletionSteps). The stages below always run.
+    const pendingDeletes = await pendingDeletions();
+    const steps = deletionSteps(deadline);
+    const done = await syncAll(pendingDeletes, steps.run);
+    const deletions = { ...done, ok: done.ok - steps.report.deferred, ...steps.report };
     // F-2 PR-2 (plan demand D): ended exclusions, ≤ 30 s under its own lock. Never a branch: whatever it returns or
     // throws, the traders below are claimed exactly as before.
     let purged: PurgeReport | null = null;
