@@ -377,8 +377,9 @@ export default async function Profile({ params, searchParams }: Params) {
       {user.excluded_positions > 0 && (
         <p className="muted">{PROFILE.excludedPositions(user.excluded_positions)}</p>
       )}
-      {user.excluded_future > 0 && (
-        <p className="muted">{PROFILE.excludedFuture(user.excluded_future)}</p>
+      {/* F-35: share and option rows dated after today, on one line until their dates pass. */}
+      {user.excluded_future + user.excluded_future_options > 0 && (
+        <p className="muted" data-excluded-future>{PROFILE.futureWaiting(user.excluded_future + user.excluded_future_options)}</p>
       )}
       {user.excluded_corporate > 0 && (
         <p className="muted">{PROFILE.excludedCorporate(user.excluded_corporate)}</p>

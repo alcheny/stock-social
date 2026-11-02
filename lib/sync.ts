@@ -33,13 +33,17 @@ export const INSERT_CHUNK = 1000;
 // PR-3 (heavy-use, memory): the rebuild reads activities a page at a time, never a whole history at once.
 export const REBUILD_PAGE = 1000;
 // F-1 PR-3 fix round 6 (engineer re-sit, Medium): the vendor's trade date reaches the database unchecked, and a trade
-// dated in the future cannot be a closed trade. An activity dated more than FUTURE_GRACE_HOURS after the database clock
-// (a day: time zones and a vendor posting the next session's date) is quarantined: its raw row is kept (activities are
-// immutable), the rebuild never matches or publishes it, and it is counted in `users.excluded_future` (shown on the
-// profile with its reason). It is re-checked on every rebuild against the clock, so the row is published once its stored
-// date is no longer in the future (a corrected date under the same vendor id is never stored: see BACKFILL_MS).
+// dated in the future cannot be a closed trade. The raw row is kept (activities are immutable).
+// F-35 (amends #62's 24-hour grace): a row is published once its date has passed, `published` = executed_at <= now(),
+// the transaction's clock (the one rebuildRecord writes to users.published_through). Until then the rebuild never
+// matches it, and it is counted in `users.excluded_future` (shown on the profile: PROFILE.futureWaiting). Every rebuild
+// re-checks it, and the matured pass (lib/sync-shard.ts#maturePass) rebuilds the record on the first sync tick after the
+// date, with no new activity needed. FUTURE_GRACE_HOURS (a day: time zones and a vendor posting the next session's
+// date) now bounds only the re-read window: a row dated further ahead never sets it (a corrected date under the same
+// vendor id is never stored: see BACKFILL_MS).
 export const FUTURE_GRACE_HOURS = 24;
 const notFuture = (db: Db) => db`executed_at <= now() + ${FUTURE_GRACE_HOURS}::float8 * interval '1 hour'`;
+export const published = (db: Db) => db`executed_at <= now()`;
 // Fixes cycle 3, F3-1: one vendor id stored both as an activity and as an unusable trade row (corporate_actions, reason
 // 'trade'), e.g. first read with no price and re-read with one, counts once: the version stored first wins, so a sell is
 // never priced and counted, and a published trade never disappears because a later read lost its price. The mirror rule
@@ -53,8 +57,15 @@ export async function insertActivities(userId: number, source: 'snaptrade' | 'de
       user_id: userId, source, external_id: a.externalId, account_id: a.accountId, symbol: a.symbol,
       side: a.side, units: a.units, price: a.price, fee: a.fee, executed_at: a.executedAt, raw: db.json(a.raw as never),
     }));
-    await db`insert into activities ${db(rows)} on conflict (source, external_id) do nothing`;
+    const stored = await db`insert into activities ${db(rows)} on conflict (source, external_id) do nothing returning executed_at > now() as ahead`;
+    if (stored.some((r) => r.ahead)) await lowerWatermark(db, userId);
   }
+}
+// F-35 (engineer r1-2, r2-1): a row stored dated ahead lowers the record's watermark to this transaction's clock, so a
+// transaction that started before a rebuild committed (an import step waiting on the lock) never stores a row the matured
+// pass skips. A null watermark stays null (the deploy catch-up still selects the record).
+export async function lowerWatermark(db: Db, userId: number) {
+  await db`update users set published_through = now() where id = ${userId} and published_through > now()`;
 }
 
 // fix-user-text B (F-9): the thesis columns besides its text and status, copied as they are (never re-dated).
@@ -100,7 +111,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0;
     // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
     // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
-    const actions = await loadCorporateActions(tx, userId, notFuture(tx));
+    const actions = await loadCorporateActions(tx, userId, published(tx));
     const chainOf = chainsOf(actions);
     const actionsOf = actionIndex(actions);
     let excludedCorporate = 0;
@@ -135,7 +146,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
         from activities a where a.user_id = ${userId}
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notShared(tx, userId)}
-        and ${notFuture(tx)}
+        and ${published(tx)}
         and ${storedFirst(tx)}
         and ${notDuplicate(tx)}
         ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
@@ -164,7 +175,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
         from activities a where a.user_id = ${userId} and (a.account_id, a.symbol) in (select * from unnest(${pairs.map((x) => x[0])}::text[], ${pairs.map((x) => x[1])}::text[]))
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notShared(tx, userId)}
-        and ${notFuture(tx)}
+        and ${published(tx)}
         and ${storedFirst(tx)}
         and ${notDuplicate(tx)}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
@@ -184,7 +195,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           thesis_hold_rule = excluded.thesis_hold_rule, thesis_reviewed_at = excluded.thesis_reviewed_at,
           thesis_reports_from = excluded.thesis_reports_from, thesis_checked_version = excluded.thesis_checked_version`;
     }
-    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)} and ${notDuplicate(tx)}
+    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${published(tx)}) and ${storedFirst(tx)} and ${notDuplicate(tx)}
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
       and ${notShared(tx, userId)}`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
@@ -512,8 +523,9 @@ export async function syncUser(
       // ponytail: the account list (listAccounts, above) is still read every round: it carries the claim and TR-5's
       // disconnect check, and the vendor guidance the council cited does not cover it — whether it may be throttled is a
       // vendor question (MR-1) for the owner.
-      // ponytail: the future-date quarantine is re-checked only when activities are read (about every 25 h), so a date
-      // the vendor corrects appears up to a day later — a nightly rebuild-only pass would close it.
+      // F-35: a row whose date passes publishes on the next tick's matured pass (lib/sync-shard.ts), read or not.
+      // ponytail: a date the vendor corrects (a new vendor id) arrives with the account's next activities read (about
+      // every 25 h) — the vendor's read cadence (F-14), not the rebuild.
       let actIds = real, posIds = real, deferred = 0;
       const t = tx`now() + ${shiftMs}::float8 * interval '1 millisecond'`;
       if (opts.cadence && real.length) {

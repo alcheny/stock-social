@@ -204,7 +204,7 @@ export async function compareCards(traders: ViewTrader[], now = new Date()): Pro
 // ponytail: each card reads the trader's whole closed_trades, exactly as the profile does (up to 4 profile reads per
 // view) — share a cached per-trader summary once the profile has one.
 async function card(t: ViewTrader, now: Date): Promise<Card> {
-  const [u] = await sql`select excluded_positions, excluded_future, excluded_corporate, excluded_held from users where id = ${t.id}`;
+  const [u] = await sql`select excluded_positions, excluded_future + excluded_future_options as excluded_future, excluded_corporate, excluded_held from users where id = ${t.id}`;
   const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${t.id}`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${t.id} and source = 'snaptrade'`;
   const { public: { state, paper } } = await publicRecordDetail(t.id);

@@ -72,6 +72,9 @@ export const PROFILE = {
   // users.excluded_positions) and names both causes without saying which applied.
   excludedPositions: (n: number) => `${counted(n, 'sell')} excluded: a short sale or earlier history means no buy in the imported history can be matched to ${n === 1 ? 'it' : 'them'} for certain.`,
   excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
+  // F-35: the profile's future line. The first sentence is excludedFuture's (kept, pinned); the second describes this
+  // line only, so it stays true whatever happens once the date passes (a sell with no entry is counted, not shown).
+  futureWaiting: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker. ${n === 1 ? 'It waits on this line until that date passes.' : 'They wait on this line until their dates pass.'}`,
   // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
   // ponytail: shown on the public profile only; the owner's /me/record line shows excluded_positions alone — fix: add
   // excluded_corporate to the session user row (lib/session.ts, protected) and a line there.

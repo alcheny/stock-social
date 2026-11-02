@@ -32,3 +32,6 @@ Business lead r2 conditions: options-only null-watermark case, insert-lowering c
 page in both colour schemes.
 
 ## Round 3 (taken in full; plan "Round 3 changes")
+Engineer r3: SIGN (checked: `published_through > now()` leaves a null watermark null; the null-watermark CTE is
+index-driven; `maturedInitial` counted within the budget). Business lead: signed at round 2 with conditions (a)-(c),
+carried as build tests. Plan signed after 3 rounds.

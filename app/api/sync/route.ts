@@ -88,7 +88,8 @@ export async function POST(req: NextRequest) {
   await privacyStages(PRIVACY_SLOT_MS);
   // Only traders with a connected (consented) connection and no import in progress, each claimed once per round
   // (lib/sync.ts), in this shard, by bounded concurrent workers under the shard's lease (lib/sync-shard.ts).
-  const run = syncs ? await runShard({ shard, deadline, routeEnd: syncRouteEnd(startedAt) }) : null;
+  // F-35: each shard run also publishes rows whose date has passed (the matured pass, lib/sync-shard.ts).
+  const run = syncs ? await runShard({ shard, deadline, routeEnd: syncRouteEnd(startedAt), mature: true }) : null;
   // F-7: public filings, one bounded stage after the broker sync, once per cron mark (≤ 20 s, its own try/catch), switch on only.
   let publicImport: ImportReport | null = null;
   try { if (zero && publicTradersOn() && left() > 0) publicImport = await importPublicFilings({ boxMs: Math.min(20_000, left()) }); } catch (e) { console.error('public import failed', logSafe(e)); }

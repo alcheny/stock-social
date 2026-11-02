@@ -303,7 +303,9 @@ export async function insertCorporateActions(db: Db, userId: number, source: 'sn
       user_id: userId, source, external_id: a.externalId, account_id: a.accountId, symbol: a.symbol, kind: a.kind,
       detail: db.json(detailOf(a) as never), executed_at: a.executedAt, raw: db.json(a.raw as never),
     }));
-    await db`insert into corporate_actions ${db(rows)} on conflict (source, external_id) do nothing`;
+    const stored = await db`insert into corporate_actions ${db(rows)} on conflict (source, external_id) do nothing returning executed_at > now() as ahead`;
+    // F-35: a row stored dated ahead lowers the record's watermark (lib/sync.ts#lowerWatermark; inline: no import cycle).
+    if (stored.some((r) => r.ahead)) await db`update users set published_through = now() where id = ${userId} and published_through > now()`;
   }
 }
 
