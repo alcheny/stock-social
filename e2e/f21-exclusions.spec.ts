@@ -6,6 +6,7 @@
 // the colour is --muted. Fixtures: SQL-seeded traders under random handles, feed-eligible, so the feed lock is shared.
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync, mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -16,7 +17,7 @@ import { ExcludedSection } from '../app/u/[handle]/excluded-section.tsx';
 import { feedLock } from './feed-lock.ts';
 
 const DAY = 86_400_000;
-const R = Math.random().toString(36).slice(2, 7);
+const R = randomUUID().replace(/-/g, '').slice(0, 5); // fixture tag (crypto: CodeQL flags Math.random)
 const A = `f21a_${R}`; // excluded_corporate = 2, one open position (the open-positions order)
 const B = `f21b_${R}`; // corporate 2 and 1,000 option closes excluded: the line wraps to two lines; no open positions
 const W = `f21w_${R}`; // the wrap fixture with an open position (decision 10: both orders)
