@@ -1,10 +1,10 @@
 'use client';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { RANGES, nearestIndex, pct, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
+import { RANGES, nearestIndex, pct, stepIndex, type RangeKey } from '@/lib/trades.ts';
 import { tone, toneClass } from '@/lib/open-split.ts';
-import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
+import { pathD, PAYLOAD_V, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
 import { counted } from '@/lib/format.ts';
-import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
+import { tradeHref } from '@/lib/paging.ts';
 import { fromNoteDay } from '@/lib/paging.ts'; // FIXES-CYCLE4-PART2 (F4-16)
 // FIXES-LABELS (D-05): the chart says when it starts and ends; the at-rest subline names the last close.
 import { dateText } from '@/lib/date-text.ts';
@@ -12,6 +12,8 @@ import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 import { chartRestSub } from '@/lib/chart-sub.ts';
 import { UserNote } from '@/lib/user-note.ts';
 import { OPTIONS } from '@/lib/copy.ts'; // OPTIONS
+import { F23_COPY } from '@/lib/copy.ts'; // F-23
+import { isoDay, numericDay } from '@/lib/public-wire.ts'; // F-23: dates as UTC days, printed in UTC
 
 const W = 640, H = 240, T = 16, B = 16;
 
@@ -32,7 +34,9 @@ const fullCharts = new Map<string, Promise<PackedChart>>();
 function fetchChart(src: string): Promise<PackedChart> {
   let p = fullCharts.get(src);
   if (!p) {
-    p = fetch(src).then((r) => (r.ok ? (r.json() as Promise<PackedChart>) : Promise.reject(new Error(String(r.status)))));
+    // F-23: a body of another payload version is a failed load (forgotten, so the next open retries), never drawn.
+    p = fetch(src).then((r) => (r.ok ? (r.json() as Promise<PackedChart>) : Promise.reject(new Error(String(r.status)))))
+      .then((c) => (c.v === PAYLOAD_V ? c : Promise.reject(new Error('payload version'))));
     p.catch(() => fullCharts.delete(src));
     fullCharts.set(src, p);
   }
@@ -40,16 +44,16 @@ function fetchChart(src: string): Promise<PackedChart> {
 }
 
 // F-9: `noteBy`, the trader's handle for the sheet's UserNote attribution.
-export function PerformanceChart({ points, chart, src, now, linkBase = '', current, shareOnly = false, noteBy = '' }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number; /* OPTIONS (D5) */ shareOnly?: boolean; noteBy?: string }) {
-  // F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the profile passes the whole record (`points`) and draws it
-  // at full resolution; the feed pane passes `chart`, each range's series already drawn at screen resolution on the
-  // server (lib/chart-series.ts, at most FEED_CHART_POINTS points). Both draw and scrub the same way.
+export function PerformanceChart({ chart, src, now, linkBase = '', current, shareOnly = false, noteBy = '' }: { chart: PackedChart; src?: string; now: Date; linkBase?: string; current?: number; /* OPTIONS (D5) */ shareOnly?: boolean; noteBy?: string }) {
+  // F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the feed pane's `chart` is each range's series drawn at screen
+  // resolution on the server (lib/chart-series.ts, at most FEED_CHART_POINTS points). F-23: the profile's is drawn on
+  // the server too, at full resolution (profileChart); the browser compounds nothing. Both draw and scrub the same way.
   // Fix round 8 (tester re-run 4, Medium): on the feed a long record's `chart` is the stand-in (`lite`: the ALL line at
   // FEED_LITE_POINTS, no closes, every range's numbers). The full chart is fetched from `src` when the chart first comes
   // into view (the pane's swipe-open scrolls it in), is focused, or a range is picked; it then replaces the stand-in.
   // Without JS the stand-in line is what shows.
   const [full, setFull] = useState<PackedChart | null>(null);
-  const lazy = !!(chart?.lite && src) && !full;
+  const lazy = !!(chart.lite && src) && !full;
   const load = useCallback(() => { if (lazy) fetchChart(src!).then(setFull, () => {}); }, [lazy, src]);
   const fig = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -60,8 +64,7 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
     return () => io.disconnect();
   }, [lazy, load]);
   const shownChart = full ?? chart;
-  const trades = useMemo(() => (points ? unpackPoints(points) : null), [points]);
-  const packed = useMemo(() => (shownChart ? unpackChart(shownChart) : null), [shownChart]);
+  const packed = useMemo(() => unpackChart(shownChart), [shownChart]);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const [range, setRange] = useState<RangeKey>('ALL');
@@ -70,9 +73,9 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
   const [open, setOpen] = useState(false);
   const dragging = useRef(false);
   const stack = useRef<HTMLDivElement>(null);
-  const series = useMemo(() => (packed ? packed[range] : chartSeries(trades ?? [], range, now)), [packed, trades, range, now]);
+  const series = packed[range];
   // FIXES-LABELS (D-05): the whole record's last close, for the at-rest subline in every range.
-  const allT1 = useMemo(() => (packed ? packed.ALL.t1 : range === 'ALL' ? series.t1 : chartSeries(trades ?? [], 'ALL', now).t1), [packed, trades, range, series, now]);
+  const allT1 = packed.ALL.t1;
   // The full chart has other points than the stand-in: a scrub position held across the swap moves to the point
   // nearest in time (a key press or drag made before the swap keeps its place). `seen` holds the points last drawn.
   // F-2 PR-1 (found by the heavy-feed e2e): a layout effect, so the remap runs in the swap's own commit. As a passive
@@ -93,8 +96,8 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
     setActive(near);
     setSel(near);
   }, [series.pts]);
-  const total = packed ? packed.ALL.n : (trades?.length ?? 0);
-  const inRange = (key: RangeKey) => (packed ? packed[key].n : rangeTrades(trades ?? [], key, now).length);
+  const total = packed.ALL.n;
+  const inRange = (key: RangeKey) => packed[key].n;
   if (total < 2) return null;
 
   const spec = RANGES.find((r) => r.key === range)!;
@@ -117,7 +120,7 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
   const at = active === null ? null : pts[active];
   const shown = at ? at.value : last;
   // The scrubbed date stays numeric (M/D/YYYY); at rest, FIXES-LABELS (D-05): "‹range› · last close ‹date›".
-  const sub = at ? new Date(at.at).toLocaleDateString('en-US') + (at.trade ? ` · ${at.trade.symbol}` : '') : chartRestSub(spec.label, allT1, now); // code review: no last close → the plain label
+  const sub = at ? numericDay(at.at) /* F-23 */ + (at.trade ? ` · ${at.trade.symbol}` : '') : chartRestSub(spec.label, allT1, now); // code review: no last close → the plain label
   // FIXES-LABELS (D-05): the plotted span's ends. ALL: the series' first and last close; other ranges: the first and
   // last close drawn in the range. None while a range is still loading.
   const closes = pts.filter((p) => p.trade);
@@ -126,7 +129,11 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
 
   const scrubTo = (e: PointerEvent) => {
     const r = stack.current!.getBoundingClientRect();
-    const i = nearestIndex(xs, ((e.clientX - r.left) / r.width) * W);
+    // F-23 (user test, UX 2): closes of one UTC day drawn under 2 CSS px apart are one pointer target; the pointer takes
+    // the newest of them, so a release at the right edge opens the list's top row (the keys still reach each).
+    const px = ((e.clientX - r.left) / r.width) * W, near = (2 * W) / r.width, day = (k: number) => Math.floor(pts[k].at / 86_400_000);
+    let i = nearestIndex(xs, px);
+    while (i + 1 < xs.length && pts[i].trade && day(i + 1) === day(i) && xs[i + 1] - xs[i] < near) i++;
     setActive(i);
     if (dragging.current) setSel(i);
   };
@@ -203,11 +210,19 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
         </div>
       )}
       {ends && (
+        // F-23 (user test, UX 3): closes on one UTC day print one date, not the same date twice.
+        isoDay(ends[0]) === isoDay(ends[1]) ? (
+          <p className="chart-ends">
+            <span className="sr-only">{F23_COPY.chartEndsOne(dateText(new Date(ends[0]), now))}</span>
+            <time aria-hidden="true" dateTime={isoDay(ends[0])}>{dateText(new Date(ends[0]), now)}</time>
+          </p>
+        ) : (
         <p className="chart-ends">
           <span className="sr-only">{FL.chartEnds(dateText(new Date(ends[0]), now), dateText(new Date(ends[1]), now))}</span>
-          <time aria-hidden="true" dateTime={new Date(ends[0]).toISOString()}>{dateText(new Date(ends[0]), now)}</time>
-          <time aria-hidden="true" dateTime={new Date(ends[1]).toISOString()}>{dateText(new Date(ends[1]), now)}</time>
+          <time aria-hidden="true" dateTime={isoDay(ends[0]) /* F-23: the UTC day */}>{dateText(new Date(ends[0]), now)}</time>
+          <time aria-hidden="true" dateTime={isoDay(ends[1])}>{dateText(new Date(ends[1]), now)}</time>
         </p>
+        )
       )}
       <div className={`sheet${open ? ' open' : ''}`} aria-live="polite">
         {!chosen && <p className="muted" style={{ margin: 0 }}>Drag across the chart to scrub through trades; release to open one.</p>}
@@ -215,7 +230,7 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
           <>
             <div className="line">
               {/* Fix round 2 (H): " · " after the date, so it never runs into the figure ("10/30/2026-1.7%"). */}
-              <span><b>{chosen.symbol}</b> <span className="muted">{chosen.closedAt.toLocaleDateString('en-US')}{' · '}</span></span>
+              <span><b>{chosen.symbol}</b> <span className="muted">{numericDay(chosen.closedAt) /* F-23 */}{' · '}</span></span>
               <b className={toneClass(chosen.returnPct)}>{pct(chosen.returnPct)}</b>
             </div>
             {open && (

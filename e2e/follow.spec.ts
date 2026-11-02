@@ -29,7 +29,7 @@ test('F-2 PR-2: follow and unfollow from the profile and the pane, keyboard only
   const release = await feedLock('shared');
   try {
     const me = `f2v${Math.random().toString(36).slice(2, 8)}`;
-    const publicBodies = async () => Promise.all(['/', '/u/momentum_maya', '/u/momentum_maya/pane-chart', '/u/momentum_maya/opengraph-image', '/u/momentum_maya/story?format=square']
+    const publicBodies = async () => Promise.all(['/', '/u/momentum_maya', '/u/momentum_maya/pane-chart?v=2', '/u/momentum_maya/opengraph-image', '/u/momentum_maya/story?format=square']
       .map(async (p) => { const r = await request.get(p); expect(r.status(), p).toBe(200); return r.body(); }));
     const before = await publicBodies();
     await page.setViewportSize({ width: 375, height: 800 });
