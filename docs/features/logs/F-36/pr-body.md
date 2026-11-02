@@ -4,9 +4,9 @@ Feature: `docs/features/F-36-fees-in-the-return-denominator.md` (now `Status: bu
 2026-11-02. Committee record: `docs/features/logs/F-36/committee-2026-11-01.md`; plan: `docs/features/logs/F-36/plan.md`;
 fixture audit: `docs/features/logs/F-36/audit.txt`.
 
-**Merge order:** this PR merges only after chore C5-43(b) (matcher catch-up in the sync tick) is on main, and never in the
-same deploy as F-32 Part A. Both bump `MATCHER_VERSION`; this PR takes **3**. Whichever of the two lands second takes the
-next number (a one-line change in `lib/trades.ts` plus its comment).
+**Merge order:** chore C5-43(b) (#107, the matcher catch-up in the sync tick) is on main and merged into this branch.
+This PR must never ship in the same deploy as F-32 Part A (#108). Both PRs set `MATCHER_VERSION = 3` today: whichever is
+merged second takes **4**, after the first has deployed (a one-line change in `lib/trades.ts` plus its comment).
 
 ## What changes
 - **The return formula** (`lib/trades.ts#replay`): `return_pct = (exit − entry − fees) / (entry cost + entry fees)`.
@@ -19,6 +19,8 @@ next number (a one-line change in `lib/trades.ts` plus its comment).
 - **`MATCHER_VERSION` 2 → 3:** the deploy rebuilds every record once (`lib/matcher-rebuild.ts`).
   - The rebuild logs one counts-only line: `matcher rebuild {version, rebuilt, failed, left, returnsChanged, signChanged}`.
   - It logs an error line if `signChanged > 0` (expected never). The return shape `{rebuilt, failed, left}` is unchanged.
+  - The counting lives in `rebuildEach`, which C5-43(b) shares between the deploy and the sync tick's `catchUpMatcher`.
+    The catch-up keeps its return shape and logs only a sign change (expected never).
   - F-24's `logRewrites` adds each fee-bearing record's changed closes to `users.closes_rewritten`. This is intended, and
     the trader sees nothing new: no alert, badge or wording (decision: changed figures arrive only through the rebuild).
 - **/how** (`lib/copy.ts`, `app/how/page.tsx`):
