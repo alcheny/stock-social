@@ -368,8 +368,8 @@ holding losers can't flatter the interval.
 | Strong | K ≥ 100 and span ≥ 365 days | | |
 
 - **Display (Must):** the headline average return always carries its range once K ≥ 5, using Student's t with K − 1 degrees of freedom:
-  "+1.3% per trade (−0.1% to +2.7%)", plus one line "Evidence: thin (30 bets, 60 days)". No "Edge: …"
-  string is shown (owner decision 2026-11-01, item 2.41; POLICY F3b).
+  "+1.3% per trade (−0.1% to +2.7%)", plus one line "Past results: unclear · Evidence: thin (30 bets, 60 days)".
+  No "Edge: …" string is shown (owner decision 2026-11-01, item 2.41; POLICY F3b).
   Pace and the method sit one tap deeper. Losses and below-zero results are shown with the same prominence.
 - **Copy (Must):** never "skill", "proven", "guaranteed" or similar; the label describes evidence, not
   the trader.
