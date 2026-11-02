@@ -61,3 +61,12 @@ apply meanwhile.
   - Low, recorded for later builders: on the pane the qualifier sits below the figures (D5), on the profile above them
     (D4), for F-34 to align; the pane's figures are below the fold at 360 (the agreed bar is met); the card count line
     has no "How options are counted" link, like the pane, for the next copy pass.
+- QA (docs/features/logs/F-29/qa.md): full Playwright 358 passed, 6 skipped, 1 failed (fixes-labels.spec.ts:242,
+  pre-existing on main; the 7 tests after it in that file pass when run alone). One Medium finding: M1, in the real
+  pane at 360x740 the moved qualifier fell below the fold while the tiles showed. D5 fallback: the UX lead and the
+  business lead both ADOPT. The label goes back directly before the headline stats, with a real-pane e2e at 360 and 320
+  (the label is in view whenever a tile is) and a ponytail for the F-34 builder. This also resolves both leads' Low
+  pane-versus-profile mismatch, and the spacing rule is dropped. The business lead accepts routing Blocking 1 on the
+  condition that the open question states it unresolved, with the proposed wording; the feature file now does.
+  Low findings carried to the PR: case-sensitive counts, /how built as dynamic (no-store) rather than static, the
+  opengraph routes ignoring `g` (same image either way), and the profile description's double full stop (pre-existing).

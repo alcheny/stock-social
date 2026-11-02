@@ -118,7 +118,7 @@ test('AC6 (E1): no client file imports the options gate, the consent versions or
   assert.doesNotMatch(read('lib/privacy-fields.ts'), /^import /m);
 });
 
-test('AC6 (E6): /how stays static: no revalidate or dynamic export, no request-time API', () => {
+test('AC6 (E6): /how reads no request state and sets no revalidate or dynamic export, so its body follows the deployed gate (QA L4: the build serves it no-store, via the root layout)', () => {
   const page = read('app/how/page.tsx');
   assert.doesNotMatch(page, /export const (revalidate|dynamic)\b/);
   assert.doesNotMatch(page, /\b(cookies|headers|searchParams|connection)\b/);
@@ -151,17 +151,18 @@ test('AC2: the card count line has its own class, and no pane or options-gated r
   assert.match(read('app/feed-rows.tsx'), /optionsLine=\{cardOptionsLine\(page\.options\?\.get\(t\.user_id\)\)\}/);
 });
 
-test('AC2 (D5): in the pane the qualifier follows the figures block (after the open grid and combined line), right before the count line', () => {
+test('AC2 (D5 fallback): in the pane the qualifier sits directly before the headline figures, the count line after them', () => {
   const pane = read('app/pane.tsx');
   const figs = pane.slice(pane.indexOf('const figures = <>'), pane.indexOf('</>;', pane.indexOf('const figures = <>')));
   const at = (s: string) => figs.indexOf(s);
-  assert.ok(at('<section className="stats"') > 0);
+  assert.ok(at('<ShareTradesLabel') > 0, 'the label is in the figures block');
+  assert.ok(at('<section className="stats"') > at('<ShareTradesLabel'), 'directly before the headline stats');
+  assert.doesNotMatch(figs.slice(at('<ShareTradesLabel') + 1, at('<section className="stats"')), /<[A-Z]|<(p|div|section)\b/, 'nothing between them');
   assert.ok(at('<CombinedLine') > at('<OpenGrid') && at('<OpenGrid') > at('<section className="stats"'));
-  assert.ok(at('<ShareTradesLabel') > at('<CombinedLine'), 'the label follows the figures');
-  assert.ok(at('<PaneOptions') > at('<ShareTradesLabel'), 'then the count line');
+  assert.ok(at('<PaneOptions') > at('<CombinedLine'), 'the count line after the figures');
   assert.equal(figs.split('<ShareTradesLabel').length, 2, 'one label in the pane');
-  assert.match(figs, /ponytail: F-21's exclusions line, then F-34's open line, go here \(before the qualifier\)/);
-  assert.match(read('app/globals.css'), /\.pane \.stats \+ \.share-label, \.pane \.open-stats \+ \.share-label, \.pane \.open-combined \+ \.share-label \{ margin-top: 0; \}/);
+  assert.match(figs, /ponytail: cycle 5's pane line order \(F-21's exclusions line, then F-34's open line, then the options qualifier\)/);
+  assert.doesNotMatch(read('app/globals.css'), /\.pane [^{]*\+ \.share-label/, 'no F-29 spacing rule for a moved label');
 });
 
 // ---- AC 3: share images, alt, F4-4 keep their qualifier (re-asserted, old tests untouched).

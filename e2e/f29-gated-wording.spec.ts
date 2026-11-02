@@ -1,7 +1,7 @@
 // F-29 (docs/features/F-29-gated-options-wording.md; plan docs/features/logs/F-29/plan.md, test table):
 //   1. Mounted (static markup from e2e/f29-render.ts with app/globals.css, light and dark): the /how paragraph in both gate
-//      states, the pane's one qualifier after its figures, and the D5 stop (the disclaimer stays in view with open
-//      positions, the label and the count line) at 360x740 and 320x740.
+//      states, the pane's one qualifier directly before its figures (D5 fallback, QA M1), and the D5 stop (the disclaimer
+//      stays in view with open positions, the label and the count line) at 360x740 and 320x740.
 //   2. The real app against the seed (yolo_yuki, the demo trader with options): /how's interim words, the feed card's and
 //      the pane's one qualifier and count line in place, the reading order, the D6 first-screen stop, the gate-keyed
 //      cache headers, and no "not asked" or "declined" anywhere.
@@ -30,7 +30,7 @@ const inView = async (page: Page, l: Locator, what: string) => {
 };
 
 // The pane's one qualifier, checked in the DOM: the count of "Excluding options" without the chart caption, its place
-// right after the figures block, its gap, tone and size, and one count line.
+// directly before the headline figures (D5 fallback, QA M1: as on the profile), its gap, tone and size, and one count line.
 async function paneQualifier(pane: Locator) {
   return pane.evaluate((p) => {
     const c = p.cloneNode(true) as HTMLElement;
@@ -38,10 +38,9 @@ async function paneQualifier(pane: Locator) {
     const count = (c.textContent!.match(/Excluding options/g) ?? []).length;
     const label = p.querySelector('.share-label') as HTMLElement | null;
     if (!label) return { count, label: false } as const;
-    const prev = label.previousElementSibling as HTMLElement | null;
     const headline = [...p.querySelectorAll('section.stats')].find((s) => /win rate/.test(s.textContent!)) as HTMLElement;
-    const prevOk = !!prev && (prev === headline || ((prev.matches('.open-stats, .open-combined')) && !!(headline.compareDocumentPosition(prev) & Node.DOCUMENT_POSITION_FOLLOWING)));
-    const gap = label.getBoundingClientRect().top - prev!.getBoundingClientRect().bottom;
+    const nextOk = label.nextElementSibling === headline;
+    const gap = headline.getBoundingClientRect().top - label.getBoundingClientRect().bottom;
     const cs = getComputedStyle(label), body = getComputedStyle(document.body);
     const probe = document.createElement('span');
     probe.style.color = 'var(--muted)';
@@ -49,11 +48,10 @@ async function paneQualifier(pane: Locator) {
     const muted = getComputedStyle(probe).color;
     probe.remove();
     return {
-      count, label: true, prevOk, gap,
+      count, label: true, nextOk, gap,
       wrapped: !!label.closest('figcaption, footer, [aria-hidden="true"], [title]'),
       muted: cs.color === muted, smaller: parseFloat(cs.fontSize) < parseFloat(body.fontSize), warn: /warn/.test(label.className),
       gated: p.querySelectorAll('.options-gated').length,
-      next: (label.nextElementSibling as HTMLElement | null)?.className ?? '',
     } as const;
   });
 }
@@ -71,8 +69,8 @@ test('D5 stop: disclaimer in view, pane with open positions (360x740 and 320x740
       await expect(pane.locator('.options-gated')).toHaveCount(1);
       // AC 10 (feature: "in view at 360 px and reflows at 320 px"): at 360 the headline and the F3 line are inside the
       // viewport when the pane opens (the D5 stop); at 320 the pane reflows: no horizontal scroll, nothing clipped.
-      // (At 320x740 this fictional pane's F3 line sits below the fold with the label in either place: measured at build,
-      // 800 px before the D5 move and 796 px after it, so the move does not cause it.)
+      // (At 320x740 this fictional pane's F3 line sits below the fold with the label in either place, 800 px measured at
+      // build, so the label's place does not cause it.)
       if (w === 360) {
         await inView(page, pane.locator('section.stats').first(), `${w} ${scheme} headline`);
         await inView(page, pane.locator('.disclaimer'), `${w} ${scheme} disclaimer`);
@@ -101,12 +99,12 @@ test('AC1 and AC9: the /how paragraph says the signed interim words with the gat
 });
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`AC2 (${scheme}): one qualifier per pane, right after the figures block (with and without open positions), muted and small, never in a caption, foot or title`, async ({ page }) => {
+  test(`AC2 (${scheme}): one qualifier per pane, directly before the headline figures (with and without open positions), muted and small, never in a caption, foot or title`, async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 740 });
     for (const markup of [R.pane, R.paneOpenPositions]) {
       await mount(page, markup, scheme);
       const q = await paneQualifier(page.locator('section.pane'));
-      expect(q).toMatchObject({ count: 1, label: true, prevOk: true, wrapped: false, muted: true, smaller: true, warn: false, gated: 1, next: 'pane-options' });
+      expect(q).toMatchObject({ count: 1, label: true, nextOk: true, wrapped: false, muted: true, smaller: true, warn: false, gated: 1 });
       if (q.label) expect(q.gap).toBeLessThanOrEqual(17);
     }
     // Without options: no qualifier, no count line.
@@ -140,7 +138,7 @@ test('AC8 and AC1: /how carries the signed interim words verbatim while the gate
   expect(await page.content()).not.toMatch(/consented/i);
 });
 
-test('AC2: on the feed, the card has one qualifier in its strip after the average and one count line under the strip; the pane has one qualifier after its figures', async ({ browser }) => {
+test('AC2: on the feed, the card has one qualifier in its strip after the average and one count line under the strip; the pane has one qualifier directly before its figures', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 360, height: 740 }, javaScriptEnabled: false });
   const page = await ctx.newPage();
   try {
@@ -164,7 +162,7 @@ test('AC2: on the feed, the card has one qualifier in its strip after the averag
     expect(c).toMatchObject({ count: 1, isStrip: true, after: true, lines: 1, prevIsStrip: true, foreign: 0 });
     expect(c.text).toMatch(/^\d+ option trades?( and \d+ open options?)? imported\. Option results aren't shown on this record\.$/);
     const q = await paneQualifier(row.locator('section.pane'));
-    expect(q).toMatchObject({ count: 1, label: true, prevOk: true, wrapped: false, muted: true, smaller: true, warn: false, gated: 1, next: 'pane-options' });
+    expect(q).toMatchObject({ count: 1, label: true, nextOk: true, wrapped: false, muted: true, smaller: true, warn: false, gated: 1 });
     if (q.label) expect(q.gap).toBeLessThanOrEqual(17);
     // The profile: the qualifier sits directly before the headline stats.
     await page.goto('/u/yolo_yuki');
@@ -189,25 +187,44 @@ test('AC4: the qualifier is announced with the headline figures on the profile, 
     // The very next entry is the headline stats (win rate, then the average).
     expect(main[at + 1], main.join('\n')).toMatch(/win rate.*avg return/);
     const row = await yukiRow(page);
-    // The pane: the last line of the figures block, then the qualifier, nothing between.
-    const pane = row.locator('section.pane');
-    const last = await pane.evaluate((p) => {
-      const label = p.querySelector('.share-label')!;
-      const prev = label.previousElementSibling!;
-      const walker = document.createTreeWalker(prev, NodeFilter.SHOW_TEXT);
-      let t = '';
-      for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.textContent!.trim()) t = n.textContent!.trim();
-      return t;
-    });
-    const ps = lines(await pane.ariaSnapshot());
+    // The pane: the qualifier, then at once the headline stats (D5 fallback, as on the profile).
+    const ps = lines(await row.locator('section.pane').ariaSnapshot());
     const q = ps.findIndex((l) => l.includes(OPTIONS.shareLabel) && !/figure|caption/.test(l));
     expect(q, ps.join('\n')).toBeGreaterThan(0);
-    expect(ps[q - 1], ps.join('\n')).toContain(last);
+    expect(ps[q + 1], ps.join('\n')).toMatch(/win rate.*avg return/);
     // The card: in the strip's reading order the qualifier follows the average.
     const strip = (await row.locator('article.card [data-strip]').ariaSnapshot());
     expect(strip.indexOf(OPTIONS.shareLabel)).toBeGreaterThan(strip.search(/[+\-\u2212\u2248]?\d+\.\d%|Too early/i));
   } finally {
     await ctx.close();
+  }
+});
+
+test('D5 fallback (QA M1): in the real feed pane, with its chart, the qualifier sits directly before the headline tiles and is in view whenever any tile is (360x740 and 320x740)', async ({ browser }) => {
+  for (const [w, hh] of [[360, 740], [320, 740]]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: hh } });
+    const page = await ctx.newPage();
+    try {
+      const row = await yukiRow(page);
+      // Swipe to the pane: the row scrolls sideways to it, top of the row at the top of the screen.
+      await row.evaluate((el) => { el.scrollIntoView({ block: 'start', behavior: 'instant' }); el.scrollTo({ left: el.scrollWidth, behavior: 'instant' }); });
+      const pane = row.locator('section.pane');
+      await expect.poll(() => pane.evaluate((p) => Math.abs(p.getBoundingClientRect().left)), { timeout: 5000 }).toBeLessThan(2);
+      await expect(pane.locator('figure.chart')).toHaveCount(1);
+      const r = await pane.evaluate((p, vh) => {
+        const label = p.querySelector('.share-label')!.getBoundingClientRect();
+        const tiles = p.querySelector('section.stats')!;
+        const t = tiles.getBoundingClientRect();
+        return { next: p.querySelector('.share-label')!.nextElementSibling === tiles, labelTop: label.top, labelBottom: label.bottom, tilesTop: t.top, vh };
+      }, hh);
+      expect(r.next, `${w}: the label directly before the tiles`).toBe(true);
+      // Above the tiles: whenever any part of a tile is on screen, the whole label is.
+      expect(r.labelBottom, `${w}: label above the tiles`).toBeLessThanOrEqual(r.tilesTop);
+      if (r.tilesTop < r.vh) expect(r.labelBottom, `${w}: label in view while a tile is`).toBeLessThanOrEqual(r.vh);
+      await noHScroll(page);
+    } finally {
+      await ctx.close();
+    }
   }
 });
 

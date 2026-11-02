@@ -1,6 +1,6 @@
 # F-29 · Gated options wording that is true for every record
 
-Status: building
+Status: built
 Start conditions: met. `claude/fix-truthful-labels` merged in #85, F-20 merged in #77, and the AI legal committee
 signed the interim words at approval council cycle 5 (Decisions, 2026-11-01, re-approval). It rides the pane/strip
 build slot with F-21 and F-34 (one builder owns the pane's line order); its first commit rebases on F-23 (#97) if #97
@@ -65,21 +65,27 @@ second-vote mean 3.87, final vote 15/15, all with conditions). Part (c) is with 
   first, the first commit rebases on it. Why: approval council cycle 5; EN.
 
 ## Acceptance criteria
-- [ ] With the gate closed, the /how options paragraph never contains "consented". With it open, it shows the legal
+- [x] With the gate closed, the /how options paragraph never contains "consented". With it open, it shows the legal
       sentence (render test in both states).
-- [ ] A render test counts "Excluding options" at most once per card and once per pane (chart caption excepted). It
+- [x] A render test counts "Excluding options" at most once per card and once per pane (chart caption excepted). It
       checks that the kept one sits in the headline figures' block, and that it never drops to zero on a surface with a
       headline figure.
-- [ ] Share images and alt still carry the qualifier, and the F4-4 and F4-5 qualifiers are unchanged.
-- [ ] The kept qualifier is announced with the headline figures (reading order or `aria-describedby`; a11y test).
-- [ ] No public surface prints "not asked" or "declined" (source scan).
-- [ ] After a gate flip in a test, no cached /how, profile or share body from before the flip is served.
-- [ ] The legal committee's sign-off is recorded with the words in the PR.
-- [ ] A test asserts the signed interim words verbatim on /how while the gate is closed.
+- [x] Share images and alt still carry the qualifier, and the F4-4 and F4-5 qualifiers are unchanged.
+- [x] The kept qualifier is announced with the headline figures (reading order or `aria-describedby`; a11y test).
+- [x] No public surface prints "not asked" or "declined" (source scan).
+- [x] After a gate flip in a test, no cached /how, profile or share body from before the flip is served.
+- [x] The legal committee's sign-off is recorded with the words in the PR.
+- [x] A test asserts the signed interim words verbatim on /how while the gate is closed.
 - [ ] The gate flips within one process in a test, and the next /how, profile and share bodies differ from the
       pre-flip ones.
+      (Built 2026-11-02: /how and the profile's and pane's bodies differ in one process. The share part is not
+      applicable by design: share images carry the qualifier in both gate states, so their bodies are rightly identical
+      and only their gate-keyed URLs differ. Left open for the business lead and the design session.)
 - [ ] With F-21's and F-34's lines present (once built), the pane keeps the headline and disclaimer in view at 360 px
       and reflows at 320 px (e2e).
+      (Built 2026-11-02 for the lines that exist today: the headline and disclaimer stay in view at 360 and reflow at
+      320, in a mounted pane and the real feed pane. Left open until F-21 and F-34 add their lines, which extend
+      e2e/f29-gated-wording.spec.ts.)
 
 ## Out of scope
 - Part (c), the not-asked or declined fact (owner Q3).
@@ -90,9 +96,11 @@ second-vote mean 3.87, final vote 15/15, all with conditions). Part (c) is with 
 - Owner Q3: once the re-consent prompt exists, should a gated record show the trader, privately, whether they have
   been asked? The council recommends yes, on the trader's own view only.
 - Owner: adopt the gate-opening checklist line above?
-- Legal committee and owner (user test 2026-11-02, business lead): the count line's "Option results aren't shown on this
-  record." can read as this trader withholding while every record is gated. Proposed: "... on any record yet."
-  `OPTIONS.gated` is signed options-committee copy, so F-29 did not change it. It needs the committee's re-sign.
+- Legal committee and owner (user test 2026-11-02, business lead; unresolved): the count line's "Option results aren't
+  shown on this record." undermines F-29's goal. While every record is gated, "this record" makes a trader who consented
+  to everything offered read as withholding, which is what F-29 exists to remove. Proposed wording: "Option results
+  aren't shown on any record yet." `OPTIONS.gated` is signed options-committee copy, so F-29 did not change it. The
+  change needs the legal committee's re-sign.
 
 ## Rework notes
 
@@ -106,3 +114,11 @@ second-vote mean 3.87, final vote 15/15, all with conditions). Part (c) is with 
   the fictional open-positions pane's F3 line sits below the fold in either label position (800 px before the move,
   796 px after), so AC 10 checks in-view at 360 and reflow at 320, as the criterion says. AC 9's share part is not
   applicable by design (plan B3/E7): left unticked for the business lead; its wording goes back to the design session.
+- 2026-11-02 (QA M1, D5 fallback, adopted by the UX lead and the business lead): in the real feed pane at 360x740 the
+  moved qualifier fell below the fold (761 to 781 px) while the headline tiles showed (to 755 px), which breaks decision
+  (b). The D5 stop missed it because it mounts a pane with no chart. The pane's label is back directly before the
+  headline stats, as on the profile. A new e2e on the real feed pane, with its chart, at 360x740 and 320x740 checks
+  that the label sits directly before the tiles and is in view whenever any tile is. Cycle 5's pane line order
+  (exclusions, open, options qualifier) is a ponytail for the F-34 builder, who owns the pane order. The user test's
+  spacing rule was dropped with the move. Code review B1 (no card count line once the gate opens) and N1 (gate key on
+  the share preview) are fixed.
