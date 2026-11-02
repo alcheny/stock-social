@@ -53,3 +53,10 @@ then one matured rebuild, excluded_positions untouched; an older waiting transac
 4. note: e2e re-run at HEAD after the rebuild (below).
 5. note, ponytail: the box and stops are checked before each rebuild (a statement_timeout would cap one huge record).
 6. note, ponytail: an import running 8+ days after a row's date leaves the row to the import's own rebuild.
+
+## Business lead user test: compliance PASS, usability PASS
+F3a and F3c hold on every waiting screenshot; the copy promises nothing; losses untouched; conditions (a)-(c) met by
+the deploy catch-up and insert-side tests and the e2e (exact text, muted, absent after maturity). Agrees with both
+declined UX demands. Caveat: the month page and /me/record lines rest on the e2e assertions (added after the
+screenshots). Non-blocking follow-ups (a separate chore): the compare card to `PROFILE.futureWaiting` with its pin in
+lib/fixes-cycle3.test.ts updated to the new string; the waiting-buy wording once F-21's sells-only count exists.
