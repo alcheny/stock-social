@@ -19,7 +19,7 @@ import { paneTrust } from '@/lib/pane.ts';
 import { Badge, PublicNotice } from '../../ui.tsx';
 import { UserNote } from '../../user-note.tsx';
 import { HeldNote } from '@/lib/user-note.ts';
-import { HANDLE_RULE, nextRenameAt, nextRenameText, profileHandleError, RENAME_HOLD, RENAME_RULE, renamedText } from '@/lib/handles.ts';
+import { HANDLE_RULE, nextRenameAt, nextRenameText, profileHandleError, RENAME_HOLD, RENAME_RETIRE, RENAME_RULE, RENAME_RULE_RETIRED, renamedText, retiresHandle } from '@/lib/handles.ts';
 import { FocusHeading } from '../../connect/result/focus-heading.tsx'; // F-17 fix round 2 (UX1): the rename status takes focus
 // F-7 public-record traders.
 import { isPublicRecord, PUBLIC, publicExclusions } from '@/lib/copy.ts';
@@ -66,12 +66,19 @@ import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' da
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
+import { Arrowed } from '../../arrow.tsx'; // C5-39
+// F-21: the #excluded section (lib/exclusions.ts sums; summed filing reasons move into it, the rest stay below it).
+import { ExcludedSection } from './excluded-section.tsx';
+import { fromRow } from '@/lib/exclusions-load.ts';
+import { PUBLIC_KINDS } from '@/lib/exclusions.ts';
+import type { PublicReason } from '@/lib/public-trades.ts';
 // F-16 (plan docs/features/logs/F-16-F-17/plan.md §2.1, §5.4; v2 B6, B7): the quiet report menu and the line.
 import { ProfileReportMenu, TrustFoot, TrustShown } from '../../trust-foot.tsx';
 import { impersonationLineShown } from '@/lib/takedown.ts';
 import { generateMetadata as notFoundMetadata } from './not-found.tsx';
 import { tradePageHref } from '@/lib/trade-href.ts'; // F-25: the one trade URL builder
 import { TRADE_LINK } from '@/lib/copy.ts'; // F-25
+import { withGate } from '@/lib/gate-key.ts'; // F-29 (D3): the unfurl image URL carries the gate state
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
@@ -135,7 +142,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   // model the image draws (its label, so never "Verified" for a demo, importing or failed record). Declared here
   // because a file-level alt is static.
   const card = await loadRecordCard(user.handle, 'unfurl');
-  const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: card ? cardAlt(card) : '' }] };
+  const openGraph = { images: [{ url: withGate(`/u/${user.handle}/opengraph-image`), width: 1200, height: 630, type: 'image/png', alt: card ? cardAlt(card) : '' }] };
   // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete); with no
   // closes there is no stats line at all (PR-2b), only the profile's own empty-record words.
   // F-4 (2026-11-01): the stats part is the card's own words (average per trade with its range, period, evidence; no
@@ -255,7 +262,8 @@ export default async function Profile({ params, searchParams }: Params) {
   const renamed = isMe && (await searchParams)?.renamed === '1';
   const renameNext = nextRenameAt(renamedAt);
   const renameSoon = renameNext && renameNext.getTime() > Date.now() ? nextRenameText(renamedAt) : null;
-  const trustShown = impersonationLineShown(); // F-16: draft line in the sandbox until the owner approves it
+  const retires = isMe && await retiresHandle(user.id); // OD 2.17: the owner's own rename hint only
+  const trustShown = impersonationLineShown(); // F-16: approved (OD 2.18), so shown on every deploy
   const listed = trades.slice(win.start, win.start + win.shown);
   const firstNew = win.next !== null ? trades[win.end] : null;
 
@@ -294,7 +302,7 @@ export default async function Profile({ params, searchParams }: Params) {
       </p>
       {pub && filer && <div className="public-top" data-public-top>
         <PublicNotice link={false} />
-        <p className="muted small">{PUBLIC.since(trades.length ? day(new Date(Math.min(...trades.map((t) => t.opened_at.getTime())))) : PUBLIC.notYet, filer.lastChecked ? day(filer.lastChecked) : PUBLIC.notYet)} · <Link className="tap44" href="/public-records">{PUBLIC.correction}</Link></p>
+        <p className="muted small">{PUBLIC.since(trades.length ? day(new Date(Math.min(...trades.map((t) => t.opened_at.getTime())))) : PUBLIC.notYet, filer.lastChecked ? day(filer.lastChecked) : PUBLIC.notYet)} · <Link className="tap44" href="/public-records"><Arrowed text={PUBLIC.correction} /></Link></p>
         <p className="muted small">{PUBLIC.caveat}{stale && ` ${PUBLIC.stale}`}</p>
       </div>}
       {me && !isMe && !pub && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}{done === 'hidden' && <> <Link href="/me/following">{FOLLOW.settingsLink}</Link></>}</p>}</div>}
@@ -348,7 +356,10 @@ export default async function Profile({ params, searchParams }: Params) {
             <button>Save</button>
           </form>
           <p id="handle-hint" className="muted small">{HANDLE_RULE}</p>
-          <p className="muted small rename-rule" data-rename-rule>{soonError ? RENAME_HOLD : <>{RENAME_RULE}{renameSoon && ` ${renameSoon}`}</>}</p>
+          {/* OD 2.17 (2026-11-02): a connected record's old handles are retired, not held for a year, so the hint says so. */}
+          {retires
+            ? <p className="muted small rename-rule" data-rename-rule>{soonError ? RENAME_RETIRE : <>{RENAME_RULE_RETIRED}{renameSoon && ` ${renameSoon}`}</>}</p>
+            : <p className="muted small rename-rule" data-rename-rule>{soonError ? RENAME_HOLD : <>{RENAME_RULE}{renameSoon && ` ${renameSoon}`}</>}</p>}
         </details>
       )}
       {!shareAfterFigures && ownerShareCard /* FIXES-LABELS (PR #85 review, nit 1) */}
@@ -403,27 +414,11 @@ export default async function Profile({ params, searchParams }: Params) {
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
       {complete && trades.length === 0 && open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={longValues(pct(open.avg), String(open.n))} />}
-      {user.excluded_positions > 0 && (
-        <p className="muted">{PROFILE.excludedPositions(user.excluded_positions)}</p>
-      )}
-      {user.excluded_future > 0 && (
-        <p className="muted">{PROFILE.excludedFuture(user.excluded_future)}</p>
-      )}
-      {user.excluded_corporate > 0 && (
-        <p className="muted">{PROFILE.excludedCorporate(user.excluded_corporate)}</p>
-      )}
-      {/* F-32 Part A: sells a transfer row excludes, under their own reason; a real link to the /how sentence. */}
-      {user.excluded_transfer > 0 && (
-        <p className="muted" data-excluded-transfer>
-          <a className="tap44 excluded-link" href="/how#transfers">{PROFILE.excludedTransfer(user.excluded_transfer)}<span className="sr-only"> {PROFILE.excludedTransferLink}</span></a>
-        </p>
-      )}
-      {/* F-24 RT-2: sells counted while a possible re-issue in their pair is checked (shown only when there are any). */}
-      {user.excluded_held > 0 && (
-        <p className="muted" data-excluded-held>{PROFILE.excludedHeld(user.excluded_held)}</p>
-      )}
+      {/* F-21: the one sum and its reason lines (positions, future sells, corporate, F-32 transfer, F-24 held, shared accounts, the summed
+          filing reasons, then the option count lines per gate); the pane and strip lines link here. */}
+      <ExcludedSection c={{ ...fromRow(user, filer?.excluded ?? null), options: opt.counts, gate: opt.gate }} />
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
-      {filer && publicExclusions(filer.excluded).map((l) => <p key={l} className="muted" data-public-excluded>{l}</p>)}
+      {filer && publicExclusions(Object.fromEntries(Object.entries(filer.excluded).filter(([k]) => !PUBLIC_KINDS[k as PublicReason]?.summed))).map((l) => <p key={l} className="muted" data-public-excluded>{l}</p>)}
       {filer && filer.openSymbols.length > 0 && <section aria-labelledby="public-open" data-public-open>
         <h2 id="public-open">{PUBLIC.openTitle}</h2>
         <p>{[...filer.openSymbols].sort().join(', ')}</p>
@@ -483,7 +478,7 @@ export default async function Profile({ params, searchParams }: Params) {
           beside Follow or Share), then the anti-impersonation line last in <main>, so the footer's F3 disclaimer sits
           directly after it. Fix round 2 (BL7): the menu sits left, on "← Feed"'s line. */}
       <div className="f16-block">
-        <div className="profile-end"><Link href="/" className="tap44">← Feed</Link>{!isMe && <ProfileReportMenu handle={user.handle} />}</div>
+        <div className="profile-end"><Link href="/" className="tap44"><span aria-hidden="true">←</span> Feed</Link>{!isMe && <ProfileReportMenu handle={user.handle} />}</div>
         <TrustFoot shown={trustShown} />
       </div>
     </main>

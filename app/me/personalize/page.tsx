@@ -43,7 +43,7 @@ export default async function Personalize({ searchParams }: { searchParams?: Pro
       {!s.personalize && <p className="muted small">{PERSONALIZE.activityPaused}</p>}
       {pair('p-activity', PERSONALIZE.activityTitle, s.activity, setActivityForm)}
       <form action={clearActivityForm}><button className="secondary" data-testid="clear-activity">{PERSONALIZE.clear}</button></form>
-      <p><Link href="/me/following">← {HIDDEN_TRADES.backLink}</Link></p>
+      <p><Link href="/me/following"><span aria-hidden="true">←</span> {HIDDEN_TRADES.backLink}</Link></p>
     </main>
   );
 }

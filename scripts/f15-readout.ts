@@ -50,6 +50,8 @@ export type InternalState = 'unset' | 'none-valid' | 'set';
 export type ReadoutInput = {
   rollup: RollupRow[]; drops: DropRow[]; g1: { strict: number; partial: number }; g2: G2Input;
   top?: { week: Day; n: number }[]; cap?: { day: Day; trusted: boolean }[]; internal?: { state: InternalState; ignored: number; listed?: number };
+  // F-30: the same-instant class counts (stampCounts over loadStamps); absent reads as zeros.
+  stamps?: Partial<StampCounts>;
 };
 
 // ---- F-31: the limits block, the strict family and the new rows (docs/features/F-31-readout-limits-and-partial-rows.md;
@@ -95,6 +97,33 @@ export const SPLIT_LINE = 'The "of which" rows split the strict row by profile: 
 export const TOP_LINE = 'The largest single profile\'s share is one profile\'s strict G3 views over the week\'s strict G3, rounded down to a whole percent; it names no profile, reads "(s)" unless that profile has 5 or more views and nothing from 1 to 4 can be worked out from it, and reads "—" when the strict figure is 0.';
 export const SELF_LINE = '"self-views removed (signed in)" counts traders\' views of their own profile, trade and month pages made while signed in; they are in no other row. Signed-out self-views can\'t be told apart and stay in the counts.';
 export const INTERNAL_LINE = 'Internal accounts come from an env list read only on the machine that runs this readout; no handle is printed. The G1 row reads "(s)" when strict G1, or what is left without internal accounts, is 1 to 4; the G3 row reads "(s)" when 1 to 4 views of internal profiles, or 1 to 4 of what is left, would be worked out by subtraction. The G1 row may reveal how many listed accounts have a connected broker.';
+
+// ---- F-30: same-instant open and close events by stamp pattern (docs/features/F-30-same-instant-order-on-date-only-
+// stamps.md, decision 2026-11-01; built in the chore lane, chores cycle 5). A class count only: no id, handle, symbol or
+// time of day is printed. It sits under the limits block so the owner can see whether date-only stamps also arrive at a
+// local midnight (a whole hour other than 00:00:00Z). Three disjoint counts with no total, so each is suppressed alone
+// (1 to 4 reads "<5"), the same rule as G1's two counts.
+export type StampClass = 'midnight' | 'hour' | 'intraday';
+export type StampCounts = Record<StampClass, number>;
+export const STAMP_ROWS: [StampClass, string][] = [['midnight', '00:00:00Z'], ['hour', 'other whole hours (UTC)'], ['intraday', 'intraday']];
+export const STAMP_HEADING = 'Same-instant open and close events, by stamp pattern (all stored broker activity; Demo profiles excluded):';
+export const STAMP_LINE = 'An event is one trader\'s buy and sell of one symbol in one account at the same instant. "00:00:00Z" is the date-only stamp F-30 scopes to; "other whole hours" may be a date-only stamp at a local midnight; "intraday" is every other stamp. Counts only: no id, handle or symbol; a count from 1 to 4 reads "<5".';
+// A UTC clock time 'HH:MM:SS' with an optional fraction (loadStamps prints 'HH24:MI:SS.US') → its class, or null.
+export function stampClass(clock: unknown): StampClass | null {
+  const m = typeof clock === 'string' ? /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.(\d{1,9}))?$/.exec(clock) : null;
+  if (!m) return null;
+  if (m[2] !== '00' || m[3] !== '00' || /[1-9]/.test(m[4] ?? '')) return 'intraday';
+  return m[1] === '00' ? 'midnight' : 'hour';
+}
+export function stampCounts(rows: { clock: unknown; n: unknown }[] | undefined): StampCounts {
+  const out: StampCounts = { midnight: 0, hour: 0, intraday: 0 };
+  for (const r of rows ?? []) { const c = stampClass(r?.clock); if (c) out[c] += count(r.n); }
+  return out;
+}
+export function stampLines(c: Partial<StampCounts> | undefined): string[] {
+  const small = (v: number) => (v > 0 && v < SMALL ? '<5' : fmt(v));
+  return [STAMP_HEADING, '', table(['Stamp pattern', 'Events'], STAMP_ROWS.map(([k, label]) => [label, small(count(c?.[k]))])), '', STAMP_LINE];
+}
 
 const okCount = (x: number) => x === 0 || x >= SMALL;
 // One week's strict family, from the strict cell's three atoms: a = other trader targets, b = internal trader targets,
@@ -321,6 +350,8 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
   out.push(internalFactLine(internalState, count(input.internal?.ignored), count(input.internal?.listed)));
   if (internalSet) out.push(INTERNAL_RUNS_LINE);
   out.push('');
+  // F-30: the stamp-pattern class count, under the limits block and before the first G-row.
+  out.push(...stampLines(input.stamps), '');
 
   // G1: two disjoint single counts, no total.
   const g1 = [count(input.g1?.strict), count(input.g1?.partial)];
@@ -620,6 +651,25 @@ export async function loadCapMarks(sql: Sql, from: string, to: string): Promise<
   return rows.map((r) => ({ day: r.day, trusted: r.trusted }));
 }
 
+// F-30: one row per UTC clock time with the number of same-instant open-and-close events at it. An event is a (trader,
+// account, symbol, instant) group of broker activities holding a buy and a sell; the group keys are grouped by, never
+// selected. Live, non-Demo traders only (demoUser takes u.id: its own subquery names activities `a`, which would shadow
+// this query's alias). onlyUsers narrows the traders (db tests on a shared database).
+// ponytail: reads every stored activity once per run (EXPLAIN: one sequential scan of activities, then a sort and a
+// group; a hand-run weekly readout) — fix: bound it to the activities imported in the window if a run ever becomes slow.
+export async function loadStamps(sql: Sql, onlyUsers?: number[]): Promise<{ clock: string; n: number }[]> {
+  const rows = await sql<{ clock: string; n: number }[]>`
+    select to_char(e.t at time zone 'UTC', 'HH24:MI:SS.US') as clock, count(*)::int as n
+    from (select a.executed_at as t
+          from activities a join users u on u.id = a.user_id
+          where a.source = 'snaptrade' and u.deleted_at is null and not ${demoUser(sql, sql`u.id`)}
+            ${onlyUsers ? sql`and a.user_id = any(${onlyUsers}::int[])` : sql``}
+          group by a.user_id, a.account_id, a.symbol, a.executed_at
+          having bool_or(a.side = 'BUY') and bool_or(a.side = 'SELL')) e
+    group by 1`;
+  return rows.map((r) => ({ clock: r.clock, n: r.n }));
+}
+
 // ---- output guard ----
 // The output directory, refused unless it resolves outside the repository (real paths, so a symlink into the repo is
 // refused, and a sibling folder sharing the repo's name prefix is accepted).
@@ -669,6 +719,7 @@ async function main() {
     const g2 = await loadG2(sql, to, SHARE_RETENTION_DAYS, undefined, internal.handles);
     const top = await loadTop(sql, from, to);
     const cap = await loadCapMarks(sql, from, to);
+    const stamps = stampCounts(await loadStamps(sql));
     const [g1] = await sql<{ strict: number; partial: number }[]>`
       select count(*) filter (where t.connected)::int as strict, count(*) filter (where not t.connected)::int as partial
       from (select bool_or(c.state = 'connected') as connected
@@ -679,7 +730,7 @@ async function main() {
     // G1 strict is the G2 trader count itself, so the two can't disagree.
     const text = buildReadout({
       rollup, drops: [...drops], g1: { strict: g2.traders.length, partial: g1?.partial ?? 0 }, g2,
-      top, cap, internal: { state: internal.state, ignored: internal.ignored, listed: internal.handles.length },
+      top, cap, stamps, internal: { state: internal.state, ignored: internal.ignored, listed: internal.handles.length },
     }, now);
     mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `f15-readout-${now.toISOString().slice(0, 10)}.md`);

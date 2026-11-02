@@ -8,12 +8,16 @@ import { openPercents } from './trade-share-load.ts';
 import { routeHandle } from './params.ts';
 import { statusForOrNull as statusFor } from './record-status-load.ts'; // FIXES-LABELS: status (QA round 2 N3: guarded, null on error)
 import { monthOptionCloseCount, optionHeadline, paneView } from './options-load.ts'; // OPTIONS: the strip's "Excluding options", gated per trader
+import { exclusionInput, fromRow } from './exclusions-load.ts'; // F-21
+import { lineCount } from './exclusions.ts'; // F-21
 
 // The only query behind the recap page and card. Reads closed_trades (so recaps stay public after disconnect), plus the
 // open positions' unrealized percents for the strip's open count on a connected or failed record (F-12).
 export async function loadRecap(handle: string, ym: string) {
   if (!routeHandle(handle)) return null; // F12: junk in the URL is a 404, not a database error
-  const [u] = await sql`select id, display_name, public_filer_id from users u where handle = ${handle} and ${visibleUser('u')} and ${filerVisibleSql('u')}`; // F-16: a hidden profile has no recap
+  const [u] = await sql`select id, display_name, public_filer_id,
+      excluded_positions, excluded_future_sells, excluded_corporate, excluded_held, excluded_shared, excluded_transfer, /* F-21 */ (select pf.excluded from public_filers pf where pf.id = u.public_filer_id) as public_excluded
+    from users u where handle = ${handle} and ${visibleUser('u')} and ${filerVisibleSql('u')}`; // F-16: a hidden profile has no recap
   if (!u) return null;
   const rows = await sql`select sell_id, trade_key, symbol, verified, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${u.id} and ${visibleId(Number(u.id))} order by closed_at desc, id desc`; // F-12: the profile's order, so sums match it to the bit
   const all = rows.map((r) => ({ sellId: r.sell_id as string, tradeKey: r.trade_key as string, symbol: r.symbol as string, openedAt: r.opened_at as Date, closedAt: r.closed_at as Date, returnPct: r.return_pct as number, holdingDays: r.holding_days as number }));
@@ -25,6 +29,7 @@ export async function loadRecap(handle: string, ym: string) {
   const state = (await publicRecord(Number(u.id))).state;
   const head = (await optionHeadline([Number(u.id)])).get(Number(u.id))!; // FIXES-CYCLE4-PART2 (F4-4): kept for the gate
   const excludingOptions = paneView(head).label; // OPTIONS
+  const excluded = lineCount(exclusionInput(fromRow(u), head), state); // F-21: the whole-record strip's exclusions line
   // FIXES-CYCLE4-PART2 (F4-4, C4-9): the month's shown option closes, counted within monthRecap's own UTC bounds (parseYm).
   // ponytail: excluded and dangling option closes are counted per trader with no date (users.excluded_options_*), so a
   // month counts only the shown ones; its qualifier still keys on the trader — fix: date the excluded rows in the importer.
@@ -33,6 +38,9 @@ export async function loadRecap(handle: string, ym: string) {
     ? await monthOptionCloseCount(Number(u.id), bounds.start, bounds.end)
     : 0;
   const record = wholeRecord(all, now); // F-7 (C17): a public record never shows New record.
+  // F-35 (UX lead user test): the month page names sells still waiting for their date (F-21's
+  // sells-only count), so "through today" never hides a close.
+  const waiting = Number(u.excluded_future_sells) || 0; // read by F-21's user query above (no query of its own)
   // FIXES-LABELS: status (F-11): the status-line facts beside the state (the page renders live, the image static).
-  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state, recap, record: { ...record, newRecord: record.newRecord && !u.public_filer_id }, open: await openPercents(Number(u.id), state), excludingOptions, optionsGate: head.gate, monthOptionCloses /* FIXES-CYCLE4-PART2 (F4-4) */, months: monthsOnRecord(all) /* FIXES-LABELS (D-24) */, status: await statusFor(Number(u.id), state) } satisfies RecapView;
+  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state, recap, record: { ...record, newRecord: record.newRecord && !u.public_filer_id }, open: await openPercents(Number(u.id), state), excludingOptions, excluded, optionsGate: head.gate, monthOptionCloses /* FIXES-CYCLE4-PART2 (F4-4) */, months: monthsOnRecord(all) /* FIXES-LABELS (D-24) */, status: await statusFor(Number(u.id), state), futureWaiting: Number(waiting) } satisfies RecapView;
 }

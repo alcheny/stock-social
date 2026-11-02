@@ -56,6 +56,12 @@ export const NOT_A_FIELD: Record<string, string> = {
   'open_option_positions.user_id': 'key', 'open_option_positions.position_key': 'key (contract key, never shown)',
   'open_option_positions.fetched_at': 'freshness, internal',
   'closed_trades.sell_imported_at': 'when the closing sell was imported, internal (feed paging)',
+  // Chores cycle 5 (C5-43 (c)): the stored sitemap (lib/sitemaps.ts) prints only the symbol and the day. Both are copies
+  // of public fields (not new fields: the consent versions pin PUBLIC_FIELDS' columns, lib/consent-versions.ts).
+  'sitemap_traders.symbol': 'copy of closed_trades.symbol (public field "symbols"), shown as the sitemap\'s <loc>',
+  'sitemap_traders.last_closed_day': 'the UTC day of closed_trades.closed_at (public field "dates"), shown as the sitemap\'s <lastmod>',
+  'sitemap_traders.scope': 'key', 'sitemap_traders.user_id': 'key',
+  'sitemap_traders.verified_trades': 'counted (a symbol is listed only above the indexing thresholds), never shown',
 };
 
 // FIXES-LABELS (code review, POLICY P6): record state the status line publishes (DESIGN TR-5 / F-11), each date shown on

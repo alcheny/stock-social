@@ -9,6 +9,8 @@ import { optionHeadline, paneView } from './options-load.ts'; // OPTIONS: the st
 import { filerVisibleSql } from './public-gate.ts';
 import { visibleId, visibleUser } from './visible-users.ts';
 import { openingFilings, type PubRow } from './public-trades.ts';
+import { exclusionInput, fromRow } from './exclusions-load.ts'; // F-21
+import { lineCount } from './exclusions.ts'; // F-21
 import { TRADE_KEY_RE } from './trade-href.ts';
 
 // F-25: who may see a trade page (a live user; a public filer only while shown), one rule for the page, the image and
@@ -44,8 +46,10 @@ async function loadTrade(handle: string, match: ReturnType<typeof sql>) {
       case when ct.thesis_status = 'published' then ct.thesis end as thesis,
       case when ct.thesis_status = 'published' then ct.thesis_written_at end as thesis_written_at,
       case when ct.thesis_status = 'published' then ct.thesis_edited_at end as thesis_edited_at,
-      u.display_name, u.public_filer_id, ct.filing_url, ct.opened_at, ct.trade_key
+      u.display_name, u.public_filer_id, ct.filing_url, ct.opened_at, ct.trade_key,
+      u.excluded_positions, u.excluded_future_sells, u.excluded_corporate, u.excluded_held, u.excluded_shared, u.excluded_transfer, pf.excluded as public_excluded -- F-21
     from closed_trades ct join users u on u.id = ct.user_id and ${visibleUser('u')} and ${filerVisibleSql('u')}
+      left join public_filers pf on pf.id = u.public_filer_id
     where u.handle = ${handle} and ${match}`;
   if (!t) return null;
   const all = await sql`select symbol, opened_at, closed_at, return_pct, holding_days, verified from closed_trades where user_id = ${t.user_id} and ${visibleId(Number(t.user_id))} order by closed_at desc, id desc`; // F-12: the profile's order, so sums match it to the bit
@@ -58,14 +62,16 @@ async function loadTrade(handle: string, match: ReturnType<typeof sql>) {
   // the profile's rule (a failed import is never presented as a whole verified record).
   const verified = all.length > 0 && all.every((r) => r.verified);
   const state = (await publicRecord(Number(t.user_id))).state;
-  const excludingOptions = paneView((await optionHeadline([Number(t.user_id)])).get(Number(t.user_id))!).label; // OPTIONS
+  const head = (await optionHeadline([Number(t.user_id)])).get(Number(t.user_id))!;
+  const excludingOptions = paneView(head).label; // OPTIONS
+  const excluded = lineCount(exclusionInput(fromRow(t), head), state); // F-21: the strip's exclusions line (page only)
   // F-7: the sale's and opening purchase's filing links (C17: never a New record). ponytail: only the first matched purchase is linked (closed_trades keeps no lot list) — store the matched buys' filing ids at rebuild to link each.
   const bought = t.public_filer_id ? openingFilings(await sql<PubRow[]>`select * from public_transactions where filer_id = ${t.public_filer_id}`, t.symbol, t.opened_at) : [];
   const filings = t.filing_url ? { sold: t.filing_url as string, bought } : null;
   // F-9: the note's dates and the trade's id (the Report control) ride beside the payload, never inside the share data.
   const note = { tradeId: String(t.id), writtenAt: (t.thesis_written_at ?? null) as Date | null, editedAt: (t.thesis_edited_at ?? null) as Date | null };
   // FIXES-LABELS: status (F-11): the status-line facts beside the state (the page renders live, the image static).
-  return { ...payload, tradeKey: t.trade_key as string, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, note, open: await openPercents(Number(t.user_id), state), excludingOptions, status: await statusFor(Number(t.user_id), state) } satisfies TradeView;
+  return { ...payload, tradeKey: t.trade_key as string, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, note, open: await openPercents(Number(t.user_id), state), excludingOptions, excluded, status: await statusFor(Number(t.user_id), state) } satisfies TradeView;
 }
 
 // F-12 (F-6 on every surface): the trader's open positions as unrealized percents, for the strip's open count. Read only

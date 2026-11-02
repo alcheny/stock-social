@@ -141,14 +141,20 @@ dbTest('mint: two different attempts register their vendor users at the same tim
   let release!: () => void;
   const both = new Promise<void>((r) => { release = r; });
   const base = fakeDeps().deps;
+  // C5-42 (chores cycle 5): the order of vendor-call entries and exits, asserted beside the 5 s window.
+  const order: string[] = [];
   // Each registration waits until the other one is in the vendor call too; serialized, the first would time out.
   const deps: Deps = { ...base, registerUser: async (ref) => {
+    order.push('enter');
     if (++arrived === 2) release();
     await Promise.race([both, new Promise((_, no) => setTimeout(() => no(new Error('registrations were serialized')), 5_000))]);
+    order.push('exit');
     return { snaptradeUserId: `vendor-h-${ref}`, secretEnc: 'enc' };
   } };
   const [a, b] = [await createAttempt({ method: 'brokerage', attested: true }), await createAttempt({ method: 'brokerage', attested: true })];
   const urls = await Promise.all([a, b].map((attemptId) => startConnection({ userId: null, attemptId }, 'https://app.example/connect/done', deps)));
   assert.deepEqual(urls, ['https://vendor.example/portal', 'https://vendor.example/portal']);
   assert.equal(arrived, 2);
+  // Event order, independent of the 5 s window: both registrations were inside the vendor call before either left it.
+  assert.deepEqual(order, ['enter', 'enter', 'exit', 'exit']);
 });

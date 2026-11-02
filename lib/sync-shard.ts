@@ -12,8 +12,10 @@ import { VENDOR_TIMEOUT_MS } from './broker.ts';
 import {
   accountsOf, claimable, clockSql, defaultBroker, syncable, syncCost, syncRequests, syncUser, SYNC_FIT_CAP, SYNC_LEASE_MS, ROUND_MS,
   type Broker, type SyncableUser,
-  idleCount,
+  idleCount, USER_LOCK,
 } from './sync.ts';
+import { rebuildWithoutRead } from './options-sync.ts';
+import type { TransactionSql } from 'postgres';
 import {
   BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, LatencyWindow, plannedSyncMs, routeEndMargin, RouteDeadlineError, TRANSIENT_LIMIT, classify, dbConfigCheck, runConfig, TokenBucket,
   type FailureKind, type RunConfig, type Shard,
@@ -43,6 +45,9 @@ export type RunReport = {
   remaining: number | null; inBackoff: number | null;
   stoppedAtDeadline: boolean; breaker: boolean; leaseLost: boolean; aborted: boolean;
   concurrency: number; requests: number; tokenWaitMs: number; pages: number; ms: number;
+  // F-35: records the matured pass rebuilt (a row's date passed since its last rebuild), rebuilt once with no watermark
+  // (the deploy catch-up), left because another sync held the trader's lock, and whose rebuild failed. Counts only.
+  matured: number; maturedInitial: number; maturedBusy: number; maturedFailed: number;
 };
 export type Claimed = SyncableUser & { lease: string; prev: string | null };
 
@@ -75,6 +80,82 @@ async function page(sh: Shard, scope: Scope, shift: number, exclude: number[], l
       ${exclude.length ? sql`and u.id not in ${sql(exclude)}` : sql``}
     order by u.last_synced_at nulls first, u.id limit ${limit}`;
 }
+// F-35 (docs/features/F-35-publish-once-the-date-has-passed.md; docs/SYNC.md → Publish once the date has passed): a row
+// stored while dated ahead waits until its date passes, then the first tick's matured pass rebuilds its record once, with
+// no vendor read. The watermark (users.published_through, the last committed rebuild's clock) makes each matured row
+// trigger exactly one rebuild: a record is selected while one of its future-stored rows is dated in
+// (published_through, now()]. A record with no watermark yet (before its first rebuild under this rule) is selected once
+// if it holds a row still dated ahead, so a close published early on the old 24 h grace leaves the record at once.
+// Each table is read through its partial index (`executed_at > created_at`, the rows stored while dated ahead; the
+// predicate repeated word for word) in a materialized CTE, so the plan never visits a trader without such a row.
+export const MATURED_PER_RUN = 50;
+export const MATURED_BOX_MS = 20_000;
+// Matured records go oldest matured row first (tester QA 1), so a shard with more than MATURED_PER_RUN due records never
+// leaves the same records waiting tick after tick; the deploy catch-up comes after them.
+// ponytail: the box and the stops are checked before each rebuild, so one very large record started near the limit runs
+// past them (as syncUser's rebuild can) — fix: a statement_timeout on the pass's transactions.
+// ponytail: a record with an import running is skipped; an import still running 8 days after a row's date leaves that row
+// to the import's own rebuild (which normally publishes it) — fix: page by the watermark per record (as above).
+// The window (BACKFILL_MS) plus the grace: a row older than this that the pass missed waits for the record's next rebuild.
+export const MATURED_LOOKBACK_DAYS = 8;
+// ponytail: a matured row the pass misses for more than MATURED_LOOKBACK_DAYS (8 days of failed or busy runs) waits for the
+// record's next rebuild (its next activities read; never, for a frozen record) — fix: page by the watermark per record.
+// ponytail: a vendor timestamp a few seconds ahead of the insert enters the partial index and costs one extra rebuild
+// once it passes — fix: none needed until the counters show it (maturedInitial/matured per run).
+// ponytail: a matured close's feed import time (closed_trades.sell_imported_at, the row's stored time) is earlier than its
+// publication, so a feed page pinned in between (one tick at most) can gain it on a later page — fix: a per-close publish
+// time.
+const MATURED_TABLES = ['activities', 'option_activities', 'corporate_actions'] as const;
+export function maturedQuery(sh: Shard, scope: Scope, limit: number) {
+  const on = (col: string) => sql`and ${sql(col)} % ${sh.of}::int = ${sh.shard}::int
+    ${scope.ids ? sql`and ${sql(col)} in ${sql(scope.ids.length ? scope.ids : [0])}` : sql``}
+    ${scope.idRange ? sql`and ${sql(col)} between ${scope.idRange[0]} and ${scope.idRange[1]}` : sql``}`;
+  type Frag = import("postgres").PendingQuery<import("postgres").Row[]>;
+  const union = (part: (t: string) => Frag) => MATURED_TABLES.map(part).reduce((a, b) => sql`${a} union all ${b}`);
+  // The rows themselves (no grouping here: a grouped part rewards a scan in user order over the partial index's range).
+  const due = (t: string) => sql`select user_id, executed_at from ${sql(t)}
+    where executed_at > created_at and executed_at <= now() and executed_at > now() - ${MATURED_LOOKBACK_DAYS}::float8 * interval '1 day' ${on('user_id')}`;
+  const ahead = (t: string) => sql`select user_id from ${sql(t)} where executed_at > created_at and executed_at > now() ${on('user_id')}`;
+  const eligible = sql`u.deleted_at is null and u.public_filer_id is null
+    and not exists (select 1 from connections c where c.user_id = u.id and c.state = 'importing')`;
+  return sql`with due as materialized (${union(due)}), ahead as materialized (${union(ahead)})
+    select id, bool_and(initial) as initial from (
+      select u.id, false as initial, d.first from users u
+        join (select due.user_id, max(due.executed_at) as mx, min(due.executed_at) filter (where due.executed_at > coalesce(w.published_through, '-infinity'::timestamptz)) as first
+          from due join users w on w.id = due.user_id group by due.user_id) d on d.user_id = u.id
+        where d.mx > coalesce(u.published_through, '-infinity'::timestamptz) and ${eligible}
+      union all
+      select u.id, true as initial, null::timestamptz as first from users u join (select distinct user_id from ahead) a on a.user_id = u.id
+        where u.published_through is null and ${eligible}
+    ) x group by id order by bool_and(initial), min(first) nulls last, id limit ${limit}`;
+}
+export type MatureRebuild = (userId: number, tx: TransactionSql) => Promise<unknown>;
+// One transaction per record under the per-user lock (busy: left, the watermark unmoved, so the next tick retries); the
+// rebuild puts `last_synced_at` back (no vendor read). Stops at `stop()` (deadline, route end, lost lease) or the box.
+async function maturePass(o: RunOpts, sh: Shard, r: RunReport, stop: () => boolean) {
+  const t0 = Date.now();
+  const box = o.maturedBoxMs ?? MATURED_BOX_MS;
+  const rebuild: MatureRebuild = o.matureRebuild ?? ((id, tx) => rebuildWithoutRead(id, tx));
+  const rows = await maturedQuery(sh, o, MATURED_PER_RUN) as unknown as { id: number; initial: boolean }[];
+  for (const row of rows) {
+    if (stop() || Date.now() - t0 >= box) break;
+    try {
+      const got = await sql.begin(async (tx) => {
+        if (!(await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${row.id}) as got`)[0].got) return false;
+        await rebuild(row.id, tx);
+        return true;
+      });
+      if (!got) r.maturedBusy++;
+      else if (row.initial) r.maturedInitial++;
+      else r.matured++;
+    } catch (e) {
+      r.maturedFailed++;
+      const { id } = row; // the internal id and the error class only (lib/privacy-logs.test.ts)
+      console.error('sync matured rebuild failed', id, logSafe(e));
+    }
+  }
+}
+
 // Claim one trader by id: the round claim, the in-flight lease and an attempt, atomically and only while it has fewer
 // than MAX_ATTEMPTS unfinished attempts (committee round 2, engineer).
 export async function claimById(id: number, shift = 0): Promise<Claimed | null> {
@@ -203,6 +284,9 @@ export type RunOpts = Scope & {
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
   holder?: string;
+  // F-35: run the matured pass (the route: always; a test: with its own `ids`, so it never rebuilds another test's
+  // records). `matureRebuild` and `maturedBoxMs` are test hooks.
+  mature?: boolean; matureRebuild?: MatureRebuild; maturedBoxMs?: number;
 };
 
 // The answer adds `failedIds` (internal ids of this run's failed syncs, the route's `failed` as before); the log line and
@@ -230,6 +314,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
     of: sh.of, shard: sh.shard, busy: false, done: 0, skipped: 0, deferred: 0, transient: 0, cutAtDeadline: 0, accountLists: 0, activitiesReads: 0, positionsReads: 0, readsDeferred: 0, refused: 0, failed: 0, quarantined: 0, releaseFailed: 0,
     remaining: null, inBackoff: null, stoppedAtDeadline: false, breaker: false, leaseLost: false, aborted: false,
     concurrency, requests: 0, tokenWaitMs: 0, pages: 0, ms: 0,
+    matured: 0, maturedInitial: 0, maturedBusy: 0, maturedFailed: 0,
   };
   if (cfg.concurrency > concurrency) console.error('sync concurrency clamped to the pool', JSON.stringify({ asked: cfg.concurrency, used: concurrency, poolMax: POOL_MAX }));
 
@@ -369,6 +454,11 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       const spread = o.jitterMs ?? (process.env.SYNC_START_JITTER_MS !== undefined ? Number(process.env.SYNC_START_JITTER_MS) || 0 : START_JITTER_MS);
       if (spread > 0) await sleep(Math.floor(Math.random() * spread));
     }
+    // F-35: before the workers (they run to the deadline), inside its own box, so a matured row publishes on the first tick
+    // after its date and the vendor reads after it still get the rest of the call. Never a branch for the sync below.
+    if (o.mature) {
+      try { await maturePass(o, sh, r, () => clock() >= deadline || clock() >= routeEnd || r.leaseLost); } catch (e) { console.error('sync matured pass failed', logSafe(e)); }
+    }
     await Promise.all(Array.from({ length: concurrency }, worker));
   } finally {
     clearInterval(heartbeat);
@@ -415,7 +505,8 @@ function emit(kind: LogKind, report: object, log?: (line: string) => void) {
 export type Coverage = {
   of: number; missingShards: number; unclaimedPrevRound: number; neverSynced: number; stalestHours: number;
   inBackoff: number; refused: number; quarantined: number; oldestRefusalHours: number; dbConfigOk: boolean; dbProblems: string[];
-  db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number };
+  // C5-40: `jit` is the session's JIT flag as a number (1 on, 0 off), so the log line's db values stay numbers.
+  db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number; jit: 0 | 1 };
   // FIXES-LABELS: status (F-11): idle records (no successful sync for IDLE_DAYS, lib/sync.ts#idleCount), over the same
   // scope (the whole fleet on the route); null when the count failed. A count only, never an id.
   idle: number | null;
@@ -427,6 +518,16 @@ export type Coverage = {
   activitiesReads24h: number; realAccounts: number; capRatio: number; capBreach: boolean;
   oldestActivitiesReadHours: number; oldestPositionsReadHours: number; freshnessAlarm: boolean;
 };
+// The settings the coverage check reads, as this session sees them (role-level settings apply to every session). `q` is a
+// test hook (a client with its own session settings).
+// C5-40: plus the JIT flag (`jit = off` for the app role, docs/SYNC.md → Database); reported, and a problem when on.
+export async function dbSettings(q: typeof sql = sql): Promise<Coverage['db']> {
+  const rows = await q`select name, setting from pg_settings
+    where name in ('statement_timeout', 'idle_in_transaction_session_timeout', 'max_connections', 'jit')`;
+  const settings = Object.fromEntries(rows.map((x) => [x.name as string, x.setting as string]));
+  const num = (k: string) => Number(settings[k] ?? 0) || 0;
+  return { statementTimeoutMs: num('statement_timeout'), idleInTxMs: num('idle_in_transaction_session_timeout'), maxConnections: num('max_connections'), jit: settings.jit === 'on' ? 1 : 0 };
+}
 export const ACTIVITIES_STALE_ALARM_H = 26;
 export const POSITIONS_STALE_ALARM_H = 18;
 export const CAP_BREACH_RATIO = 1.05;
@@ -458,9 +559,7 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
       (select case when bool_or(ba.positions_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.positions_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null
         and exists (select 1 from connections lc, jsonb_array_elements(lc.accounts) la where lc.user_id = s.id and lc.state = 'connected'
           and lc.disconnected_at is null and la->>'id' = ba.account_id), clock group by clock.t) as "oldestPositionsReadHours"`;
-  const settings = Object.fromEntries((await sql`select name, setting from pg_settings
-    where name in ('statement_timeout', 'idle_in_transaction_session_timeout', 'max_connections')`).map((x) => [x.name as string, Number(x.setting)]));
-  const db = { statementTimeoutMs: settings.statement_timeout ?? 0, idleInTxMs: settings.idle_in_transaction_session_timeout ?? 0, maxConnections: settings.max_connections ?? 0 };
+  const db = await dbSettings();
   let idle: number | null = null;
   try { idle = await idleCount(scope.ids, scope.idRange); /* QA round 2 (N5): the same scope */ } catch (e) { console.error('sync idle count failed', logSafe(e)); } // FIXES-LABELS: status
   const workers = Math.max(1, Math.min(cfg.concurrency, POOL_MAX - 2));

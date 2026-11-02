@@ -43,7 +43,7 @@ export default async function Likes({ searchParams }: { searchParams?: Promise<{
         </ul>
       ) : <p>{LIKES.none}</p>}
       {next && <p><Link className="button secondary" href={`/me/likes?after=${next}`}>{LIKES.older}</Link></p>}
-      <p><Link href="/me/following">← {LIKES.back}</Link></p>
+      <p><Link href="/me/following"><span aria-hidden="true">←</span> {LIKES.back}</Link></p>
     </main>
   );
 }

@@ -56,7 +56,7 @@ function Form() {
 function Message({ text, children }: { text: string; children?: React.ReactNode }) {
   return (
     <main className="page">
-      <p><Link href="/t">← All stocks</Link></p>
+      <p><Link href="/t"><span aria-hidden="true">←</span> All stocks</Link></p>
       <h1>Compare stocks</h1>
       <p>{text}</p>
       {children}
@@ -119,7 +119,7 @@ export default async function Compare({ searchParams }: Props) {
   };
   return (
     <main className="page">
-      <p><Link href="/t">← All stocks</Link></p>
+      <p><Link href="/t"><span aria-hidden="true">←</span> All stocks</Link></p>
       <h1 style={{ marginBottom: 4 }}>{a} vs {b}</h1>
       <p className="muted" style={{ marginTop: 0 }}>{FL.compareExplainer[compareKind(compare)]}</p>
       {/* FIXES-LABELS (D-09): before the columns, so it is in view with the first figures */}

@@ -26,9 +26,10 @@ export type PaneModel = {
   open: OpenSummary | null; // n, up, down, flat (counts, by printed tone) and avg
   openAsOf: string | null; // 'YYYY-MM-DD' of the oldest position read
   both: { n: number; avg: number } | null;
+  excluded: number; // F-21: the record's exclusion sum (lib/exclusions.ts), an integer count; 0 while importing
 };
 
-export function paneModel(trades: PaneModelTrade[], state: PublicState, now: Date, unrealized: number[] = [], openAsOf?: Date | null): PaneModel {
+export function paneModel(trades: PaneModelTrade[], state: PublicState, now: Date, unrealized: number[] = [], openAsOf?: Date | null, excluded = 0): PaneModel {
   const p = paneSummary(trades);
   const o = openSummary(unrealized);
   const both = o && combined(trades.map((t) => t.returnPct), unrealized);
@@ -48,5 +49,6 @@ export function paneModel(trades: PaneModelTrade[], state: PublicState, now: Dat
     open: o && { ...o, avg: wirePct(o.avg) },
     openAsOf: o && openAsOf ? isoDay(openAsOf) : null,
     both: both && { n: both.n, avg: wirePct(both.avg) },
+    excluded: state === 'importing' ? 0 : Math.max(0, Math.trunc(excluded)), // F-21
   };
 }

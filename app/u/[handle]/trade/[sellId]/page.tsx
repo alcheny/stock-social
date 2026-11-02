@@ -23,6 +23,7 @@ import { UserNote } from '../../../../user-note.tsx';
 import { HeldNote } from '@/lib/user-note.ts';
 import { loadOwnNote } from '@/lib/own-note.ts';
 import { generateMetadata as notFoundMetadata } from '../../not-found.tsx';
+import { withGate } from '@/lib/gate-key.ts'; // F-29 (D3): the unfurl image URL carries the gate state
 
 const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 
@@ -70,7 +71,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     title: `${t.symbol} ${pct(t.returnPct)} · @${t.handle} · Stock Social`,
     alternates: { canonical: href }, // F-15 second half: one spelling, untagged; F-25: the trade_key form
     description: tradeDescription(t, strip),
-    openGraph: { images: [{ url, width: 1200, height: 630, type: 'image/png', alt: tradeAlt(t, strip) }] },
+    openGraph: { images: [{ url: withGate(url) /* F-29 (D3): with the gate key */, width: 1200, height: 630, type: 'image/png', alt: tradeAlt(t, strip) }] },
     ...(isPublicRecord(t.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
   };
 }
@@ -92,7 +93,7 @@ export default async function TradePage({ params, searchParams }: Params & Searc
   return (
     <main className="page trade-page">{/* QA round 1 (finding 4): .trade-page tightens on a phone (globals.css) */}
       <p>
-        <Link href={`/u/${t.handle}`}>← {RECORD_STRIP.link(t.handle)}</Link>{' '}
+        <Link href={`/u/${t.handle}`}><span aria-hidden="true">←</span> {RECORD_STRIP.link(t.handle)}</Link>{' '}
         {/* QA round 2 (N9): no Demo badge here; the "This trade" box carries it, one per box */}
         {isPublicRecord(t.state) && <Badge kind={t.state} />}
       </p>
@@ -112,7 +113,7 @@ export default async function TradePage({ params, searchParams }: Params & Searc
           {/* F-12: the record strip (F-10's one component): label, the incomplete line on a failed import (.record-failed),
               or only the importing line while an import runs (TR-3), the figures, the link to the profile and the
               disclaimer. The strip's link replaces the old footer link (one link per destination). */}
-          <RecordStrip strip={strip} />
+          <RecordStrip strip={strip} exclusions={{ n: t.excluded ?? 0, handle: t.handle }} /* F-21 */ />
         </section>
       </div>
       {/* QA round 2 (Q4, as B1 for the pane): F-7's not-joined line and the filing links follow the record's figures and their
@@ -137,7 +138,7 @@ export default async function TradePage({ params, searchParams }: Params & Searc
       <TradeShare kind="trade" isOwner={me !== null && me.handle === t.handle} path={path} title={`${t.symbol} ${pct(t.returnPct)} · @${t.handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
       {!me && !t.demo && !t.filings && <JoinCta handle={t.handle} via="trade" />}
-      <p><Link href="/">← Feed</Link></p>
+      <p><Link href="/"><span aria-hidden="true">←</span> Feed</Link></p>
     </main>
   );
 }

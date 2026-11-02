@@ -93,7 +93,7 @@ export default async function Stocks({ searchParams }: Props) {
   const link = (on: boolean) => ({ 'aria-current': on ? ('true' as const) : undefined, style: { fontWeight: on ? 800 : 400, display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 8px' } });
   return (
     <main className="page">
-      <p><Link href="/">← Feed</Link></p>
+      <p><Link href="/"><span aria-hidden="true">←</span> Feed</Link></p>
       <h1>Stocks</h1>
       <Strip strip={strip} />
       <p className="muted">{FL.indexIntro}</p>

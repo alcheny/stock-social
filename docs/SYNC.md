@@ -49,7 +49,13 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
 - **Housekeeping** (expired sign-in links, the connections tick, pending deletions, the discovery purge, the daily billing
   reconciliation) runs once per cron mark: in the unsharded call, or in the `task=housekeeping` call on a sharded
   schedule. It never waits on a shard lease. Its time is reported as `housekeepingMs`. Its own vendor calls (import
-  steps, deletions) are outside the shards' request budgets.
+  steps, deletions) are outside the shards' request budgets. Chores cycle 5 (C5-43 (c)): it also rebuilds the stored
+  sitemap (`lib/sitemaps.ts#rebuildSitemapIfDue`, at most once per `REBUILD_MS` = 10 min fleet-wide, skipped while
+  another call rebuilds it), reported as `sitemap: { rebuilt, n }`; no request aggregates `closed_trades`, so a new
+  close appears in the sitemap at the next rebuild. Deploy step (owner): after the deploy that adds `sitemap_traders`, run the
+  housekeeping call once (`POST /api/sync?task=housekeeping` with the cron bearer); until it runs, an existing
+  `sitemap_chunks` row still lists further sitemap ids whose chunks answer empty (200), and crawlers see symbols drop
+  out for up to one cron interval.
 - **Transient streak.** A trader that fails transiently 5 rounds in a row (`TRANSIENT_LIMIT`: a record that always
   times out, or whose own data always throws) is quarantined and backed off, never retried every round forever.
 
@@ -241,6 +247,44 @@ from broker_accounts where reconcile_invalid > 0 order by reconcile_invalid desc
 Alert on any account whose `reconcile_invalid` keeps growing: its passes never validate, so a held row there (possibly a
 genuine fill) stays held and counted until the owner looks.
 
+## Publish once the date has passed (F-35)
+
+A trade reaches the record once its date has passed: the rebuild reads rows with `executed_at <= now()` (the
+transaction's clock), for shares, options and corporate actions (`lib/sync.ts#published`, `lib/options-sync.ts`). This
+amends #62's 24-hour grace, which published a sell dated up to a day ahead (council cycle 5, C5-30).
+
+- **Waiting rows.** A row dated after now() is stored (raw rows are immutable), never matched, and counted:
+  `users.excluded_future` (share rows, buys and sells), F-21's `users.excluded_future_sells` (the sells, plus unusable
+  sells dated ahead) and `users.excluded_future_options` (option rows, not paper, not shared; left out of F-21's sum: a
+  waiting option row is not yet a close). The profile's F-21 section prints the sells on the future line with F-35's
+  second sentence: "N imported trade(s) excluded: dated in the future by the broker. It waits on this line until that
+  date passes." The month page (while the month runs) and /me/record print the same line. The compare tool's card keeps
+  the first sentence with `excluded_future + excluded_future_options`.
+- **The 24-hour grace** (`FUTURE_GRACE_HOURS`) now bounds only the re-read window: a row dated further ahead never sets
+  it (the newest stored row minus a week). How far ahead a row is quarantined is unchanged.
+- **Watermark.** `users.published_through` is the clock of the record's last committed rebuild
+  (`lib/options-sync.ts#rebuildRecord`, the same transaction: a failed rebuild leaves it). An insert that stores a row
+  dated ahead lowers it to its own transaction's clock (`lib/sync.ts#lowerWatermark`; never fills a null), so a
+  transaction that started before a rebuild committed (an import step waiting on the lock) never stores a row the pass
+  skips.
+- **Matured pass** (`lib/sync-shard.ts#maturePass`, every shard run from `/api/sync`, `mature: true`). After the shard
+  lease and heartbeat, before the workers: one query (`maturedQuery`) finds the records with a row stored while dated
+  ahead (`executed_at > created_at`) whose date is in (`published_through`, now()], within 8 days; and, once per record,
+  the records with no watermark holding a row still dated ahead (`maturedInitial`: a close published early on the old
+  grace leaves at once after the deploy, with no fleet-wide rebuild). Up to `MATURED_PER_RUN` (50) records per run,
+  within `MATURED_BOX_MS` (20 s), and never past the run's deadline, the route's end or a lost lease. Each record: one
+  transaction, `pg_try_advisory_xact_lock(USER_LOCK, id)` (busy: left for the next run, the watermark unmoved), then
+  `rebuildWithoutRead` (the rebuild, with `last_synced_at` put back: "Updated" and the claim order never claim a vendor
+  read the pass did not make). Scope: not deleted, not a public filer, no import running (its own rebuild advances the
+  watermark); frozen records are included (the rows were imported before the freeze, no vendor read is made, and a loss
+  among them is published like any other: TR-5).
+- **Indexes.** Partial indexes on `executed_at` where `executed_at > created_at` on `activities`, `option_activities`
+  and `corporate_actions` (only rows stored while dated ahead). Each table is read through its index in a materialized
+  CTE, so the plan never visits a trader without such a row. EXPLAIN at the LOAD shape: `lib/f35-matured.load.test.ts`
+  (100,000 traders, 2,000,000 activities): no sequential scan, rows read within the future-stored rows.
+- Owner queries: `select count(*) from users where published_through is null and exists (select 1 from activities a
+  where a.user_id = users.id and a.executed_at > a.created_at and a.executed_at > now())` (deploy catch-up left).
+
 ## Matcher catch-up (chores cycle 5, C5-43 part b)
 
 A `MATCHER_VERSION` bump (`lib/trades.ts`) reaches every record without waiting for later deploys. The deploy's
@@ -264,8 +308,9 @@ stays open until that record rebuilds.
 | Line | When | Fields |
 |---|---|---|
 | `sync run start {…}` | a run took its lease | of, shard, concurrency, rps |
-| `sync run {…}` | every call | of, shard, busy, done, skipped (lock held elsewhere), deferred (did not fit), transient, refused, failed, quarantined, releaseFailed, remaining (left this round), inBackoff, stoppedAtDeadline, breaker, leaseLost, aborted, concurrency, requests, tokenWaitMs, pages, ms |
-| `sync coverage {…}` | every unsharded or housekeeping call | missingShards (no heartbeat in 15 min, counting shards that never ran), capRatio, capBreach, oldestActivitiesReadHours, oldestPositionsReadHours, freshnessAlarm, unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings, idle (F-11: records with no successful sync for 30 days, `lib/sync.ts#idleCount`) |
+| `sync run {…}` | every call | of, shard, busy, done, skipped (lock held elsewhere), deferred (did not fit), transient, refused, failed, quarantined, releaseFailed, remaining (left this round), inBackoff, stoppedAtDeadline, breaker, leaseLost, aborted, concurrency, requests, tokenWaitMs, pages, ms, matured, maturedInitial, maturedBusy, maturedFailed (F-35) |
+| `sync matured rebuild failed <id> <class> <status>` | one record's matured-pass rebuild failed (F-35) | internal user id, error name and HTTP status |
+| `sync coverage {…}` | every unsharded or housekeeping call | missingShards (no heartbeat in 15 min, counting shards that never ran), capRatio, capBreach, oldestActivitiesReadHours, oldestPositionsReadHours, freshnessAlarm, unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings (C5-40: `jit` 1 on, 0 off), idle (F-11: records with no successful sync for 30 days, `lib/sync.ts#idleCount`) |
 | `sync round incomplete {…}` | the previous round left traders unclaimed, or a shard is missing | of, missingShards, unclaimedPrevRound |
 | `sync failed <id> <class> <status>` | one trader's sync failed | internal user id, failure class, error name and HTTP status (never the message) |
 
@@ -347,11 +392,19 @@ example:
 ```sql
 alter role stock_social set statement_timeout = '60s';
 alter role stock_social set idle_in_transaction_session_timeout = '6min';
+alter role stock_social set jit = off;
 ```
 
 The idle timeout must sit above the largest sync cost (`(1 + 3 × SYNC_FIT_CAP) × 30 s` = 300 s) and below the per-user lease
 (10 min). The coverage line checks both timeouts and `max_connections ≥ N × (C + 2) + 20`, and reports
 `dbConfigOk`.
+
+JIT (chores cycle 5, C5-40): PostgreSQL compiles a query's expressions when its estimated cost passes `jit_above_cost`,
+which on a default server was 485 of 570 ms in the F-15 rollup read and 674 ms in the ticker baseline. The app's queries
+are short reads that never repay the compile, so the app role runs with `jit = off` (above). Applying it in production is
+the owner's deploy setting; until then the coverage line reports `db.jit: 1` (0 when off) and the problem `jit is on`
+(`lib/sync-shard.ts#dbSettings`, `lib/sync-limits.ts#dbConfigCheck`). A role setting applies to new sessions only:
+restart the app's pool (redeploy) after the `alter role`.
 
 ## Cron setup
 

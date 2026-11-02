@@ -3,7 +3,9 @@
 // lib/connections.ts only call these helpers; rebuildTrades and lib/trades.ts are untouched.
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
-import { FUTURE_GRACE_HOURS, INSERT_CHUNK, rebuildTrades, USER_LOCK } from './sync.ts';
+import { FUTURE_GRACE_HOURS, INSERT_CHUNK, lowerWatermark, rebuildTrades, storedFirst, USER_LOCK } from './sync.ts';
+import { onlyShared } from './shared-accounts.ts'; // F-21
+import { notDuplicate } from './reconcile.ts'; // F-21
 import { chainsOf, loadCorporateActions, pairKey } from './corporate-actions.ts';
 import { firstByKey, SETTLE_STALE_MS } from './positions.ts';
 import { contractKey, matchOptions, parseOcc, zeroCounts, type Counts, type OptionRow } from './options.ts';
@@ -14,7 +16,10 @@ export const OPTION_PAGE = 1000;
 // The database's OCC pattern (lib/options.ts#parseOcc): root, YYMMDD, C or P, 8-digit strike.
 // Fix round 6: matched against upper(btrim(symbol)), with any whitespace between root and date, as parseOcc does.
 export const OCC_SQL_PATTERN = '^[A-Z0-9./ -]{1,6}?\\s*[0-9]{6}[CP][0-9]{8}$';
-const notFuture = (db: Db) => db`(executed_at is null or executed_at <= now() + ${FUTURE_GRACE_HOURS}::float8 * interval '1 hour')`;
+// F-35: an option row (or a corporate action) reaches the rebuild once its date has passed, on the transaction's clock
+// (the clock rebuildRecord writes to users.published_through). Undated option rows pass, as before. The 24 h grace
+// (FUTURE_GRACE_HOURS) bounds the re-read window only (lastOptionActivityAt).
+const published = (db: Db) => db`(executed_at is null or executed_at <= now())`;
 const notPaper = (db: Db, userId: number) => db`not exists (select 1 from broker_accounts b where b.account_id = o.account_id and b.user_id = ${userId} and b.is_paper)`;
 // Fix round 7 (minor): an account marked as another profile's (lib/shared-accounts.ts#notShared, which rebuildTrades
 // applies to activities `a`) is left out of every option query too, for rows aliased `o`.
@@ -34,7 +39,8 @@ export async function insertOptionActivities(userId: number, source: 'snaptrade'
       strike_milli: r.strikeMilli, multiplier: r.multiplier, occ_ticker: r.occTicker, contract_units: r.units, share_price: r.price, fee: r.fee, cash_amount: r.amount,
       currency: r.currency, executed_at: r.executedAt, raw: db.json(r.raw as never),
     }));
-    await db`insert into option_activities ${db(chunk)} on conflict (source, external_id) do nothing`;
+    const stored = await db`insert into option_activities ${db(chunk)} on conflict (source, external_id) do nothing returning coalesce(executed_at > now(), false) as ahead`;
+    if (stored.some((r) => r.ahead)) await lowerWatermark(db, userId); // F-35: see lib/sync.ts#lowerWatermark
   }
 }
 
@@ -88,7 +94,7 @@ export async function rebuildOptionTrades(userId: number, tx: TransactionSql, as
   let after: { account_id: string; contract_key: string; at: string; external_id: string; source: string } | null = null;
   for (;;) {
     const page: Stored[] = await tx<Stored[]>`select ${cols(tx)} from option_activities o where o.user_id = ${userId} and o.contract_key is not null and o.account_id is not null
-      and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)}
+      and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${published(tx)}
       ${after ? tx`and (o.account_id collate "C", o.contract_key collate "C", o.executed_at, o.external_id collate "C", o.source collate "C")
         > (${after.account_id}::text collate "C", ${after.contract_key}::text collate "C", ${after.at}::timestamptz, ${after.external_id}::text collate "C", ${after.source}::text collate "C")` : tx``}
       order by o.account_id collate "C", o.contract_key collate "C", o.executed_at, o.external_id collate "C", o.source collate "C" limit ${OPTION_PAGE}`;
@@ -105,12 +111,16 @@ export async function rebuildOptionTrades(userId: number, tx: TransactionSql, as
   await flush(open);
   // Rows with no contract key (an event without its contract, a malformed row): counted, never matched.
   const loose = await tx<Stored[]>`select ${cols(tx)} from option_activities o where o.user_id = ${userId} and (o.contract_key is null or o.account_id is null)
-    and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)}`;
+    and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${published(tx)}`;
   await flush(loose.map(toRow));
   const short = counts.short;
   // `extraOther`: option rows that reached the share path as an OCC symbol (rebuildRecord removes them from closed_trades).
   const other = Object.values(counts).reduce((a, b) => a + b, 0) - short + extraOther;
   await tx`update users set excluded_options_short = ${short}, excluded_options_other = ${other} where id = ${userId}`;
+  // F-35: option rows dated after now() wait (never matched), counted on the profile's future line with the share rows.
+  const [{ future }] = await tx`select count(*)::int as future from option_activities o where o.user_id = ${userId} and not (${published(tx)})
+    and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)}`;
+  await tx`update users set excluded_future_options = ${future} where id = ${userId}`;
   return { trades: written, short, other, counts };
 }
 
@@ -123,7 +133,7 @@ export async function exerciseDays(tx: Db, userId: number): Promise<{ account_id
       to_char((o.executed_at at time zone 'UTC')::date, 'YYYY-MM-DD') as day from option_activities o
     where o.user_id = ${userId} and o.kind in ('OPTIONEXERCISE', 'OPTIONASSIGNMENT') and o.account_id is not null
       and coalesce(o.underlying, o.raw->'symbol'->>'symbol') is not null
-      and o.executed_at is not null and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)}`;
+      and o.executed_at is not null and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${published(tx)}`;
   const out = new Map<string, { account_id: string; underlying: string; day: string }>();
   for (const r of rows) {
     const underlying = parseOcc(r.underlying)?.root ?? (r.underlying as string);
@@ -132,11 +142,18 @@ export async function exerciseDays(tx: Db, userId: number): Promise<{ account_id
   return [...out.values()];
 }
 
+// F-21: an activity row `a` whose vendor row is also stored as an option row (counted there, never twice).
+const optionTwin = (db: Db, a: Fragment) => db`exists (select 1 from option_activities x where x.source = ${a}.source and x.external_id = ${a}.external_id)`;
+
 // The option pairs among the rows the rebuild reads (paper accounts and future-dated rows left out), their closes removed.
 async function removeOptionPairs(tx: TransactionSql, userId: number): Promise<number> {
-  const pairs = await tx`select o.account_id, o.symbol, count(*) filter (where o.side = 'SELL')::int as sells from activities o
+  // F-21 (review blocking 1): a sell whose vendor row is also stored as an option row is counted by the options matcher
+  // (rebuildOptionTrades), so it leaves `sells` (the extraOther count) — the same twin predicate as sharedExcluded. Every
+  // sell still leaves excluded_positions (orphans), whichever counter holds it.
+  const pairs = await tx`select o.account_id, o.symbol, count(*) filter (where o.side = 'SELL')::int as all_sells,
+      count(*) filter (where o.side = 'SELL' and not ${optionTwin(tx, tx`o`)})::int as sells from activities o
     where o.user_id = ${userId} and (upper(btrim(o.symbol)) ~ ${OCC_SQL_PATTERN} or ${optionTypeSet(tx, tx`o.raw`)})
-      and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)} group by o.account_id, o.symbol`;
+      and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${published(tx)} group by o.account_id, o.symbol`;
   if (!pairs.length) return 0;
   const hit = await tx`select c.sell_id, c.thesis, c.thesis_status from closed_trades c
     join (select * from jsonb_to_recordset(${tx.json(pairs.map((p) => ({ account_id: p.account_id, symbol: p.symbol })) as never)}::jsonb) as t(account_id text, symbol text)) t
@@ -145,7 +162,7 @@ async function removeOptionPairs(tx: TransactionSql, userId: number): Promise<nu
   await keepTheses(tx, userId, hit.filter((h) => h.thesis !== null));
   if (hit.length) await tx`delete from closed_trades where user_id = ${userId} and sell_id in ${tx(hit.map((h) => h.sell_id as string))}`;
   const sells = pairs.reduce((a, p) => a + (p.sells as number), 0);
-  const orphans = Math.max(0, sells - hit.length);
+  const orphans = Math.max(0, pairs.reduce((a, p) => a + (p.all_sells as number), 0) - hit.length);
   if (orphans) await tx`update users set excluded_positions = greatest(0, excluded_positions - ${orphans}) where id = ${userId}`;
   return sells;
 }
@@ -179,7 +196,7 @@ async function keepTheses(tx: TransactionSql, userId: number, rows: readonly Rec
 // the user's actions as rebuildTrades reads them: paper accounts and future-dated rows left out).
 export async function withRenames(tx: TransactionSql, userId: number, taint: { account_id: string; underlying: string; day: string }[]) {
   if (!taint.length) return taint;
-  const chainOf = chainsOf(await loadCorporateActions(tx, userId, notFuture(tx)));
+  const chainOf = chainsOf(await loadCorporateActions(tx, userId, published(tx)));
   if (!chainOf.size) return taint;
   const members = new Map<string, string[]>(); // chain id → its pair keys
   for (const [k, id] of chainOf) { const g = members.get(id); if (g) g.push(k); else members.set(id, [k]); }
@@ -192,6 +209,32 @@ export async function withRenames(tx: TransactionSql, userId: number, taint: { a
     }
   }
   return [...out.values()];
+}
+
+/** Review fix 2: future-dated sells are counted here too (the future count leaves marked accounts out), so a
+ *  future-dated sell in a marked account is counted once, as shared. */
+/** F-21 (committee decision 4): what the marks of accounts belonging to another profile leave out of this record, in the
+ *  headline's unit (sells and option closes, never buys), for users.excluded_shared. The share part counts SELL rows in
+ *  marked accounts under the stream's own paper, future, stored-first and duplicate filters; a sell of an option pair
+ *  (an OCC symbol or an option_type on the share path) is left to the option part when the option table holds the same
+ *  row, so an OCC row is counted once. The option part runs the options matcher over the marked accounts' option rows:
+ *  each close shown, short or otherwise excluded is one. */
+// ponytail: the option part holds every marked-account option row in memory at once (marks are rare and owner-made) —
+// fix: stream it in contract order like rebuildOptionTrades if marked accounts ever carry large option histories.
+export async function sharedExcluded(tx: TransactionSql, userId: number, asOf = new Date()): Promise<number> {
+  // Review fix 6: no marks (almost every record), no queries.
+  if (!(await tx`select 1 from shared_account_marks where user_id = ${userId} limit 1`).length) return 0;
+  const [{ n }] = await tx`select count(*)::int as n from activities a where a.user_id = ${userId} and a.side = 'SELL'
+    and ${onlyShared(tx, userId, 'a')}
+    and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+    and ${storedFirst(tx)} and ${notDuplicate(tx)}
+    and not (exists (select 1 from activities p where p.user_id = a.user_id and p.account_id = a.account_id and p.symbol = a.symbol
+        and (upper(btrim(p.symbol)) ~ ${OCC_SQL_PATTERN} or ${optionTypeSet(tx, tx`p.raw`)}))
+      and ${optionTwin(tx, tx`a`)})`;
+  const rows = await tx<Stored[]>`select ${cols(tx)} from option_activities o where o.user_id = ${userId}
+    and ${onlyShared(tx, userId, 'o')} and ${notPaper(tx, userId)} and ${published(tx)}`;
+  const m = matchOptions(rows.map(toRow), asOf);
+  return (n as number) + m.trades.length + m.short + m.other;
 }
 
 /** D4 (a)–(d), round 3: the whole record rebuild, in one transaction. Callers use this instead of rebuildTrades. */
@@ -236,9 +279,24 @@ export async function rebuildRecord(userId: number, tx?: TransactionSql, asOf = 
     }
     await tx`update users set excluded_exercise_shares = ${removed} where id = ${userId}`;
     const options = await rebuildOptionTrades(userId, tx, asOf, occRemoved); // (d)
-    return { ...shares, removedForExercise: removed, occRemoved, options };
+    const shared = await sharedExcluded(tx, userId, asOf); // F-21: last, in the same transaction
+    await tx`update users set excluded_shared = ${shared} where id = ${userId}`;
+    // F-35: the watermark is this rebuild's own publish clock (the transaction's now(), never greatest()): every share,
+    // option and corporate-action row dated at or before it was in the published set above. Same transaction, so it
+    // advances only when the rebuild commits.
+    await tx`update users set published_through = now() where id = ${userId}`;
+    return { ...shares, removedForExercise: removed, occRemoved, options, shared };
   };
   return tx ? run(tx) : sql.begin(run);
+}
+
+/** F-35: a rebuild with no vendor read (the matured pass): rebuildRecord, then `last_synced_at` ("Updated", the claim
+ *  order) put back, since rebuildTrades stamps it and nothing was read from the vendor. */
+export async function rebuildWithoutRead(userId: number, tx: TransactionSql) {
+  const [{ prev }] = await tx`select last_synced_at::text as prev from users where id = ${userId}`;
+  const out = await rebuildRecord(userId, tx);
+  await tx`update users set last_synced_at = ${prev}::text::timestamptz where id = ${userId}`;
+  return out;
 }
 
 /** D7: long open option positions per account (percent per share), and the short and futures-type counts. `accounts`

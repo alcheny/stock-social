@@ -1,6 +1,7 @@
 'use client';
 import { markShareImageSaved, recordShareAction } from '../../actions.ts';
 import { ShareButton } from '../../share-button.tsx';
+import { withGate } from '@/lib/gate-key.ts'; // F-29 (D3): URL-keyed caches carry the gate state
 
 const best = (p: Promise<unknown>) => p.catch((e) => console.error('share record failed', e));
 
@@ -13,7 +14,7 @@ export function ShareCard({ handle, recapYm, recapLabel }: { handle: string; rec
       <p className="muted small" style={{ margin: 0 }}>Percentages only, losses included. Never sizes, prices or balances.</p>
       <div className="actions">
         <ShareButton url={`/u/${handle}`} title={`@${handle} on Stock Social`} label="Share my record"
-          image={`/u/${handle}/story?format=square`}
+          image={withGate(`/u/${handle}/story?format=square`)}
           onShared={(how, picture) => { best(markShareImageSaved()); best(recordShareAction(`/u/${handle}`, how, picture)); }} />
         {recapYm && recapLabel && (
           <ShareButton className="secondary" url={`/u/${handle}/month/${recapYm}`} title={`${recapLabel} · @${handle} on Stock Social`}

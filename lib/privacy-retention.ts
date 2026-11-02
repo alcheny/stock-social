@@ -36,7 +36,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   identities: { personal: true, retention: 'account', holds: 'sign-in provider subject and email address' },
   sessions: { personal: true, retention: 'session', holds: 'hashed session token and user id; purged at expiry' },
   login_links: { personal: true, retention: 'session', holds: 'email address of a sign-in link; purged when expired or its attempt finished' },
-  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 1 per account (F-17: a further rename ends the older hold); purged by the tick once the hold has ended' },
+  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 1 per account (F-17: a further rename ends the older hold); purged by the tick once the hold has ended. OD 2.17 (2026-11-02): the handle of an account that had a connected record is retired (release date infinity): never reissued, never purged, exempt from the one-hold cap; once the account is deleted the row is the handle string alone' },
   funnel_events: { personal: false, retention: 'short', holds: 'sign-up step names and times per attempt; purged with an unfinished attempt' },
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot (with a keyed hash of each account\'s institution identity, never the identifier); a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
@@ -82,6 +82,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   portal_probes: { personal: false, retention: 'none', holds: 'per vendor portal origin, whether it can be framed and until when' },
   rate_marks: { personal: true, retention: 'short', holds: 'the last import-poll time per user id; pruned by lib/rate-limit.ts after a day' },
   sitemap_chunks: { personal: false, retention: 'none', holds: 'sitemap chunk boundary symbols, indexable-symbol count, highest sitemap id published and build time (no user ids)' },
+  // Chores cycle 5 (C5-43 (c)): the stored sitemap, rebuilt by the cron from the public record (lib/sitemaps.ts).
+  sitemap_traders: { personal: true, retention: 'account', holds: 'per indexable symbol and trader (user id): that trader\'s verified close count and the UTC day of their newest close, rebuilt by the cron at most every 10 minutes; deleted with the account' },
   similar_pools: { personal: true, retention: 'short', holds: 'the Similar trades section pool: user ids with ranking numbers derived from public records (no quantities or prices); one row per scope, overwritten every 10 s while profiles are viewed; rows idle past a day are deleted by lib/privacy-purge.ts' },
   privacy_purge_cursors: { personal: false, retention: 'none', holds: "the orphan purge's scan position per step: a number in the trade_key hash space, a window span, how much of the current lap is walked and a lap count (no user, key or trade)" },
   // F-15 (docs/features/F-15-measurement-foundation.md): aggregate daily view counts. No IP, user agent, viewer or session
@@ -89,6 +91,9 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   view_rollup: { personal: true, retention: 'short', holds: 'daily view counts per surface, viewed trader id (record pages), referrer class, source class, signed-in and self-view flags; deleted with the trader\'s account; purged after 120 days (lib/views.ts VIEW_RETENTION_DAYS)' },
   share_action: { personal: true, retention: 'short', holds: 'one row per completed share of a trader\'s own record: trader id, UTC day, share class (card, story, trade, month), outcome (sheet or copy), the record\'s headline sign (up, down, flat, none); no time of day, destination, thesis or account id; deleted with the account; purged after 120 days (lib/share-actions.ts SHARE_RETENTION_DAYS)' },
   view_drops: { personal: false, retention: 'short', holds: 'daily counts of beacons the bot filter dropped, per surface and reason (no user id); purged after 120 days' },
+  // F-16 follow-up (2026-11-02): the owner's audited account deletions (lib/owner-delete.ts); no foreign key, outlives the account.
+  // ponytail: no end date is set for these rows yet; the owner picks the retention period for the deletion record.
+  trust_deletions: { personal: false, retention: 'reserved', holds: 'owner-run account deletions: the date, a reason code, the actor role word and the counts of what was deleted (OD 2.22); no user id, handle, email, name or report; kept as the deletion record (docs/COMPLIANCE.md Sections 7 and 12)' },
   // F-16 (docs/features/logs/F-16-F-17/plan.md §3): the owner's audited hides; deleted with the profile (cascade).
   trust_audit: { personal: true, retention: 'account', holds: 'owner hides and unhides of a profile or thesis: kind, user id, sell id, action, reason code, actor, time; no thesis text or reporter; deleted with the profile (cascade)' },
   // F-31: the address-cap presence marks the owner's readout reads (lib/views.ts#markCapDay).

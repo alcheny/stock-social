@@ -53,6 +53,14 @@ with conditions, narrowed by the red team's probe C).
   feature stays `draft`. The counts-only readout row of stamp patterns is in the chore lane (`claude/chores-cycle5`);
   broker-position evidence (protected `lib/broker.ts`) is not decided. Why: the owner's decision of 2026-11-02 (OD
   2.26, accepted en bloc); council cycle 5 lapse record.
+- 2026-11-02: The readout row was built in the chore lane (chores cycle 5): `scripts/f15-readout.ts` prints, under
+  F-31's limits block and before G1, a three-row table (00:00:00Z, other whole hours in UTC, intraday) of same-instant
+  open-and-close events, where an event is one trader's buy and sell of one symbol in one account at one instant. It
+  covers all stored broker activity of live, non-Demo traders (not the eight-week window, since import history is older
+  than the window). Each count from 1 to 4 reads "<5" on its own, the G1 rule, because the three are disjoint and have no
+  total. No id, handle, symbol or time of day is printed. The Status stays draft, and broker-position evidence stays with
+  the owner. Why: approval council cycle 5 (Routed, chore lane); the 2026-11-01 readout decision above; tests in
+  `scripts/f30-readout.test.ts` and `scripts/f30-readout.db.test.ts`.
 
 ## Acceptance criteria
 - [ ] Probe C: on 00:00:00Z stamps, a losing long bought and sold the same day with no other evidence stays published

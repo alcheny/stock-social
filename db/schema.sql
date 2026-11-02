@@ -893,7 +893,7 @@ select schema_add_index('signup_attempts_sweep', 'create index signup_attempts_s
 -- the further sitemaps' ids agree across servers. One row per scope ('' for the app; tests use their own prefix).
 -- firsts[i]: the first indexable symbol of further sitemap i+1 (the DB's default order); n: indexable symbols at the
 -- build; published: the most further sitemap ids ever listed (never shrinks: a listed id answers 200, maybe empty).
--- Symbols and counts only; no user ids. Rebuilt at most once per REBUILD_MS by a request (lib/sitemaps.ts).
+-- Symbols and counts only; no user ids. Rebuilt at most once per REBUILD_MS by the cron (lib/sitemaps.ts, C5-43 (c)).
 create table if not exists sitemap_chunks (
   scope text primary key,
   firsts text[] not null,
@@ -1231,6 +1231,79 @@ select schema_add_column('users', 'excluded_held', 'int not null default 0');
 -- duplicate: left out of the rebuild); one suspected by a give-up (a busy account, failed or multi-page widened reads)
 -- was never decided, so it stays held (its pair's later sells counted).
 select schema_add_column('activity_reissues', 'undecided', 'boolean not null default false');
+
+-- ---- chores cycle 5 (C5-43 part a): status facts in constant time ----
+-- lib/record-status-load.ts: a trader's first entry is one index row (min(opened_at)); the account count walks the
+-- distinct accounts one index row each and the demo check is one row (the source column).
+-- Both are partial on an always-true condition (the columns are not null) so that only a query naming that condition
+-- can use them: min() adds it itself and the status read names it; every other read of these tables keeps its plan (and
+-- the row order an unordered read happens to get, lib/display-log.batch.test.ts).
+-- ponytail: both are built inside the schema's transaction (no `concurrently`, see schema_add_index), so on a large
+-- production closed_trades or activities table the first apply holds writes for the build — owner deploy step: create
+-- them by hand with `create index concurrently` (same names and columns) before deploying; the helper then skips them.
+-- The conditions are `>= '-infinity'` / `>= ''` (true of every row), not `is not null`: Postgres 17 removes `is not null`
+-- on a not-null column from a query before matching partial indexes, so such an index could never be used there (CI).
+select schema_add_index('closed_trades_user_first', 'create index closed_trades_user_first on closed_trades (user_id, opened_at) where opened_at >= ''-infinity''');
+select schema_add_index('activities_user_source_acct', 'create index activities_user_source_acct on activities (user_id, source, account_id) where account_id >= ''''');
+-- ---- end chores cycle 5 (C5-43 part a) ----
+
+-- ---- chores cycle 5 (C5-43 part c): sitemap ----
+-- The stored sitemap (lib/sitemaps.ts): per scope, indexable symbol and trader, that trader's verified closes and the UTC
+-- day of their newest close, written by the cron's rebuild (at most once per REBUILD_MS) from closed_trades. A request
+-- reads only this table and sitemap_chunks, never closed_trades; it still drops a trader whose deletion is in progress
+-- at once (lib/visible-users.ts), and the row goes with the account. Public: the symbol and the day (the sitemap's
+-- <loc> and <lastmod>); the count only decides whether a symbol is listed.
+create table if not exists sitemap_traders (
+  scope text not null,
+  symbol text not null,
+  user_id int not null references users on delete cascade,
+  verified_trades int not null,
+  last_closed_day date not null,
+  primary key (scope, symbol, user_id)
+);
+select schema_add_index('sitemap_traders_user', 'create index sitemap_traders_user on sitemap_traders (user_id)');
+-- ---- end chores cycle 5 (C5-43 part c) ----
+
+-- F-35 (docs/features/F-35-publish-once-the-date-has-passed.md): a trade is published once its date has passed
+-- (executed_at <= now()), never on the 24-hour grace. `published_through` is the database clock of the record's last
+-- committed rebuild (lib/options-sync.ts#rebuildRecord): every row dated at or before it was in that rebuild's published
+-- set. Null until the first rebuild after this change (the matured pass then rebuilds a record holding a row dated ahead
+-- once). An insert that stores a row dated ahead lowers it to the inserting transaction's clock (never fills a null).
+select schema_add_column('users', 'published_through', 'timestamptz');
+-- Option rows dated after now(), not paper, not shared: counted on the future line beside excluded_future (share rows,
+-- buys and sells; F-21's sells-only sum never reads it).
+select schema_add_column('users', 'excluded_future_options', 'int not null default 0');
+-- The matured pass (lib/sync-shard.ts#maturedQuery): only rows stored while dated ahead, a small set read by range on
+-- executed_at (the query repeats the predicate word for word so the planner can use these).
+select schema_add_index('activities_future_stored', 'create index activities_future_stored on activities (executed_at) where executed_at > created_at');
+select schema_add_index('option_activities_future_stored', 'create index option_activities_future_stored on option_activities (executed_at) where executed_at > created_at');
+select schema_add_index('corporate_actions_future_stored', 'create index corporate_actions_future_stored on corporate_actions (executed_at) where executed_at > created_at');
 -- F-32 Part A (council cycle 5, C5-1): sells a vendor transfer row excludes (lib/trades.ts `excludedTransfer`), counted
 -- under their own reason, never excluded_corporate. A count only: no transfer units, date or account is stored.
 select schema_add_column('users', 'excluded_transfer', 'int not null default 0');
+-- F-21 (docs/features/F-21-exclusion-counts-beside-the-headline.md, committee 2026-11-02 decisions 4-5): two stored
+-- counters for the one exclusion sum (lib/exclusions.ts), written in the rebuild's own transaction. Sells only, so the
+-- sum never mixes buys and sells under "trades". A record fills them on its next rebuild (owner step after deploy:
+-- scripts/rebuild-records.ts once, for frozen records).
+-- excluded_future_sells: the sell part of excluded_future (lib/sync.ts#rebuildTrades, the same future-count query).
+select schema_add_column('users', 'excluded_future_sells', 'int not null default 0');
+-- excluded_shared: sells and option closes in accounts marked as another profile's (lib/options-sync.ts#rebuildRecord).
+select schema_add_column('users', 'excluded_shared', 'int not null default 0');
+
+
+-- ---- F-16 follow-up (owner decision 2026-11-02, OD 2.22): the owner's audited account deletions (lib/owner-delete.ts) ----
+-- Append-only. Date, reason code and counts of what was deleted, and the actor role word; no user id, handle, email or
+-- name (OD 2.22: no personal data), so the row outlives the account and names no one. The reason codes are checked in
+-- code (lib/owner-delete.ts DELETE_REASONS); the actor is a role word, never a person (as trust_audit's actor).
+create table if not exists trust_deletions (
+  id bigint generated always as identity primary key,
+  reason text not null,                                 -- lib/owner-delete.ts DELETE_REASONS
+  actor text not null check (actor ~ '^[a-z][a-z0-9-]{0,31}$'),
+  closed_trades int not null,                           -- counts at the deletion mark, before any row is removed
+  activities int not null,
+  open_positions int not null,
+  notes int not null,                                   -- closed trades with a thesis
+  reports int not null,                                 -- reports about the account (thesis_reports.trader_id)
+  at timestamptz not null default now()
+);
+select schema_add_index('trust_deletions_at', 'create index trust_deletions_at on trust_deletions (at)');

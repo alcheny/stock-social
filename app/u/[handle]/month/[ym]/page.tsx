@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from '@/lib/copy.ts';
+import { isPublicRecord, PROFILE, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from '@/lib/copy.ts';
 import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { monthAlt, monthCountText, monthDescription, monthStripInput, recordStripInput } from '@/lib/recap.ts';
@@ -26,6 +26,7 @@ import { dateText } from '@/lib/date-text.ts';
 import { recordRows, segments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
 import { generateMetadata as notFoundMetadata } from '../../not-found.tsx';
+import { withGate } from '@/lib/gate-key.ts'; // F-29 (D3): the unfurl image URL carries the gate state
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
@@ -52,7 +53,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     title: `${r.recap.label} · @${r.handle} · Stock Social`,
     alternates: { canonical: `/u/${r.handle}/month/${r.recap.ym}` }, // F-15 second half: untagged, one address
     description: monthDescription(r, whole),
-    openGraph: { images: [{ url: `/u/${r.handle}/month/${r.recap.ym}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: monthAlt(r, whole, month) }] },
+    openGraph: { images: [{ url: withGate(`/u/${r.handle}/month/${r.recap.ym}/opengraph-image`), width: 1200, height: 630, type: 'image/png', alt: monthAlt(r, whole, month) }] },
     ...(isPublicRecord(r.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
   };
 }
@@ -81,7 +82,7 @@ export default async function RecapPage({ params }: Params) {
   return (
     <main className="page month-page">{/* QA round 1 (finding 4): .month-page tightens on a phone (globals.css) */}
       <p>
-        <Link href={`/u/${handle}`}>← {RECORD_STRIP.link(handle)}</Link>{' '}
+        <Link href={`/u/${handle}`}><span aria-hidden="true">←</span> {RECORD_STRIP.link(handle)}</Link>{' '}
         {r.demo && <span className="badge demo" title={FL_DEMO}>Demo</span>}
         {isPublicRecord(r.state) && <Badge kind={r.state} />}
       </p>
@@ -95,6 +96,8 @@ export default async function RecapPage({ params }: Params) {
           {m.monthSoFar && <span>Month so far: not a complete month. Trades close through today.</span>}
         </p>
       ) : null}
+      {/* F-35 (UX lead user test, F3c): rows dated after now() are named here too while the month is still running. */}
+      {m.monthSoFar && (r.futureWaiting ?? 0) > 0 && <p className="muted small" data-excluded-future>{PROFILE.futureWaiting(r.futureWaiting!)}</p>}
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-month">
           <h2 id="this-month">This month</h2>
@@ -116,7 +119,7 @@ export default async function RecapPage({ params }: Params) {
           {/* QA round 2 (N8): two rows like the profile (since · connection, then last close · updated). */}
           {(recordRows(r.status, new Date()) ?? []).map((row, i) => <StatusText key={i} segments={segments(row)} kind={i ? 'record2' : 'record'} />)}
           {/* F-12: the record strip, as on the trade page (TR-3: only the importing line while an import runs). */}
-          <RecordStrip strip={strip} />
+          <RecordStrip strip={strip} exclusions={{ n: r.excluded ?? 0, handle: r.handle }} /* F-21: the whole-record strip only */ />
         </section>
       </div>
       <div className="trade-grid">
@@ -140,7 +143,7 @@ export default async function RecapPage({ params }: Params) {
       <p className="muted small">Percentages only. Never sizes or prices.</p>
       <p className="muted small">{isPublicRecord(r.state) ? PUBLIC.recap : (r.excludingOptions ? FC4.monthFootShares : FL.monthFoot)[r.demo ? 'demo' : 'real'] /* QA round 1 (finding 12); FIXES-CYCLE4-PART2 (F4-4) */}</p>
       {!me && !r.demo && !isPublicRecord(r.state) && <JoinCta handle={handle} via="month" />}
-      <p><Link href="/">← Feed</Link></p>
+      <p><Link href="/"><span aria-hidden="true">←</span> Feed</Link></p>
     </main>
   );
 }

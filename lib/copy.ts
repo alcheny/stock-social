@@ -81,6 +81,10 @@ export const PROFILE = {
   // users.excluded_positions) and names both causes without saying which applied.
   excludedPositions: (n: number) => `${counted(n, 'sell')} excluded: a short sale or earlier history means no buy in the imported history can be matched to ${n === 1 ? 'it' : 'them'} for certain.`,
   excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
+  // F-35: the profile's future line. The first sentence is excludedFuture's (kept, pinned); the second describes this
+  // line only, so it stays true whatever happens once the date passes (a sell with no entry is counted, not shown).
+  futureWaits: (n: number) => (n === 1 ? 'It waits on this line until that date passes.' : 'They wait on this line until their dates pass.'),
+  futureWaiting: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker. ${n === 1 ? 'It waits on this line until that date passes.' : 'They wait on this line until their dates pass.'}`,
   // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
   // ponytail: shown on the public profile only; the owner's /me/record line shows excluded_positions alone — fix: add
   // excluded_corporate to the session user row (lib/session.ts, protected) and a line there.
@@ -866,7 +870,7 @@ export function allCopy(): string[] {
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
   [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy(), /* OPTIONS */ OPTIONS,
-    /* F-16 */ HIDDEN_NOTICE, RETIRED_NOTICE, HIDDEN_OWN, TRUST_LINE, TAKEDOWN].forEach(walk);
+    /* F-16 */ HIDDEN_NOTICE, RETIRED_NOTICE, HIDDEN_OWN, TRUST_LINE, TAKEDOWN, /* F-29 */ F29].forEach(walk);
   return out;
 }
 
@@ -974,7 +978,7 @@ export const BILLING = {
   refunded: 'Your subscription ended with a refund.',
   downloadHelp: 'A JSON file with your saved views, notes and subscription status.',
   deleteBilling: 'If you subscribe to Record tools, deleting cancels it first; you are not charged again. We keep only the record of what you agreed to at checkout, for 3 years, without your name or email.',
-  deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
+  deleteNotes: "Other subscribers' private notes about you are deleted and you are removed from their saved views.", // C5-36: shown only when it applies (lib/delete.ts#notesLineApplies), so no "if you publish"
 } as const;
 export { billingDate };
 // ---- F-25 one link rule for trade rows (docs/features/F-25-one-link-rule-for-trade-rows.md). Before PUBLIC, which reads
@@ -1131,20 +1135,20 @@ export const HIDDEN_OWN = {
   settings: 'Settings',
   download: 'Download my data',
 } as const;
-// The anti-impersonation line (plan §5.4, v2 B7; app/trust-foot.tsx). Draft: the owner flips `approved` after approving
-// the wording (F-16 Open questions); until then it renders only in the sandbox (lib/takedown.ts#impersonationLineShown).
+// The anti-impersonation line (plan §5.4, v2 B7; app/trust-foot.tsx). Approved by the owner as drafted (OD 2.18,
+// 2026-11-02), so it renders on every deploy (lib/takedown.ts#impersonationLineShown).
 // Plain text, names no platform, says nothing about identity or verification. Literally true while no record-based
 // message exists (the only mail is the sign-in link, LOGIN_MAIL).
 export const TRUST_LINE = {
-  approved: false,
+  approved: true,
   text: `${PRODUCT_NAME} never messages anyone about a trading record. Anyone who contacts you elsewhere using this profile isn't acting for ${PRODUCT_NAME}.`,
 } as const;
-// The notices and takedown page (plan §5.7; app/takedown/page.tsx). Draft until the owner flips `approved` (and sets
-// TAKEDOWN_CONTACT, a role mailbox). No legal-status wording, agent title or reply time (lib/f16-static.test.ts).
+// The notices and takedown page (plan §5.7; app/takedown/page.tsx). Wording approved by the owner as drafted (OD 2.18,
+// 2026-11-02); the draft banner is gone. The contact is env config (TAKEDOWN_CONTACT, a role mailbox): until it is set
+// the page says `unset`. No legal-status wording, agent title or reply time (lib/f16-static.test.ts).
 export const TAKEDOWN = {
-  approved: false,
+  approved: true,
   title: `Notices and takedown requests · ${PRODUCT_NAME}`,
-  draft: 'Draft: this wording has not been approved yet.',
   h1: 'Notices and takedown requests',
   lines: [
     `Use this page to tell us about something on ${PRODUCT_NAME} that you believe infringes your copyright, impersonates you or someone else, shares personal information or breaks the law.`,
@@ -1180,3 +1184,30 @@ export const FIXES_CYCLE4_PART2 = {
   homePublic: 'Records built from public filings are marked Public filing.',
 } as const;
 // end FIXES-CYCLE4-PART2
+// F-29 (docs/features/F-29-gated-options-wording.md; plan D1). Additive: OPTIONS.how stays the legal sentence for the open
+// gate. The interim /how sentence while optionsPublic() is false, signed by the AI legal committee at approval council
+// cycle 5 (docs/features/logs/F-29/legal-signoff.md). These words exactly: any change needs the committee's re-sign.
+export const F29 = {
+  howInterim: 'Option results are not shown on any record at present. Where option trades or open options were imported, the record shows how many, and its headline figures exclude options.',
+} as const;
+// end F-29
+
+// ---- F-21 · Exclusion counts beside the headline (docs/features/F-21-exclusion-counts-beside-the-headline.md; committee
+// docs/features/logs/F-21/committee-2026-11-02.md and the legal committee's conditions R1-R6). The only new copy: the
+// line, its heading, the shared-account reason and the signed options line (R3). Neutral words: never "hidden",
+// "removed" or a cause that blames the trader; the count is sells and option closes only ("trades"), never buys.
+export const EXCLUSIONS = {
+  // The profile's #excluded heading (R5: counted(), so "1 trade excluded from these figures").
+  title: (n: number) => `${counted(n, 'trade')} excluded from these figures`,
+  // The pane and strip link: the visible text is the accessible name, and it says where it goes (Q3, R5).
+  line: (n: number) => `${counted(n, 'trade')} excluded from these figures · reasons on the profile`,
+  // R6: never names or links the other profile.
+  excludedShared: (n: number) => n === 1
+    ? "1 trade excluded: its account is part of another profile's record."
+    : `${counted(n, 'trade')} excluded: their account is part of another profile's record.`,
+  // R3 (signed): with the options gate open, the long option closes, summed because the headline leaves them out.
+  optionsSummarized: (n: number) => n === 1
+    ? '1 option trade is summarized in its own row, outside these figures.'
+    : `${counted(n, 'option trade')} are summarized in their own row, outside these figures.`,
+} as const;
+// end F-21
