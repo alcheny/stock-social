@@ -554,7 +554,7 @@ body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pa
    block in the headline figures. Tokens only (colours come from .up / .down / .muted). */
 .open-also .nw, .open-line .nw, .strip-open .nw { white-space: nowrap; }
 .open-stats .open-line { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; }
-.strip-open { display: block; }
+.strip-open { display: block; white-space: normal; } /* its own block: wraps between parts, never inside a value (.nw) */
 .open-ticker p { overflow-wrap: anywhere; }
 /* F-6 (tester Medium 1, business lead D5): with open positions, both grids' big values share one size that fits a
    360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */

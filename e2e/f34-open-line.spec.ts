@@ -8,6 +8,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import postgres from 'postgres';
 import { feedLock } from './feed-lock.ts';
+import { startVendorFake } from './fakes/vendor.ts';
+import { vendorLock } from './vendor-lock.ts';
 
 const DAY = 86_400_000;
 const READ = new Date('2026-10-30T12:00:00Z');
@@ -93,14 +95,23 @@ test('F-34 AC1: the trade and month pages print withAsOf in the strip; descripti
 });
 
 test('F-34 AC5: the three images render from stored positions with no vendor call', async ({ request }) => {
-  const base = process.env.SNAPTRADE_BASE_URL!;
-  const before = (await (await request.get(`${base}/_stats`)).json()).requests as number;
-  for (const p of [`/u/${H}/opengraph-image`, `/u/${H}/trade/${H}-0/opengraph-image`, `/u/${H}/month/${ym}/opengraph-image`]) {
-    const r = await request.get(p);
-    expect(r.status(), p).toBe(200);
-    expect(r.headers()['content-type'], p).toContain('image/png');
+  // The vendor fake on the app's SNAPTRADE_BASE_URL port (as options.spec.ts starts it): it counts every vendor request.
+  const release = await vendorLock();
+  let vendor: Awaited<ReturnType<typeof startVendorFake>> | null = null;
+  try {
+    vendor = await startVendorFake(Number(process.env.VENDOR_FAKE_PORT ?? 4102));
+    const stats = async () => (await (await request.get(`${vendor!.base}/_stats`)).json()).requests as number;
+    const before = await stats();
+    for (const p of [`/u/${H}/opengraph-image`, `/u/${H}/trade/${H}-0/opengraph-image`, `/u/${H}/month/${ym}/opengraph-image`]) {
+      const r = await request.get(p);
+      expect(r.status(), p).toBe(200);
+      expect(r.headers()['content-type'], p).toContain('image/png');
+    }
+    expect(await stats()).toBe(before);
+  } finally {
+    await new Promise((r) => vendor?.server.close(r) ?? r(null));
+    await release();
   }
-  expect((await (await request.get(`${base}/_stats`)).json()).requests).toBe(before);
 });
 
 test('F-34 AC1/AC7 and BL-R2-3: the feed card and the pane print the line; 375/360/320 px checks', async ({ browser }) => {
@@ -118,7 +129,7 @@ test('F-34 AC1/AC7 and BL-R2-3: the feed card and the pane print the line; 375/3
     const row = `.row[data-handle="${H}"]`;
     const also = `${row} article.card p.open-also`;
     expect(await textOf(page, also)).toBe(WITH_AS_OF);
-    await expect(page.locator(also)).not.toContainText('Also open');
+    await expect(page.locator(also).first()).not.toContainText('Also open');
     await expect(page.locator(`${also} b`).first()).toHaveClass('down');
     expect(await page.locator(`${also} b`).first().evaluate((el) => getComputedStyle(el).fontSize)).toBe(await page.evaluate(() => getComputedStyle(document.body).fontSize));
     expect(await textOf(page, `${row} section.pane [data-open-line]`)).toBe(TEXT);
