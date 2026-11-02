@@ -39,6 +39,11 @@ dbTest('C5-43 (a): the status facts read a constant number of closed_trades and 
   const tag = tagOf('c5a');
   const mk = async (n: string) => (await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${n}` })).id;
   const [big, small] = [await mk('b'), await mk('s')];
+  // Fictional filler traders, so the tables look like a feed's (many records) rather than one record: on a table that
+  // is almost all one trader, a sequential scan that stops at the first match is the planner's legitimate cheap choice
+  // for the small record, and says nothing about the council's 2 M-close scale (CI's fresh database showed it).
+  const fillers: number[] = [];
+  for (let k = 0; k < 12; k++) fillers.push(await mk(`f${k}`));
   const N = 3000;
   try {
     // The big record: N closes and 2N activities on two accounts, with a consented connection listing both (the
@@ -56,6 +61,12 @@ dbTest('C5-43 (a): the status facts read a constant number of closed_trades and 
         select ${u}, ${`${tag}-${u}-s`} || i, 'a', 'AAA', now() - interval '300 days' + i * interval '1 minute', now() - interval '200 days' + i * interval '1 minute', 0.01, 1, true
         from generate_series(1, ${n}) i`;
     }
+    await sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, fee, executed_at, raw)
+      select f, 'snaptrade', ${`${tag}-f-`} || f || '-' || i, ${`${tag}-f-`} || f, 'AAA', 'BUY', 1, 1, 0, now() - interval '400 days' + i * interval '1 minute', '{}'
+      from unnest(${fillers}::int[]) f, generate_series(1, 4000) i`;
+    await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+      select f, ${`${tag}-f-`} || f || '-s' || i, 'a', 'AAA', now() - interval '300 days' + i * interval '1 minute', now() - interval '200 days' + i * interval '1 minute', 0.01, 1, true
+      from unnest(${fillers}::int[]) f, generate_series(1, 2000) i`;
     await sql`analyze closed_trades`;
     await sql`analyze activities`;
     // Results: the same facts the old whole-record read gave (first entry, last close, account count).
@@ -78,7 +89,7 @@ dbTest('C5-43 (a): the status facts read a constant number of closed_trades and 
     assert.equal(one.closed_trades ?? 0, two.closed_trades ?? 0, 'closed_trades: the same for 3 and 3,000 closes');
     assert.ok((one.activities ?? 0) <= (two.activities ?? 0) + 4, `activities: one more account, not more rows (${one.activities} vs ${two.activities})`);
   } finally {
-    await sql`delete from users where id in (${big}, ${small})`;
+    await sql`delete from users where id in ${sql([big, small, ...fillers])}`;
     await sql`delete from broker_accounts where account_id like ${`${tag}-%`}`;
   }
 });
