@@ -52,8 +52,11 @@ test('packed points round-trip in list order with their row index; size stays sm
   const packed = packPoints([t('1', 1, 0.123456789123), t('2', 3, -0.05), t('3', 2, 0)]);
   const back = unpackPoints(packed);
   assert.deepEqual(back.map((p) => [p.id, p.index]), [['2', 0], ['3', 1], ['1', 2]]);
-  assert.equal(back[2].returnPct, 0.12345679);
-  assert.equal(back[2].holdingDays, 1.23);
-  assert.equal(back[0].closedAt.toISOString(), '2024-01-03T00:00:00.000Z');
+  // F-23: the printed precision only: the return at 1 decimal of a percent, hold days at 1 decimal, the close as its
+  // UTC day (one close on the day: drawn at its middle).
+  assert.equal(back[2].returnPct, 0.123);
+  assert.equal(back[2].holdingDays, 1.2);
+  assert.equal(packed[0][3], Date.UTC(2024, 0, 3) / 86_400_000);
+  assert.equal(back[0].closedAt.toISOString(), '2024-01-03T12:00:00.000Z');
   assert.ok(JSON.stringify(packed).length / packed.length < 60);
 });

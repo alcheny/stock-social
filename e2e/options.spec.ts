@@ -19,7 +19,7 @@ import { startVendorFake, type FakeOptionRow } from './fakes/vendor.ts';
 import { vendorLock } from './vendor-lock.ts';
 import { OpenOptionRows, OpenPositionsBlock, OptionsLines, OptionTradesSection, PaneOptions, ShareTradesLabel, UnsupportedLine } from '../app/u/[handle]/options-block.tsx';
 import { PerformanceChart } from '../app/u/[handle]/chart.tsx';
-import { packPoints } from '../lib/paging.ts';
+import { profileChart } from '../lib/chart-series.ts'; // F-23
 import { RecordCardImage } from '../app/u/[handle]/record-card-image.tsx';
 import { recordCard } from '../lib/record-card.ts';
 import { OPTIONS } from '../lib/copy.ts';
@@ -67,8 +67,8 @@ test('AC17: signed out, the demo trader with options shows the "Excluding option
   const html = await page.content();
   const description = (await page.locator('meta[name="description"]').getAttribute('content')) ?? '';
   const alt = (await page.locator('meta[property="og:image:alt"]').first().getAttribute('content')) ?? '';
-  const pane = await (await request.get('/u/yolo_yuki/pane')).text();
-  const chart = await (await request.get('/u/yolo_yuki/pane-chart')).text();
+  const pane = await (await request.get('/u/yolo_yuki/pane?v=2')).text();
+  const chart = await (await request.get('/u/yolo_yuki/pane-chart?v=2')).text();
   const { writeDisplayLog } = await import('../lib/display-log.ts');
   await writeDisplayLog({ ids: [u.id] });
   const logRows = await sql`select options_line, created_at from display_log where user_id = ${u.id} order by day desc`;
@@ -361,10 +361,11 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`fix round 3 item 5 (${scheme}): with the label the chart caption gets " · excluding options"; without options it is unchanged`, async ({ page }) => {
     const now = new Date('2026-11-01T12:00:00Z');
     // The chart draws from 2 closes (the pane's own chart component).
-    const points = packPoints([1, 2].map((i) => ({ id: String(i), symbol: 'ABC', returnPct: 0.01 * i, closedAt: new Date(now.getTime() - i * DAY), holdingDays: 1, thesis: null })));
-    await mount(page, [h(PerformanceChart, { points, now, shareOnly: true })], scheme);
+    // F-23: the chart takes the server-packed series (the profile's profileChart, the pane's paneChart).
+    const chart = profileChart([1, 2].map((i) => ({ id: String(i), symbol: 'ABC', returnPct: 0.01 * i, closedAt: new Date(now.getTime() - i * DAY), holdingDays: 1, thesis: null })), now);
+    await mount(page, [h(PerformanceChart, { chart, now, shareOnly: true })], scheme);
     await expect(page.locator('figcaption')).toHaveText('Return if every trade were the same size · excluding options');
-    await mount(page, [h(PerformanceChart, { points, now })], scheme);
+    await mount(page, [h(PerformanceChart, { chart, now })], scheme);
     await expect(page.locator('figcaption')).toHaveText('Return if every trade were the same size');
     // Zero option counts: the pane's option parts render nothing.
     expect(renderToStaticMarkup(h('div', null, h(ShareTradesLabel, { show: paneView({ gate: 'closed', counts: counts() }).label }), h(PaneOptions, { v: paneView({ gate: 'closed', counts: counts() }) })))).toBe('<div></div>');

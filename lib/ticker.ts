@@ -1,5 +1,6 @@
 import { confidence, evidenceLine, pct, rangeText, stats, type Confidence } from './trades.ts';
 // FIXES-LABELS: D-03 / D-07 copy builders read the one copy block.
+import { wireDay } from './public-wire.ts'; // F-23
 import { FIXES_LABELS, type TrustKind } from './copy.ts';
 import { counted } from './format.ts';
 
@@ -291,7 +292,9 @@ export function buildSitemapEntries(rows: SitemapRow[], baseUrl: string): Sitema
     .slice(0, SITEMAP_LIMIT)
     .map((r): SitemapEntry => {
       const url = `${base}/t/${encodeURIComponent(r.symbol)}`;
-      return Number.isNaN(r.lastClosedAt.getTime()) ? { url } : { url, lastModified: r.lastClosedAt };
+      // F-23 (review of #97): the newest close's UTC day, never its time (with /t/<symbol> listing closes by handle and
+      // day, a time to the millisecond named a lone trader's exact close).
+      return Number.isNaN(r.lastClosedAt.getTime()) ? { url } : { url, lastModified: new Date(wireDay(r.lastClosedAt) * 86_400_000) };
     });
   return [{ url: `${base}/` }, { url: `${base}/t` }, ...tickers];
 }

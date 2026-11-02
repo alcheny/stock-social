@@ -378,7 +378,7 @@ test('AC5 + AC6: the chart\'s ends and at-rest subline, a 2020 close with its ye
   await expect(ends).toHaveCount(1);
   await expect(fig.locator('figcaption .chart-ends')).toHaveCount(0);
   await expect(ends.locator('time')).toHaveText(['May 30, 2020', dateText(lastClose, now)]);
-  await expect(ends.locator('time').first()).toHaveAttribute('datetime', OLD_CLOSE.toISOString());
+  await expect(ends.locator('time').first()).toHaveAttribute('datetime', OLD_CLOSE.toISOString().slice(0, 10)); // F-23: the UTC day
   await expect(ends.locator('.sr-only')).toHaveText(`First close May 30, 2020, last close ${dateText(lastClose, now)}`);
   // Scrubbing keeps the numeric date.
   await page.locator('.chart-stack').focus();
