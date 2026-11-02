@@ -136,7 +136,7 @@ protected-files session, merged by the orchestrator once green and independently
 
 | Decision | Covered by | Kind |
 |---|---|---|
-| Chart precision above ±100% | F-23 follow-up (F-23 session; dated line) | code |
+| Chart precision above ±100% | F-23 owner decision, merged in #105 | none |
 | Held-sells wording | **F6-1** | copy |
 | Protected-file PRs merged by the orchestrator when green and reviewed | protected-files session | protected |
 | Development resumed; the 60% weekly cap applied to last week only | DECISIONS entry | none |
