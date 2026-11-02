@@ -230,3 +230,14 @@ test('property (3,000 seeded cases, engineer round 2): a transfer out (whole, be
   }
   if (!process.env.FUZZ_SEED) assert.ok(compared > 200, `the cases reach sells drawing only older lots (${compared})`);
 });
+
+test('independent review: one share moved in and one moved out never turns a recorded loss into a count, and a same-instant in and out give the same result in either id order', () => {
+  const r = accounted([act('BUY', 100, 100, 0), act('SELL', 100, 40, 40)], [transfer(20, 1), transfer(21, -1)]);
+  assert.equal(r.trades.length, 1);
+  near(r.trades[0].returnPct, -0.6);
+  assert.equal(r.transfersOut, 1);
+  const tie = (inId: string, outId: string) => matchTrades([act('BUY', 100, 100, 0, { externalId: 'b' }), act('SELL', 50, 40, 40, { externalId: 's' })],
+    [transfer(20, 5, { externalId: inId }), transfer(20, -5, { externalId: outId })]);
+  assert.deepEqual(tie('x1', 'x2'), tie('x2', 'x1'));
+  assert.equal(tie('x1', 'x2').trades.length, 1);
+});

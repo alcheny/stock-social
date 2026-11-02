@@ -180,7 +180,9 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // F3-1: an unusable sell in a pair with no stored activity is never replayed above; it is still counted.
     for (const ca of actions) if (ca.kind === 'unpriceable' && ca.reason === 'trade' && ca.side === 'SELL' && !flushed.has(pairKey(ca.accountId, ca.symbol))) excludedCorporate++;
     // F-22: a transfer out of a pair with no stored activity is never replayed above; it is still counted.
-    for (const ca of actions) if (isTransferOut(ca) && !flushed.has(pairKey(ca.accountId, ca.symbol))) transfersOut++;
+    // Independent review: never in an account marked as another profile's (its activities are left out here too).
+    const marked = new Set((await tx`select account_id from shared_account_marks where user_id = ${userId}`).map((r) => r.account_id as string));
+    for (const ca of actions) if (isTransferOut(ca) && !flushed.has(pairKey(ca.accountId, ca.symbol)) && !marked.has(ca.accountId)) transfersOut++;
     const setAside = live.filter((k) => !attachedIds.has(k.sell_id as string));
     if (setAside.length) {
       await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status, ...thesisMeta(k as unknown as KeptThesis) })))}

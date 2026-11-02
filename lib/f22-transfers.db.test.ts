@@ -66,3 +66,16 @@ dbTest('the loader: an _OUT row with units above 0 contradicts its type and is r
     assert.deepEqual(await s.counters(), { excluded_transfer: 2, excluded_transferred_out: 1, sells_partly_transferred: 0, excluded_corporate: 0 });
   } finally { await s.cleanup(); }
 });
+
+dbTest('independent review: a transfer out in an account marked as another profile\'s is not counted on this one', async () => {
+  const s = await setup();
+  try {
+    const acc = (s.vendor('o', 'EXTERNAL_ASSET_TRANSFER_OUT', 20, -5, 'SHR')[0] as { accountId: string }).accountId;
+    await s.insertCa(s.vendor('o', 'EXTERNAL_ASSET_TRANSFER_OUT', 20, -5, 'SHR'));
+    await s.rebuild();
+    assert.equal((await s.counters()).excluded_transferred_out, 1, 'counted while the account is unmarked');
+    await s.sql`insert into shared_account_marks (account_id, user_id) values (${acc}, ${s.u.id})`;
+    await s.rebuild();
+    assert.equal((await s.counters()).excluded_transferred_out, 0, 'not counted once marked');
+  } finally { await s.cleanup(); }
+});

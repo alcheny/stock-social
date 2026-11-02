@@ -351,17 +351,18 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
             transfersOut++;
             if (!b.lots.length) { if (moved?.at !== e.at) addGap(b, -ca.units); } // nothing recorded to move: the gap
             else {
-              const h = held(b.lots), f = b.lots[0];
+              // Independent review: alike is judged over the recorded lots only. Moved-in lots stay last and have no basis,
+              // so they change no recorded return (one share moved in, then one out, would otherwise taint the rest).
+              const h = held(b.lots), rec = b.lots.filter((l) => !l.movedIn), f = rec[0];
               const whole = Math.abs(h + ca.units) <= RATIO_TOLERANCE * Math.max(1, h);
               // Business lead (round 1): price, fee, state; not the opening date. Which alike lot left changes no return, only
               // the holding period, which follows this record's own first-in-first-out order (/how says so).
-              const alike = b.lots.every((l) => l.price === f.price && l.feePerUnit === f.feePerUnit && l.verified === f.verified && !!l.tainted === !!f.tainted && l.cause === f.cause && !!l.movedIn === !!f.movedIn);
+              const alike = rec.every((l) => l.price === f.price && l.feePerUnit === f.feePerUnit && l.verified === f.verified && !!l.tainted === !!f.tainted && l.cause === f.cause);
               addGap(b, removeOldest(b.lots, -ca.units)); // C4-2: more out than held leaves the gap, as today
               if (whole) b.lots.length = 0; // engineer review: no sliver below the tolerance stays behind
               // ponytail: with mixed lots, moving even one share out leaves the rest counted (their sells "transfer"), so a
-              // trader holding a loser bought at several prices can still turn its close into a count; so can one share
-              // moved in and then one out (the moved-in lot makes the lots mixed) — fix: the vendor's lot-level transfer
-              // detail (which shares left), when it exists.
+              // trader holding a loser bought at several prices can still turn its close into a count — fix: the vendor's
+              // lot-level transfer detail (which shares left), when it exists.
               else if (!alike) taintBy(b.lots, ca);
             }
           }
