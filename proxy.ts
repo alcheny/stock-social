@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { contentSecurityPolicy, portalFrameOrigins } from './lib/csp.ts';
+import { ATTEST_KEEP_COOKIE, ATTEST_KEEP_PATH } from './lib/auth/attest-keep.ts'; // FIXES-CYCLE5 (F5-7)
 
 // Security hardening (2026-11-01), F27: a fresh nonce per request and the Content-Security-Policy built from it
 // (lib/csp.ts), on the request (Next reads the nonce from it and puts it on its own scripts) and on the response.
@@ -11,8 +12,18 @@ export function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('Content-Security-Policy', csp);
+  // FIXES-CYCLE5 (F5-7; legal committee 2026-11-02 A5): the kept 18+ tick is read only by the render the sign-in
+  // action's own bounce makes (a POST to /login). Any other /login request (a reload, a link, a back navigation) never
+  // sees it: it is removed from the request and cleared in the response, so the box is ticked at most once.
+  const dropTick = request.method !== 'POST' && request.nextUrl.pathname === ATTEST_KEEP_PATH && request.cookies.has(ATTEST_KEEP_COOKIE);
+  if (dropTick) {
+    request.cookies.delete(ATTEST_KEEP_COOKIE);
+    requestHeaders.set('cookie', request.cookies.toString());
+  }
+  // end FIXES-CYCLE5
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set('Content-Security-Policy', csp);
+  if (dropTick) response.cookies.set(ATTEST_KEEP_COOKIE, '', { httpOnly: true, sameSite: 'lax', path: ATTEST_KEEP_PATH, maxAge: 0, secure: https }); // FIXES-CYCLE5 (F5-7)
   return response;
 }
 

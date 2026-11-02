@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { FOLLOW } from '@/lib/copy.ts';
+import { FC5, FOLLOW } from '@/lib/copy.ts';
 import { LIKES } from '@/lib/copy.ts';
 import { notInterested, rejectTradeAction, undoNotInterested, undoRejectTradeAction } from './discovery-actions.ts';
-import { UNDO_MS } from './follow-button.tsx';
+// FIXES-CYCLE5 (F5-21, C5-24, F3-24): the hide bar waits 20 s for the reader (WCAG 2.2.1); the follow bar keeps UNDO_MS.
+export const HIDE_UNDO_MS = 20_000;
 
 // F-2 PR-2 (plan demand B): "Not interested" on the feed, signed in. The trader's cards drop in place (a style rule,
 // so a page appended meanwhile drops them too; the server leaves them out of later pages); nothing else moves: the
@@ -53,16 +54,19 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
     (f ?? document.querySelector<HTMLElement>('.feed .row .card .who'))?.focus({ preventScroll: true });
   };
   const close = () => { clearTimeout(timer.current); const had = !!document.activeElement?.closest('.hide-bar'); setBar(null); if (had) toCard(); };
-  const run = () => { clearTimeout(timer.current); timer.current = window.setTimeout(close, UNDO_MS); };
+  const run = () => { clearTimeout(timer.current); timer.current = window.setTimeout(close, HIDE_UNDO_MS); };
+  // FIXES-CYCLE5 (F5-21): the bar pauses while the pointer is over it or pressed on it, or after any focusin inside it
+  // that the bar did not make itself (Tab, Shift+Tab, a tap on a button, a screen reader's focus move). The hide's own
+  // move of focus to Undo (`selfFocus`) does not pause it, so a reader who does nothing gets the full 20 s, then
+  // close() → toCard(). When the pointer or focus leaves after a pause, a fresh 20 s starts.
   const hover = useRef(false);
-  const pressed = useRef(false); // a pointer went down on the bar since it opened
-  // Fix round 1 (UX 3): focus pauses the bar only when the reader is on the keyboard; on touch, focus moved to Undo by
-  // the hide itself no longer holds it (it times out like the mouse path unless the finger touches the bar).
-  const keys = useRef(false);
-  const paused = () => hover.current || pressed.current || (keys.current && !!undoBtn.current?.matches(':focus-visible'));
+  const pressed = useRef(false);
+  const engaged = useRef(false);
+  const selfFocus = useRef(false);
+  const paused = () => hover.current || pressed.current || engaged.current;
   const show = (b: Bar | null) => {
     clearTimeout(timer.current);
-    pressed.current = false;
+    hover.current = pressed.current = engaged.current = false;
     setBar(b);
     if (b) run();
   };
@@ -91,10 +95,8 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
       const r = await notInterested(handle).catch(() => ({ ok: false }));
       if (!r.ok) { setHidden((h) => h.filter((x) => x !== handle)); show({ handle, text: FOLLOW.failed, undo: false }); }
     };
-    const onKey = () => { keys.current = true; }, onPtr = () => { keys.current = false; };
-    addEventListener('keydown', onKey, true); addEventListener('pointerdown', onPtr, true);
     addEventListener('ss:hide', onHide);
-    return () => { removeEventListener('keydown', onKey, true); removeEventListener('pointerdown', onPtr, true); removeEventListener('ss:hide', onHide); clearTimeout(timer.current); };
+    return () => { removeEventListener('ss:hide', onHide); clearTimeout(timer.current); };
   }, []);
   useLayoutEffect(() => {
     const feed = document.querySelector('.feed'), a = anchor.current;
@@ -103,7 +105,12 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
     refocus.current?.focus({ preventScroll: true });
     refocus.current = null;
   }, [hidden, trades]);
-  useEffect(() => { if (bar?.undo) { undoBtn.current?.focus({ preventScroll: true }); if (paused()) clearTimeout(timer.current); } }, [bar]);
+  useEffect(() => {
+    if (!bar?.undo || !undoBtn.current || document.activeElement === undoBtn.current) return;
+    selfFocus.current = true; // FIXES-CYCLE5 (F5-21): this focus is the bar's own, not the reader's
+    undoBtn.current.focus({ preventScroll: true });
+    selfFocus.current = false;
+  }, [bar]);
   const undo = async (handle: string, trade?: string, key = trade) => {
     show(null);
     if (trade) {
@@ -124,17 +131,23 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
   };
   const pause = () => clearTimeout(timer.current);
   const resume = () => { if (bar && !paused()) run(); };
+  const barEl = useRef<HTMLDivElement>(null);
   return (
     <>
       <style>{hidden.map((h) => `${scope} [data-handle="${h}"]{display:none}`).join('') + trades.map((t) => `${scope} > .row[data-trade="${t}"]{display:none}`).join('')
         + (hidden.length ? `:is(${scope} .suggest, .suggest${scope}):not(:has(> .suggest-in > ul > li${hidden.map((h) => `:not([data-handle="${h}"])`).join('')})){display:none}` : '')}</style>
-      <div className="hide-bar" role="status"
+      {/* FIXES-CYCLE5 (F5-21): Tab and Shift+Tab move through the bar's controls and out (they pause it while inside);
+          Esc closes it onto the next card; Dismiss closes it the same way, as the timeout does. */}
+      <div className="hide-bar" role="status" ref={barEl}
         onPointerEnter={(e) => { if (e.pointerType === 'mouse') { hover.current = true; pause(); } }}
-        onPointerLeave={() => { hover.current = false; resume(); }}
+        onPointerLeave={() => { hover.current = false; pressed.current = false; resume(); }}
         onPointerDown={() => { pressed.current = true; pause(); }}
-        onFocus={() => { if (paused()) pause(); }} onBlur={() => setTimeout(resume)}
-        onKeyDown={(e) => { if (e.key === 'Escape' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); close(); } }}>
-        {bar && <p>{bar.text}{bar.undo && <> <button type="button" ref={undoBtn} onClick={() => void undo(bar.handle, bar.trade, bar.key)}>{FOLLOW.undo}</button></>}</p>}
+        onPointerUp={(e) => { if (e.pointerType !== 'mouse') { pressed.current = false; resume(); } }}
+        onFocus={() => { if (selfFocus.current) return; engaged.current = true; pause(); }}
+        onBlur={(e) => { if (e.relatedTarget instanceof Node && barEl.current?.contains(e.relatedTarget)) return; engaged.current = false; setTimeout(resume); }}
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } }}>
+        {bar && <p>{bar.text}{bar.undo && <> <button type="button" ref={undoBtn} onClick={() => void undo(bar.handle, bar.trade, bar.key)}>{FOLLOW.undo}</button></>}
+          {' '}<button type="button" className="secondary bar-dismiss" style={{ minHeight: 44, minWidth: 44 }} onClick={() => { clearTimeout(timer.current); setBar(null); toCard(); }}>{FC5.dismiss}</button></p>}
       </div>
     </>
   );

@@ -218,13 +218,13 @@ test('F-2 PR-2: "Not interested" in the pane: the trader\'s cards drop in place,
     await expect.poll(async () => (await shown(page)).length).toBe(30);
     await expect.poll(async () => (await sql`select count(*)::int as n from viewer_exclusions x join users u on u.id = x.viewer_id where u.handle = ${me} and x.until > now()`)[0].n).toBe(0);
     await expect(row.locator('.pane .more-menu summary')).toBeFocused(); // fix round 1: back on the control the reader used
-    // Hide again and let the 5 s pass: the bar goes, focus lands on a card; then page 2 arrives without x, in order.
+    // Hide again and let the 20 s pass (FIXES-CYCLE5 F5-21): the bar goes, focus lands on a card; then page 2 arrives without x, in order.
     await row.evaluate((el) => el.scrollIntoView());
     await row.locator('.pane .more-menu summary').click();
     await row.getByRole('button', { name: `Not interested in @${x}` }).click();
     await expect(bar).toHaveText(/Hidden for 90 days\./);
     await expect.poll(async () => (await rowsOf(sql, me)).exclusions).toBe(1);
-    await page.waitForTimeout(5_300);
+    await page.waitForTimeout(20_300); // FIXES-CYCLE5 (F5-21): the hide bar waits HIDE_UNDO_MS (20 s); the follow bar keeps UNDO_MS
     await expect(bar).toHaveText('');
     await expect(page.locator('.feed .card .who:focus')).toHaveCount(1);
     await page.evaluate(() => { const v = [...document.querySelectorAll<HTMLElement>('.feed > .row')].filter((r) => r.offsetParent); v[v.length - 5].scrollIntoView(); });

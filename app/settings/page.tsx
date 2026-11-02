@@ -6,6 +6,7 @@ import { BILLING, FOLLOW, PERSONALIZE, RECORD_TOOLS, SETTINGS } from '@/lib/copy
 import { deleteProfile, signOut } from '../auth/actions.ts';
 import { hasSubscribed } from '@/lib/billing.ts';
 import { notesLineApplies } from '@/lib/delete.ts';
+import { FocusHeading } from '../connect/result/focus-heading.tsx'; // FIXES-CYCLE5 (F5-23)
 
 export const metadata: Metadata = { title: `${SETTINGS.title} · Stock Social`, robots: { index: false, follow: false } };
 
@@ -31,7 +32,9 @@ export default async function Settings({ searchParams }: { searchParams?: Promis
       <h2>{SETTINGS.deleteTitle}</h2>
       {confirm ? (
         <>
-          <p role="alert"><b>{SETTINGS.confirm}</b></p>
+          {/* FIXES-CYCLE5 (F5-23, C5-26): step 2 lands on its warning, not on the delete button; the next Tab reaches it. */}
+          <p id="delete-confirm" role="alert" tabIndex={-1}><b>{SETTINGS.confirm}</b></p>
+          <FocusHeading id="delete-confirm" />
           <form action={deleteProfile}><button className="wide" data-testid="delete-final">{SETTINGS.deleteAction}</button></form>
           <p><Link className="button wide secondary" href={`/u/${me.handle}`}>{SETTINGS.keep}</Link></p>
         </>

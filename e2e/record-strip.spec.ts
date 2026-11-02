@@ -197,7 +197,7 @@ test('F-12 AC1/AC6: month pages show the same fields for a losing and a winning 
       return [parseFloat(getComputedStyle(fig).fontSize), parseFloat(getComputedStyle(count).fontSize)];
     });
     expect(sizes[0]).toBeGreaterThan(sizes[1]);
-    shape.push(await page.locator('main h2').allInnerTexts().then((hs) => hs.map((h) => h.replace(/@\w+/, '@h').replace(/\s*New record$/, '').replace(/^(Best|Worst) trade$|^Only trade this month$/, 'pick'))));
+    shape.push(await page.locator('main h2').allInnerTexts().then((hs) => hs.map((h) => h.replace(/@\w+/, '@h').replace(/\s*New record$/, '').replace(/^(Best|Worst) trade$|^Only trade this month$|^(Highest|Lowest) return$/, 'pick') /* FIXES-CYCLE5 (F5-10) */)));
     const alt = (await page.locator('meta[property="og:image:alt"]').getAttribute('content'))!;
     expect(alt).toContain(DISCLAIMER);
     expect(alt).not.toMatch(/win rate/i);

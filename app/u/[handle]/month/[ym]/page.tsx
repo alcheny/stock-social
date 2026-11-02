@@ -10,6 +10,7 @@ import { loadRecap } from '@/lib/recap-load.ts';
 import { monthAlt, monthCountText, monthDescription, monthStripInput, recordStripInput } from '@/lib/recap.ts';
 // FIXES-CYCLE4-PART2 (F4-4, C4-9): the month's options qualifier, count line, heading and foot.
 import { monthOptionsLine } from '@/lib/recap.ts';
+import { pickTitles } from '@/lib/recap.ts'; // FIXES-CYCLE5 (F5-10)
 import { FIXES_CYCLE4_PART2 as FC4, OPTIONS } from '@/lib/copy.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
 import { RecordStrip } from '@/app/record-strip.tsx';
@@ -61,6 +62,7 @@ export default async function RecapPage({ params }: Params) {
   const strip = recordStrip(recordStripInput(r), 'page');
   // The month's figures (average with its range, or Too early) under the same record-state rule: none while an import runs.
   const month = recordStrip(monthStripInput(r), 'figures');
+  const picks = pickTitles(m); // FIXES-CYCLE5 (F5-10)
   const link = (id: string) => `/u/${handle}/trade/${encodeURIComponent(id)}`;
   const Pick = ({ title, t }: { title: string; t: typeof m.best }) => (
     <section className="trade-card" aria-label={title}>
@@ -113,9 +115,8 @@ export default async function RecapPage({ params }: Params) {
           <RecordStrip strip={strip} />
         </section>
       </div>
-      <div className="trade-grid">
-        {m.count === 1 ? <Pick title="Only trade this month" t={m.best} /> : <><Pick title="Best trade" t={m.best} /><Pick title="Worst trade" t={m.worst} /></>}
-      </div>
+      {/* FIXES-CYCLE5 (F5-10): titled by sign (lib/recap.ts#pickTitles); none for a two-trade month. */}
+      {picks.length > 0 && <div className="trade-grid">{picks.map((p) => <Pick key={p.title} title={p.title} t={p.t} />)}</div>}
       <h2>{FC4.monthHeading /* FIXES-CYCLE4-PART2 (F4-4; business lead, POLICY F3a): every record, the F-7 form */}</h2>
       <ol className="small" style={{ listStyle: 'none', padding: 0 }}>
         {m.trades.map((t) => (

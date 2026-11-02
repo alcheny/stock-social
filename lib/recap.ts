@@ -3,6 +3,7 @@ import { confidence, evidenceLine, isNewRecord, rangeText, stats, type Confidenc
 import { stripFigures, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
 import { RECORD_STRIP, wholeRecordPreview, type RecordState } from './copy.ts';
 import { OPTIONS } from './copy.ts'; // FIXES-CYCLE4-PART2 (F4-4)
+import { FC5 } from './copy.ts'; // FIXES-CYCLE5 (F5-10)
 import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
 import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
@@ -116,3 +117,22 @@ export function latestRecapYm(trades: { closedAt: Date }[]): string | null {
   const d = new Date(Math.max(...trades.map((t) => t.closedAt.getTime())));
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
+
+// FIXES-CYCLE5 (F5-10, C5-20; legal committee 2026-11-02 2d): the month's picks, titled by what they are. A gain is
+// never "Worst trade" and a loss never "Best trade": the highest is "Best trade" only above 0, else "Highest return";
+// the lowest is "Worst trade" only below 0, else "Lowest return". One trade: shown once. Two trades: no picks, because
+// they would repeat the full list right below them (every close is still listed there, TR-1). The figure always prints
+// its sign, so a "Highest return" that is a loss still reads as one.
+// Build record (committee Round 3 item 10): the seed read on 2026-11-02 gives e2e/record-strip.spec.ts's compared months
+// as yolo_yuki 2026-09 (12 trades) and yolo_yuki 2026-10 (15 trades); neither is a two-trade month, so the no-repeat
+// rule ships.
+export type MonthPick<T> = { title: string; t: T };
+export function pickTitles<T extends { returnPct: number }>(m: { count: number; best: T; worst: T }): MonthPick<T>[] {
+  if (m.count === 1) return [{ title: 'Only trade this month', t: m.best }];
+  if (m.count === 2) return [];
+  return [
+    { title: m.best.returnPct > 0 ? 'Best trade' : FC5.highest, t: m.best },
+    { title: m.worst.returnPct < 0 ? 'Worst trade' : FC5.lowest, t: m.worst },
+  ];
+}
+// end FIXES-CYCLE5

@@ -6,9 +6,11 @@ import { currentUser } from '@/lib/session.ts';
 import { habits, insights, MIN_TRADES, sinceLast, visitDecision } from '@/lib/insights.ts';
 import { pct } from '@/lib/trades.ts';
 import { REASONS, REASON_LABEL, reflectionInsights, type Reason } from '@/lib/reflections.ts';
-import { RULE_KINDS, RULE_LABEL, ruleAdherence, ruleOutcomes, rulesByReason, ruleTrend, signedPct, tradesLabel, type RuleKind } from '@/lib/rules.ts';
+import { isRuleKind, RULE_KINDS, RULE_LABEL, ruleAdherence, ruleOutcomes, rulesByReason, ruleTrend, signedPct, tradesLabel, type RuleKind } from '@/lib/rules.ts';
 import { setReflection, setRule } from '@/app/actions.ts';
 import { Badge } from '../../ui.tsx';
+import { FC5 } from '@/lib/copy.ts'; // FIXES-CYCLE5 (F5-22)
+import { FocusHeading } from '../../connect/result/focus-heading.tsx'; // FIXES-CYCLE5 (F5-22)
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
 import { toneClass } from '../../open-rows.tsx';
@@ -19,9 +21,12 @@ const FEW = 'too few trades to say';
 // Fix #19 (cycle 2): tone by the printed sign ("0.0%" is flat, uncolored), shared with every other figure.
 const sign = toneClass;
 
-export default async function MyRecord() {
+export default async function MyRecord({ searchParams }: { searchParams?: Promise<{ rule?: string; did?: string }> }) {
   const me = await currentUser();
   if (!me) redirect('/login');
+  // FIXES-CYCLE5 (F5-22): the rule form just used (setRule's redirect), checked against the fixed kinds and verbs.
+  const sp = (await searchParams) ?? {};
+  const done = isRuleKind(sp.rule) && (sp.did === 'set' || sp.did === 'clear') ? { kind: sp.rule, did: sp.did } : null;
 
   const rows = await sql`select sell_id, symbol, return_pct, holding_days, closed_at, verified from closed_trades where user_id = ${me.id}`;
   const [v] = await sql`select record_first_viewed_at as first, record_last_viewed_at as last, record_prev_viewed_at as prev from users where id = ${me.id}`;
@@ -55,7 +60,7 @@ export default async function MyRecord() {
           <div className="rec-chips">
             {REASONS.map((x) => (
               <button key={x} type="submit" name="reason" value={cur === x ? '' : x} aria-pressed={cur === x} className={cur === x ? 'on' : ''}>
-                {REASON_LABEL[x]}{cur === x && <span className="sr-only"> Selected, tap to clear</span>}
+                {REASON_LABEL[x] /* FIXES-CYCLE5 (F5-22): aria-pressed already says it is selected; the extra sr-only text is gone */}
               </button>
             ))}
           </div>
@@ -211,8 +216,13 @@ export default async function MyRecord() {
           const br = byReason.find((x) => x.kind === kind);
           const label = rule ? RULE_LABEL[kind].replace('N', String(rule.days)) : RULE_LABEL[kind];
           return (
-            <section key={kind} className="rec-card" aria-label={RULE_LABEL[kind]}>
-              <h3>{label}</h3>
+            <section key={kind} id={`rule-${kind}`} className="rec-card" aria-label={RULE_LABEL[kind]}>
+              <h3 id={`rule-${kind}-h`} tabIndex={-1}>{label}</h3>
+              {/* FIXES-CYCLE5 (F5-22): what the form did, under the heading that takes focus. */}
+              {done?.kind === kind && (done.did === 'set' ? !!rule : !rule) && <>
+                <p role="status" className="small">{done.did === 'set' ? FC5.ruleSet(label) : FC5.ruleCleared}</p>
+                <FocusHeading id={`rule-${kind}-h`} />
+              </>}
               {rule && a && (a.enough ? <>
                 <p className="rec-big">{Math.round(a.share! * 100)}%</p>
                 <p className="muted small">{a.followed} of {a.applicable}</p>

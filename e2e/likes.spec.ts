@@ -329,7 +329,7 @@ test('F-2 PR-4 fix round 1: on touch the Undo bar times out after the reject swi
     await swipe(page, card, Math.round(w * 0.6));
     await expect(page.locator('.hide-bar')).toContainText('Trade hidden.');
     await expect(page.locator('.hide-bar').getByRole('button', { name: 'Undo' })).toBeFocused();
-    await page.waitForTimeout(6_000);
+    await page.waitForTimeout(21_000); // FIXES-CYCLE5 (F5-21): HIDE_UNDO_MS is 20 s (was 6 s past the 5 s limit)
     await expect(page.locator('.hide-bar p')).toHaveCount(0);
     // Without JavaScript, at 320: hide, then a line; like, then the likes list with its date whole.
     const p2 = await nojs.newPage();

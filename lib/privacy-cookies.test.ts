@@ -57,7 +57,7 @@ test('every cookie the code sets is in COOKIE_TABLE, with a purpose and a lifeti
 
 test('each write lasts no longer than its row says (or clears the cookie)', () => {
   const lifetimes = new Map(COOKIE_TABLE.map((r) => [r.name, r.lifetimeSeconds]));
-  const known: Record<string, number> = { 'SESSION_DAYS * 86_400': 30 * 86_400, '365 * 86_400': 365 * 86_400, EMAIL_COOKIE_SECONDS: 15 * 60, CONNECT_COOKIE_SECONDS: 24 * 3600, '3600': 3600, '600': 600, '0': 0 };
+  const known: Record<string, number> = { 'SESSION_DAYS * 86_400': 30 * 86_400, '365 * 86_400': 365 * 86_400, EMAIL_COOKIE_SECONDS: 15 * 60, CONNECT_COOKIE_SECONDS: 24 * 3600, '3600': 3600, '600': 600, '0': 0, ATTEST_KEEP_SECONDS: 30 /* FIXES-CYCLE5 (F5-7) */ };
   for (const w of writes) {
     if (w.maxAge === null) continue;
     const expr = w.maxAge.replace(/^email \? (\w+) : 0$/, '$1');
