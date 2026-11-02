@@ -4,8 +4,10 @@
 // declared by the trade page's generateMetadata (it depends on the record).
 import { ImageResponse } from 'next/og';
 import { notFound } from 'next/navigation';
+import { permanentRedirect } from 'next/navigation'; // F-25 (its own line: lib/f12-followups.test.ts pins the notFound import)
 import { DISCLAIMER } from '@/lib/share.ts';
-import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
+import { decodeSellId, legacyTradeKey, loadTradeShareByKey } from '@/lib/trade-share-load.ts';
+import { tradePageHref } from '@/lib/trade-href.ts';
 import { tradeBand, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
 import { disclaimerAtFoot } from '@/lib/stock-image.ts';
@@ -19,10 +21,14 @@ export const contentType = 'image/png';
 
 export default async function Card({ params }: { params: Promise<{ handle: string; sellId: string }> }) {
   const { handle, sellId } = await params;
-  const id = decodeSellId(sellId);
+  const id = decodeSellId(sellId); // F-25: the segment is the trade_key (the folder keeps its old name)
   // Cycle-2 fix #20: a missing trade (unknown handle or sellId, a deleted trader) is a 404, as the profile card is, never a
   // 200 picture saying "not found" that a link preview would show.
-  const t = id === null ? null : await loadTradeShare(handle, id);
+  const t = id === null ? null : await loadTradeShareByKey(handle, id);
+  // F-25: an old link's image (by the closing sell's vendor id) answers 308 to the trade_key image, under the page's
+  // visibility rule; anything else is a 404 with no redirect.
+  const legacy = !t && id !== null ? await legacyTradeKey(handle, id) : null;
+  if (legacy) permanentRedirect(`${tradePageHref({ handle, tradeKey: legacy })}/opengraph-image`);
   if (!t) notFound();
 
   // Fix round 6 (TR-3, POLICY F3): the label follows the trader's record state (recordStrip); no check-mark glyph.

@@ -13,6 +13,7 @@
 // same detectors on payloads in the pre-F-23 format and asserts that they flag them.
 import { expect, test, type Page } from '@playwright/test';
 import postgres from 'postgres';
+import { createHash } from 'node:crypto';
 import { feedLock } from './feed-lock.ts';
 import { wirePct, wireDay, isoDay, wireCurve } from '../lib/public-wire.ts';
 
@@ -290,7 +291,8 @@ test('F-23 AC 8 (+ AC 1/2): every signed-out response on the profile, pane, pane
   const found: string[] = [];
   const surfaces: Surface[] = [];
   const meta: { page: string; og: string[]; tw: string[]; title: string }[] = [];
-  const P = `/u/${H}`, TRADE = `${P}/trade/${encodeURIComponent(A)}`, MONTH = `${P}/month/${YM}`;
+  // F-25: the trade page's address is its trade_key (the old sell-id address answers 308 here).
+  const P = `/u/${H}`, TRADE = `${P}/trade/${createHash('sha256').update(A, 'utf8').digest('hex')}`, MONTH = `${P}/month/${YM}`;
   const pages: [string, boolean][] = [['/', false], [P, true], [`${P}?closes=100`, true], [TRADE, true], [MONTH, true]];
   for (const [url, fixture] of pages) {
     const html = await api.get(url);

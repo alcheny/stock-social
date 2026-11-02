@@ -1,14 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
 import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from '@/lib/copy.ts';
 import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { toneClass } from '@/lib/open-split.ts';
-import { tradePath } from '@/lib/share.ts';
-import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
+import { decodeSellId, legacyTradeKey, loadTradeShareByKey } from '@/lib/trade-share-load.ts';
+import { tradePageHref, withQuery } from '@/lib/trade-href.ts';
+import { metadata as notFoundMeta } from '../../../../not-found.tsx'; // F-25: one 404 title // F-25: the one trade URL builder
 import { tradeAlt, tradeDescription, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
 import { RecordStrip } from '@/app/record-strip.tsx';
@@ -25,13 +26,27 @@ import { loadOwnNote } from '@/lib/own-note.ts';
 
 const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 
+// F-25: the segment is the trade's trade_key (the folder keeps its old name; only the variable is renamed).
 type Params = { params: Promise<{ handle: string; sellId: string }> };
+type Search = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-// One read per request: generateMetadata and the page share it (committee round 3).
-const loadOnce = cache((handle: string, sellId: string) => {
-  const id = decodeSellId(sellId);
-  return id === null ? null : loadTradeShare(handle, id);
+// One read per request: generateMetadata and the page share it (committee round 3). F-25: by trade_key only; a hex key
+// decodes the same way in both, so the metadata and the page always agree on whether the trade exists.
+const loadOnce = cache((handle: string, segment: string) => {
+  const key = decodeSellId(segment);
+  return key === null ? null : loadTradeShareByKey(handle, key);
 });
+
+// F-25: an old link names the trade by its closing sell's vendor id. In the page body only (never generateMetadata, where
+// a redirect can stream as a soft one, and never proxy.ts): 308 to the trade_key URL with the request's query string
+// (so `?via=` survives), under the page's visibility rule; anything else falls through to notFound().
+async function legacyRedirect(p: Params['params'], q: Search['searchParams']) {
+  const { handle, sellId: segment } = await p;
+  const id = decodeSellId(segment);
+  const key = id === null ? null : await legacyTradeKey(handle, id);
+  if (!key) return;
+  permanentRedirect(withQuery(tradePageHref({ handle, tradeKey: key }), await q));
+}
 async function load(p: Params['params']) {
   const { handle, sellId } = await p;
   return loadOnce(handle, sellId);
@@ -40,35 +55,35 @@ async function load(p: Params['params']) {
 const held = (d: number) => (d < 1 ? 'Held under a day' : `Held ${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const { sellId } = await params;
   const t = await load(params);
-  if (!t) return {};
+  // F-25 (council cycle 5, merge hazard with F-16/F-17): a missing trade gets the 404 page's title here, without calling
+  // notFound(): the page body still runs, so a legacy sell-id URL reaches its 308 (legacyRedirect), and anything else 404s.
+  if (!t) return { title: notFoundMeta.title };
   // F-12: the strip's words. Fix round 6: "verified" only for a whole record from the broker; "demo" for demo data.
   // Reviewer fix (TR-3): no record stats while an import runs; the incomplete line first on a failed one. The image's
   // alt text is the strip in words, declared here because a file-level alt is static (F-4 pattern).
   const strip = recordStrip(tradeStripInput(t), 'image');
-  const url = `/u/${t.handle}/trade/${encodeURIComponent(sellId)}/opengraph-image`;
+  const href = tradePageHref({ handle: t.handle, tradeKey: t.tradeKey! });
+  const url = `${href}/opengraph-image`; // F-25: the image and the canonical link from the one builder
   return {
     title: `${t.symbol} ${pct(t.returnPct)} · @${t.handle} · Stock Social`,
-    alternates: { canonical: tradePath(t.handle, t.sellId!) }, // F-15 second half: the stored id's spelling, untagged
+    alternates: { canonical: href }, // F-15 second half: one spelling, untagged; F-25: the trade_key form
     description: tradeDescription(t, strip),
     openGraph: { images: [{ url, width: 1200, height: 630, type: 'image/png', alt: tradeAlt(t, strip) }] },
     ...(isPublicRecord(t.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
   };
 }
 
-export default async function TradePage({ params }: Params) {
+export default async function TradePage({ params, searchParams }: Params & Search) {
   const t = await load(params);
-  if (!t) notFound();
+  if (!t) { await legacyRedirect(params, searchParams); notFound(); }
   const me = await currentUser();
   // F-26: the author's held note (the author loader runs only for the trader; never in generateMetadata or the image).
   // Only the trader, signed in, on a trade with no published note and not a public filer's (filers post none).
   const own = me && me.handle === t.handle && !t.thesis && !isPublicRecord(t.state) ? await loadOwnNote(me.id, t.note.tradeId, t.handle) : null;
-  // F-15 second half: the stored sell id's one spelling (lib/share.ts#tradePath), the same as the canonical link.
-  // ponytail: this framework hands generateMetadata and the page the segment in different decoded forms, so a sell id
-  // holding '%' (or a double-encoded address) can load in one and not the other (a 200 page with the site title and no
-  // canonical, or a 404 with the trade's title) — fix: one decode rule for both in lib/trade-share-load.ts#decodeSellId.
-  const path = tradePath(t.handle, t.sellId!);
+  // F-15 second half: one spelling, the same as the canonical link. F-25: the trade_key form (lib/trade-href.ts); a hex
+  // key has no characters to decode, so the earlier '%'-in-a-sell-id mismatch between metadata and page cannot occur.
+  const path = tradePageHref({ handle: t.handle, tradeKey: t.tradeKey! });
   const closed = new Date(t.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   const whole = wholeRecordView({ state: t.state, demo: t.demo });
   const strip = recordStrip(tradeStripInput(t), 'page');
