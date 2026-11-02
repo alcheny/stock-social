@@ -148,10 +148,31 @@ test('importing the PROMO list runs nothing (no scan, no output, no exit)', () =
   assert.match(src, /if \(import\.meta\.main\) main\(\);/);
 });
 
-test('lib/moderation.ts imports PROMO rather than spelling its phrases', () => {
+test('lib/moderation.ts imports PROMO rather than spelling its phrases: the scanner\'s own list (F4-6)', async () => {
   const src = readFileSync(new URL('./moderation.ts', import.meta.url), 'utf8');
-  assert.match(src, /import \{ PROMO \} from '\.\.\/scripts\/compliance\.ts'/);
+  assert.match(src, /import \{ PROMO \} from '\.\/promo-words\.ts'/);
   assert.match(src, /SERVER-ONLY/);
+  const [{ PROMO: words }, { PROMO: scanned }] = await Promise.all([import('./promo-words.ts'), import('../scripts/compliance.ts')]);
+  assert.equal(words, scanned, 'one list: the scanner re-exports the module moderation imports');
+});
+
+test('F4-6: lib/moderation.ts\'s static import graph reaches no scripts/ file and no node:child_process or node:fs', () => {
+  const seen = new Set<string>();
+  const walk = (url: URL) => {
+    if (seen.has(url.href)) return;
+    seen.add(url.href);
+    const src = readFileSync(url, 'utf8');
+    for (const m of src.matchAll(/^\s*(?:import|export)\s[^;]*?from\s+'([^']+)'/gm)) {
+      const spec = m[1];
+      assert.ok(!/^(node:)?(child_process|fs)(\/|$)/.test(spec), `${url.pathname} imports ${spec}`);
+      if (!spec.startsWith('.')) continue;
+      const next = new URL(spec, url);
+      assert.ok(!next.pathname.includes('/scripts/'), `${url.pathname} imports ${spec}`);
+      walk(next);
+    }
+  };
+  walk(new URL('./moderation.ts', import.meta.url));
+  assert.ok([...seen].some((h) => h.endsWith('/lib/promo-words.ts')), 'the walk reaches the word list');
 });
 
 // ---- Fix round 1 ----
