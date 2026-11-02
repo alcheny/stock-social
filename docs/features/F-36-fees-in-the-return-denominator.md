@@ -1,7 +1,9 @@
 # F-36 · Fees in the return's denominator
 
-Status: blocked
-Blocked: waits for the owner's answer to cycle-5 owner question Q1 (amends protected DESIGN §2.5, the return formula); also builds after F-24 (PR #84) merges, since it edits `lib/trades.ts`, and its MATCHER_VERSION bump ships only once the cycle-5 chore C5-43(b) is on main
+Status: building
+Building: branch `claude/f36-fees-denominator` (2026-11-02). The owner answered cycle-5 Q1 yes on 2026-11-02; F-24 (#84)
+is on main. The PR merges only after chore C5-43(b) (matcher catch-up in the sync tick) is on main, and never in the
+same deploy as F-32 Part A's bump (the orchestrator orders the merges).
 Start conditions: the owner answers cycle-5 Q1 yes (`docs/direction/cycle5-2026-11-01.md` §8), and #84 merges. It is
 the matcher build slot, shared with F-32: one builder, separate version bumps that never ship in the same deploy.
 
@@ -29,6 +31,9 @@ conditions).
   worked example: paid 100 plus a fee of 10, sold for 165, +50%. A dated note says returns with entry fees were
   recalculated on that date, and it is kept as history (COMPLIANCE §12). Why: approved by the approval council (cycle
   5); UX, CO, VW, A11Y, LC.
+- 2026-11-02: Owner answered cycle-5 Q1 yes: a return divides by entry cost plus entry fees. The DESIGN §2.5 text
+  is amended by the protected-files session (DESIGN is protected); this build references that amendment. Why: owner
+  decision (cycle-5 Q1).
 - 2026-11-01: Changed figures arrive only through the normal rebuild. The trader gets no alert or "your return
   dropped" message. Why: approved by the approval council (cycle 5); TR.
 
@@ -49,7 +54,7 @@ conditions).
 - Changing how options compute their basis (already includes fees).
 
 ## Open questions
-- Owner (cycle-5 Q1): may the return divide by entry cost plus entry fees? The council recommends yes.
+- (Answered 2026-11-02, yes) Owner (cycle-5 Q1): may the return divide by entry cost plus entry fees?
 
 ## POLICY notes
 - F3a: one documented formula on /how, with dated history (COMPLIANCE §12).
