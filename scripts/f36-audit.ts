@@ -17,9 +17,15 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const HOOK = new URL('./f36-audit-hook.ts', import.meta.url).href;
 
-// A test reporter that prints each failed test (not todo) as `<file>\t<name>`, one per line.
+// A test reporter that prints each failed test (not todo) as `<file>\t<name>`, one per line. Static code: the repo root it
+// strips from file paths comes from the environment (F36_AUDIT_ROOT), never spliced into the source (code scanning).
 const REPORTER = `export default async function* (source) {
-  for await (const e of source) if (e.type === 'test:fail' && !e.data.todo && e.data.details?.type !== 'suite') yield \`fail\\t\${(e.data.file ?? '?').replace(${JSON.stringify(ROOT)}, '')}\\t\${e.data.name}\\n\`;
+  const root = process.env.F36_AUDIT_ROOT ?? '';
+  for await (const e of source) {
+    if (e.type !== 'test:fail' || e.data.todo || e.data.details?.type === 'suite') continue;
+    const file = e.data.file ?? '?';
+    yield \`fail\\t\${root && file.startsWith(root) ? file.slice(root.length) : file}\\t\${e.data.name}\\n\`;
+  }
 }`;
 
 function run(mode: 'log' | 'legacy', dir: string): { status: number | null; lines: string[]; failed: string[] } {
@@ -29,7 +35,7 @@ function run(mode: 'log' | 'legacy', dir: string): { status: number | null; line
   writeFileSync(reporter, REPORTER);
   const r = spawnSync(process.execPath, ['--test', `--test-reporter=${reporter}`, '--test-reporter-destination=stdout'], {
     cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 28,
-    env: { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${HOOK}`.trim(), F36_AUDIT_LOG: log, F36_AUDIT_MODE: mode },
+    env: { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${HOOK}`.trim(), F36_AUDIT_LOG: log, F36_AUDIT_MODE: mode, F36_AUDIT_ROOT: ROOT },
   });
   const failed = [...new Set(r.stdout.split('\n').filter((l) => l.startsWith('fail\t')).map((l) => l.slice(5)))].sort();
   return { status: r.status, lines: readFileSync(log, 'utf8').split('\n').filter(Boolean), failed };
