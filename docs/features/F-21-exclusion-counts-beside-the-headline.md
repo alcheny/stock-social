@@ -134,6 +134,13 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 - A line on feed cards.
 - New exclusion kinds (F-22 adds its own count; this feature only sums).
 
+## Hand-offs from F-35 (2026-11-02)
+- F-35 publishes a row only once its date has passed. `users.excluded_future` still counts waiting share rows, buys and
+  sells; the sells-only sum must never read it (a maturing future BUY must never move this count, F-35 decision). Take
+  the sell part from the rebuild's future-count query (`lib/sync.ts#rebuildTrades`, `side = 'SELL'`).
+- F-35 adds `users.excluded_future_options` (option rows dated ahead, opens and closes): whether the sum counts its
+  closes is F-21's call; a waiting option row is not classed as a close until it is matched.
+
 ## Open questions
 - Owner (cycle-3 Q4): show "‹n› excluded" on the share card? The council recommends one muted line when n > 0.
 - If the owner declines F-22, this feature starts after F3-2 alone (council's recommended order; the orchestrator

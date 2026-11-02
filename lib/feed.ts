@@ -37,7 +37,7 @@ import { logSafe } from './privacy-log.ts';
 // outranked every real close and one ~3.9 years ahead overflowed the double ("value out of range: overflow", the whole
 // feed failed). Clamped, a future date scores exactly like a close at this instant, never above, and its tie-break
 // reads it as this instant too (it never wins a tie by its future date). The rebuild also
-// quarantines activities dated more than a day ahead (lib/sync.ts#FUTURE_GRACE_HOURS), so such closes should not exist.
+// publishes only rows dated at or before now() (F-35, lib/sync.ts#published), so such closes should not exist.
 export const RECENCY_HOURS = 48;
 export const MAX_DECAY = 600;
 // ponytail: a day's list holds at most FEED_LIST_MAX (350) cards: the 200 candidates (at most FEED_PER_TRADER = 6 closes

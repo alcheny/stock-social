@@ -20,6 +20,8 @@ function ReasonLine({ r }: { r: Reason }) {
   // F-32 Part A, moved into the section: the transfer line is a real link to the /how sentence, its name completed by a
   // visually hidden suffix.
   if (r.key === 'transfer') return <p className="muted" data-excluded-transfer {...data}><a className="tap44 excluded-link" href="/how#transfers">{r.text}<span className="sr-only"> {PROFILE.excludedTransferLink}</span></a></p>;
+  // F-35: the future line (sells dated after now, F-21's count) says plainly that the sell waits until its date passes.
+  if (r.key === 'future') return <p className="muted" data-excluded-future {...data}>{r.text} {PROFILE.futureWaits(r.n)}</p>;
   return <p className={CLASS[r.key] ?? 'muted'} {...data}>{r.text}</p>;
 }
 
