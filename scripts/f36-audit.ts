@@ -66,7 +66,7 @@ function main() {
     for (const l of changed) perFile.set(l.split(' ')[0], (perFile.get(l.split(' ')[0]) ?? 0) + 1);
     console.log('# F-36 fixture audit (node scripts/f36-audit.ts)');
     console.log('\n## Expectations that change (tests that fail with the legacy figure, purchase cost alone)');
-    for (const f of legacy.failed) console.log(`- ${f.replace('\t', ': ')}`);
+    for (const f of legacy.failed) { const [file, ...name] = f.split('\t'); console.log(`- ${file}: ${name.join('\t')}`); }
     console.log('\n## Changed figures per test file (every one with an entry fee above 0)');
     for (const [f, n] of [...perFile].sort()) console.log(`- ${f}: ${n} trades`);
     console.log(`\nTotal changed figures: ${changed.length}; with no entry fee: ${noFee.length}.`);

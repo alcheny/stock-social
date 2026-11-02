@@ -39,7 +39,14 @@ const { HOW, F36_RECALC_DATE, howDate } = await import('./copy.ts');
 const { matchTrades } = await import('./trades.ts');
 
 const html = renderToStaticMarkup(createElement(page.default));
-const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, '’').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+// The rendered text of an HTML fragment (test-only). Tags are removed until none is left, and entities are decoded in one
+// pass, so an `&amp;` is never decoded twice (code scanning: incomplete sanitization, double unescaping).
+const ENTITY: Record<string, string> = { '&#x27;': '’', '&#39;': '’', '&quot;': '"', '&amp;': '&' };
+const text = (h: string) => {
+  let out = h, prev;
+  do { prev = out; out = out.replace(/<[^<>]*>/g, ' '); } while (out !== prev);
+  return out.replace(/&#x27;|&#39;|&quot;|&amp;/g, (e) => ENTITY[e]).replace(/\s+/g, ' ').trim();
+};
 const FORMULA = 'Return = (sale proceeds − purchase cost − purchase fees − sale fees) ÷ (purchase cost + purchase fees), using the fees the broker reported. Nothing is weighted by size.';
 const EXAMPLE = 'A fictional example: paid 100 plus a fee of 10, sold for 165 with no fee on the sale. (165 − 100 − 10) ÷ (100 + 10) = 55 ÷ 110 = +50%.';
 
