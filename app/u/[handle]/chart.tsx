@@ -47,7 +47,9 @@ function fetchChart(src: string): Promise<PackedChart> {
 export function PerformanceChart({ chart, src, now, linkBase = '', current, shareOnly = false, noteBy = '' }: { chart: PackedChart; src?: string; now: Date; linkBase?: string; current?: number; /* OPTIONS (D5) */ shareOnly?: boolean; noteBy?: string }) {
   // F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the feed pane's `chart` is each range's series drawn at screen
   // resolution on the server (lib/chart-series.ts, at most FEED_CHART_POINTS points). F-23: the profile's is drawn on
-  // the server too, at full resolution (profileChart); the browser compounds nothing. Both draw and scrub the same way.
+  // the server too (profileChart); the browser compounds nothing. Both draw and scrub the same way.
+  // FIXES-CYCLE5 (F5-14): the profile's is every close up to PROFILE_CHART_POINTS per range, then each time slice's
+  // first, last, low and high (lib/chart-bounded.ts); every figure printed at rest is the whole record's.
   // Fix round 8 (tester re-run 4, Medium): on the feed a long record's `chart` is the stand-in (`lite`: the ALL line at
   // FEED_LITE_POINTS, no closes, every range's numbers). The full chart is fetched from `src` when the chart first comes
   // into view (the pane's swipe-open scrolls it in), is focused, or a range is picked; it then replaces the stand-in.
