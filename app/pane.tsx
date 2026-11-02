@@ -22,6 +22,7 @@ import { numericDay, wireToday } from '@/lib/public-wire.ts'; // F-23
 import { PaneOptions, ShareTradesLabel } from './u/[handle]/options-block.tsx';
 import type { PaneOptionsView } from '@/lib/options-view.ts';
 import { WarnNotice } from './warn-notice.tsx'; // F-27
+import { ExclusionsLine } from './exclusions-line.tsx'; // F-21
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
@@ -47,11 +48,11 @@ const day = (iso: string) => DAY.format(new Date(iso));
 // ponytail: OD-9 open positions of a frozen record keep F-6's rule — owner decision pending
 // F-23: `model` (lib/pane-model.ts) is every figure the pane prints; the feed passes `trades` and the model is computed
 // here on the server from stored values; app/lazy-pane.tsx passes the model the /pane route computed the same way.
-export function ProfilePane({ handle, name, trades = [], model, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf, disclaimer = true, status, options }: { handle: string; name: string; trades?: PaneTrade[]; model?: PaneModel; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date; disclaimer?: boolean; status?: Segment[]; /* OPTIONS */ options?: PaneOptionsView }) {
+export function ProfilePane({ handle, name, trades = [], model, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf, disclaimer = true, status, options, excluded }: { handle: string; name: string; trades?: PaneTrade[]; model?: PaneModel; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date; disclaimer?: boolean; status?: Segment[]; /* OPTIONS */ options?: PaneOptionsView; /* F-21 */ excluded?: number }) {
   // F-6: the trader's open positions (connected or failed records only, lib/feed.ts); the combined figure from the whole
   // record, as on the profile. Nothing new renders without open positions. FIXES-LABELS (code review, TR-9 / TR-7): the
   // range line and New record. F-23: all of it in the model.
-  const p = model ?? paneModel(trades, state, now, unrealized, openAsOf);
+  const p = model ?? paneModel(trades, state, now, unrealized, openAsOf, excluded);
   const open = p.open, both = p.both;
   const trust = { badge: p.badge, incomplete: p.incomplete };
   const ev = { rangeLine: p.rangeLine, newRecord: p.newRecord };
@@ -83,6 +84,8 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
         {ev.rangeLine && <small className="range">{ev.rangeLine}</small>}{/* FIXES-LABELS (code review, TR-9): as on the profile */}
       </div>
     </section>
+    {/* F-21: right after the headline in DOM order, in both orders; the slot order is exclusions, open, options qualifier. */}
+    <ExclusionsLine n={p.excluded} handle={handle} />
     {open && <OpenGrid o={open} asOf={p.openAsOf ? new Date(p.openAsOf) : undefined} long={long} />}
     {both && <CombinedLine c={both} />}
     <PaneOptions v={options} />

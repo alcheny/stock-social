@@ -1165,3 +1165,23 @@ export const FIXES_CYCLE4_PART2 = {
   homePublic: 'Records built from public filings are marked Public filing.',
 } as const;
 // end FIXES-CYCLE4-PART2
+
+// ---- F-21 · Exclusion counts beside the headline (docs/features/F-21-exclusion-counts-beside-the-headline.md; committee
+// docs/features/logs/F-21/committee-2026-11-02.md and the legal committee's conditions R1-R6). The only new copy: the
+// line, its heading, the shared-account reason and the signed options line (R3). Neutral words: never "hidden",
+// "removed" or a cause that blames the trader; the count is sells and option closes only ("trades"), never buys.
+export const EXCLUSIONS = {
+  // The profile's #excluded heading (R5: counted(), so "1 trade excluded from these figures").
+  title: (n: number) => `${counted(n, 'trade')} excluded from these figures`,
+  // The pane and strip link: the visible text is the accessible name, and it says where it goes (Q3, R5).
+  line: (n: number) => `${counted(n, 'trade')} excluded from these figures · reasons on the profile`,
+  // R6: never names or links the other profile.
+  excludedShared: (n: number) => n === 1
+    ? "1 trade excluded: its account is part of another profile's record."
+    : `${counted(n, 'trade')} excluded: their account is part of another profile's record.`,
+  // R3 (signed): with the options gate open, the long option closes, summed because the headline leaves them out.
+  optionsSummarized: (n: number) => n === 1
+    ? '1 option trade is summarized in its own row, outside these figures.'
+    : `${counted(n, 'option trade')} are summarized in their own row, outside these figures.`,
+} as const;
+// end F-21
