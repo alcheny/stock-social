@@ -96,8 +96,8 @@ dbTest('C5-43 (a): the status facts read a constant number of closed_trades and 
 
 test('C5-43 (a): the schema has the (user_id, opened_at) index and the account-count index, added idempotently', () => {
   const schema = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
-  assert.match(schema, /schema_add_index\('closed_trades_user_opened', 'create index closed_trades_user_opened on closed_trades \(user_id, opened_at\) where opened_at is not null'\)/);
-  assert.match(schema, /schema_add_index\('activities_user_source_account', 'create index activities_user_source_account on activities \(user_id, source, account_id\) where account_id is not null'\)/);
+  assert.match(schema, /schema_add_index\('closed_trades_user_first', 'create index closed_trades_user_first on closed_trades \(user_id, opened_at\) where opened_at >= ''-infinity'''\)/);
+  assert.match(schema, /schema_add_index\('activities_user_source_acct', 'create index activities_user_source_acct on activities \(user_id, source, account_id\) where account_id >= '''''\)/);
 });
 
 // ---- C5-43 (d): the freeze marks on the database clock ----

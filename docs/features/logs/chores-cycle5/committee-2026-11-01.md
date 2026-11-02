@@ -125,3 +125,17 @@ the gates and the 360 px check, and an independent reviewer (fresh context) revi
   The UI builder ran no e2e; the orchestrator ran its specs on the merged branch (one lookup fixed, above).
 - `demoUser()` alias: the readout builder found its new query compared the helper's inner alias with itself; fixed in
   the loader. The other callers pass `u.id` or `r.user_id` and are not affected (checked).
+
+### CI on #122 (Postgres 17, fresh database): the C5-43(a) EXPLAIN test
+
+- **First failure (3,004 closes read).** In a correlated subquery the planner sizes a trader by the table's average, so
+  a plain `min()`/`max()` aggregate over all of a trader's rows could cost the same as the one-row path. Each lookup is
+  now `order by … limit 1` on its index. The test also adds 12 fictional filler traders, because on a table that is
+  almost all one record, a sequential scan that stops early is a legitimate choice for the small record (reproduced on
+  a fresh local database).
+- **Second failure (3,001 closes read, Postgres 17 only).** Postgres 17 removes `col is not null` on a not-null column
+  from the query before matching partial indexes, so the partial indexes on `… is not null` (decision A3) could never be
+  used there. Their condition is now `opened_at >= '-infinity'` / `account_id >= ''` (true of every row), repeated word
+  for word in the status query. The indexes are renamed `closed_trades_user_first` and `activities_user_source_acct`,
+  because the schema helper never recreates an existing index. The earlier names exist only on local development
+  databases (never merged).

@@ -1235,14 +1235,16 @@ select schema_add_column('activity_reissues', 'undecided', 'boolean not null def
 -- ---- chores cycle 5 (C5-43 part a): status facts in constant time ----
 -- lib/record-status-load.ts: a trader's first entry is one index row (min(opened_at)); the account count walks the
 -- distinct accounts one index row each and the demo check is one row (the source column).
--- Both are partial on an always-true `is not null` (the columns are not null) so that only a query naming that condition
+-- Both are partial on an always-true condition (the columns are not null) so that only a query naming that condition
 -- can use them: min() adds it itself and the status read names it; every other read of these tables keeps its plan (and
 -- the row order an unordered read happens to get, lib/display-log.batch.test.ts).
 -- ponytail: both are built inside the schema's transaction (no `concurrently`, see schema_add_index), so on a large
 -- production closed_trades or activities table the first apply holds writes for the build — owner deploy step: create
 -- them by hand with `create index concurrently` (same names and columns) before deploying; the helper then skips them.
-select schema_add_index('closed_trades_user_opened', 'create index closed_trades_user_opened on closed_trades (user_id, opened_at) where opened_at is not null');
-select schema_add_index('activities_user_source_account', 'create index activities_user_source_account on activities (user_id, source, account_id) where account_id is not null');
+-- The conditions are `>= '-infinity'` / `>= ''` (true of every row), not `is not null`: Postgres 17 removes `is not null`
+-- on a not-null column from a query before matching partial indexes, so such an index could never be used there (CI).
+select schema_add_index('closed_trades_user_first', 'create index closed_trades_user_first on closed_trades (user_id, opened_at) where opened_at >= ''-infinity''');
+select schema_add_index('activities_user_source_acct', 'create index activities_user_source_acct on activities (user_id, source, account_id) where account_id >= ''''');
 -- ---- end chores cycle 5 (C5-43 part a) ----
 
 -- ---- chores cycle 5 (C5-43 part c): sitemap ----
