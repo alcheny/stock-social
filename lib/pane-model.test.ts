@@ -43,6 +43,9 @@ test('AC 10: the average, worst, rows, open and combined figures go out at the p
   // AC 2: unrealized_pct and openAsOf.
   assert.deepEqual(m.open, { n: 2, up: 1, down: 1, flat: 0, avg: 0.038 });
   assert.equal(m.openAsOf, '2026-10-30');
+  // F-34: the server-built open line (printed strings and tones only), the same producer as every surface.
+  assert.deepEqual(m.openLine, { text: 'Still open: 2 positions · 1\u00a0up, 1\u00a0down · lowest -1.2%\u00a0down, highest +8.8%\u00a0up', parts: m.openLine!.parts, withAsOf: 'Still open: 2 positions · 1\u00a0up, 1\u00a0down · lowest -1.2%\u00a0down, highest +8.8%\u00a0up, unrealized as of Oct 30, 2026' });
+  assert.ok(m.openLine!.parts.every((p) => Object.keys(p).sort().join() === 'label,role,sep,tone,value,word'));
   const json = JSON.stringify(m);
   assert.doesNotMatch(json, /1234|0876|8765|5049|0504|0000049|09:12|14:31|\b1\d{12}\b/);
   // The evidence is the stored records' (the profile's path), entry times included.
@@ -55,6 +58,7 @@ test('no open positions: no open block and no as-of date; an empty record has no
   const m = paneModel(EDGE, 'connected', now, [], new Date());
   assert.equal(m.open, null);
   assert.equal(m.openAsOf, null);
+  assert.equal(m.openLine, null);
   assert.equal(m.both, null);
   const e = paneModel([], 'connected', now);
   assert.equal(e.since, null);
@@ -70,5 +74,5 @@ test('AC 7: the /pane route and the lazy pane use the versioned URL, and the rou
   assert.match(route, /NextResponse\.json\(\{ v: PAYLOAD_V, state, model, chart, status,/);
   assert.match(lazy, /\/pane\?v=\$\{PAYLOAD_V\}/);
   assert.match(lazy, /d\.v !== PAYLOAD_V\) throw/);
-  assert.equal(PAYLOAD_V, 2);
+  assert.equal(PAYLOAD_V, 3);
 });

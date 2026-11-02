@@ -37,7 +37,7 @@ function snapshot() {
   const out: Record<string, unknown> = {};
   for (const [name, trades] of Object.entries(RECORDS)) for (const kind of KINDS) for (const state of STATES) for (const demo of [false, true]) for (const open of OPEN) {
     const m = recordCard({ handle: 'snap_test', name: 'Snap Trader', state, demo, verified: !demo && trades.length > 0, now, link: null, kind, trades,
-      ...(open ? { open } : {}) });
+      ...(open ? { open, openAsOf: new Date(Date.UTC(2026, 9, 30, 9)) } : {}) }); // F-34: positions carry their as-of date
     // One sha256 per case of the exact JSON text (model, alt, description): byte-exact, and a failure names the case.
     out[`${name}|${kind}|${state}|${demo ? 'demo' : 'real'}|${open ? 'open' : 'closed'}`] = createHash('sha256').update(JSON.stringify({ model: m, alt: cardAlt(m), description: cardDescription(m) })).digest('hex');
   }

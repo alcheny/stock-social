@@ -159,7 +159,7 @@ test('F-12 AC1/AC4: the trade page shows the strip with "@handle\'s record", los
   await page.goto('/u/f10_strip/trade/f10_strip-0');
   const section = page.locator('section[aria-labelledby="whole-record"]');
   await expect(section.getByRole('heading', { name: "@f10_strip's record" })).toBeVisible();
-  await expect(section.locator('[data-strip]')).toContainText(/12 closed trades · \+[\d.]+% average per trade \(.+\) · 95% range · losses included · 2 open, unrealized/);
+  await expect(section.locator('[data-strip]')).toContainText(/12 closed trades · \+[\d.]+% average per trade \(.+\) · 95% range · losses included · Still open: 2 positions · 1\sup, 1\sdown · lowest -8\.0%\sdown, highest \+12\.0%\sup, unrealized as of [A-Z][a-z]{2} \d{1,2}, \d{4}/);
   const link = section.getByRole('link', { name: "@f10_strip's record" });
   await expect(link).toHaveAttribute('href', '/u/f10_strip');
   await expect(section.locator('[data-disclaimer]')).toHaveText(DISCLAIMER);

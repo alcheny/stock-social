@@ -105,11 +105,11 @@ test('tone: a negative average is "down" with its sign in the text; zero has no 
 });
 
 test('F-12 AC2: open positions add the open count on pages and images, never on the feed, never a symbol', () => {
-  const o = input(R.winning, { open: [0.12, -0.08, 0.03] });
+  const o = input(R.winning, { open: [0.12, -0.08, 0.03], openAsOf: new Date('2026-09-30T12:00:00Z') });
   for (const surface of ['page', 'image'] as const) {
     const s = recordStrip(o, surface);
-    assert.ok(s.text.endsWith('losses included · 3 open, unrealized'), s.text);
-    assert.match(s.alt, /3 open positions, unrealized/);
+    assert.ok(s.text.endsWith('losses included · Still open: 3 positions · 2\u00a0up, 1\u00a0down · lowest -8.0%\u00a0down, highest +12.0%\u00a0up, unrealized as of Sep 30, 2026'), s.text);
+    assert.match(s.alt, /Still open: 3 positions, 2 up, 1 down, lowest -8\.0% down, highest \+12\.0% up, unrealized as of Sep 30, 2026\./);
   }
   assert.ok(!/open/.test(recordStrip(o, 'feed').text));
   assert.ok(!/open/.test(recordStrip(o, 'figures').text));
@@ -152,9 +152,9 @@ test('record state: a failed import keeps its figures with the incomplete line; 
 });
 
 test('business lead (alt): facts in words, no middle dot or parentheses; the visible strip keeps the profile\'s string', () => {
-  const s = recordStrip(input(R.winning, { open: [0.1] }), 'image');
+  const s = recordStrip(input(R.winning, { open: [0.1], openAsOf: new Date('2026-09-30T12:00:00Z') }), 'image');
   const [low, high] = range(R.winning).slice(1, -1).split(' to ');
-  assert.equal(s.alt, `Verified from broker. 40 closed trades, average per trade +0.9%, 95% range ${low} to ${high}. Losses included. 1 open position, unrealized. ${DISCLAIMER}`);
+  assert.equal(s.alt, `Verified from broker. 40 closed trades, average per trade +0.9%, 95% range ${low} to ${high}. Losses included. Still open: 1 position, at +10.0% up, unrealized as of Sep 30, 2026. ${DISCLAIMER}`);
   assert.ok(!/[·()]/.test(s.alt));
   for (const trades of Object.values(R)) assert.ok(!/[·()]/.test(recordStrip(input(trades), 'image').alt));
 });

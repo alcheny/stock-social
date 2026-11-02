@@ -107,7 +107,7 @@ function allowStatusHoursFlight(text: string): string {
 type Kind = 'html' | 'flight' | 'json' | 'attrs';
 type Surface = { name: string; kind: Kind; body: string; fixture: boolean };
 
-// The packed chart (lib/chart-series.ts#packChart, v=2) by schema.
+// The packed chart (lib/chart-series.ts#packChart, v=3) by schema.
 function checkPacked(c: Record<string, unknown>, where: string, out: string[]) {
   const day5 = (v: unknown) => Number.isInteger(v) && (v as number) >= 10_000 && (v as number) <= 99_999;
   if (c.v !== 2) out.push(`${where}: packed chart v=${String(c.v)}`);
@@ -247,7 +247,7 @@ test('F-23 scan self-check: the planted digits are not in the rounded values, an
   expect(f1.some((f) => f.includes('open[] 0.087654321'))).toBe(true);
   expect(f1.some((f) => f.includes('time ') && f.includes(':12:45'))).toBe(true);
   // A 6-decimal packed chart (and a ms t0), unplanted digits, so only the schema catches it.
-  const oldChart = JSON.stringify({ v: 2, base: 20375, trades: [['f23-x-b', 'FZB', 0.112233, 2.3, null, 0]], ranges: { ALL: { t0: 1760400000000, t1: 20376, last: 0.112233, n: 1, dd: 0, min: 0, max: 0.112233, p: [0, 0.112233, 0, 0.5, 0.11, 0] } } });
+  const oldChart = JSON.stringify({ v: 3, base: 20375, trades: [['f23-x-b', 'FZB', 0.112233, 2.3, null, 0]], ranges: { ALL: { t0: 1760400000000, t1: 20376, last: 0.112233, n: 1, dd: 0, min: 0, max: 0.112233, p: [0, 0.112233, 0, 0.5, 0.11, 0] } } });
   const f2 = scan({ name: 'old chart', kind: 'json', body: oldChart, fixture: false });
   expect(f2.some((f) => f.includes('trade f23-x-b return 0.112233'))).toBe(true);
   expect(f2.some((f) => f.includes('ALL.t0'))).toBe(true);
@@ -265,7 +265,7 @@ test('F-23 scan self-check: the planted digits are not in the rounded values, an
   // Float noise in a computed stat (no planted digits) is caught in flight and in a packed chart.
   const noisy = `<html><body><script>self.__next_f.push([1,${JSON.stringify('6:{"avg":0.024499999000000005}\n')}])</script></body></html>`;
   expect(scan({ name: 'noisy avg', kind: 'html', body: noisy, fixture: false }).some((f) => f.includes('avg=0.024499999000000005'))).toBe(true);
-  const noisyChart = JSON.stringify({ v: 2, base: 20375, trades: [], ranges: { ALL: { t0: 20375, t1: 20376, last: 0.30000000000000004, n: 0, dd: 0, min: 0, max: 0, p: [] } } });
+  const noisyChart = JSON.stringify({ v: 3, base: 20375, trades: [], ranges: { ALL: { t0: 20375, t1: 20376, last: 0.30000000000000004, n: 0, dd: 0, min: 0, max: 0, p: [] } } });
   expect(scan({ name: 'noisy chart', kind: 'json', body: noisyChart, fixture: false }).some((f) => f.includes('0.30000000000000004'))).toBe(true);
   // The whole hour outside a record-status line is still a finding.
   expect(scan({ name: 'hour', kind: 'flight', body: '5:["$","time","1",{"dateTime":"2026-10-14T09:00Z"}]', fixture: false }).some((f) => f.includes('time 2026-10-14T09:00Z'))).toBe(true);
@@ -323,15 +323,15 @@ test('F-23 AC 8 (+ AC 1/2): every signed-out response on the profile, pane, pane
   }
   // The feed card is on page 1 (the profile check below needs the flight to name it, too).
   expect((surfaces.find((s) => s.name === '/ HTML')!.body).includes(`data-handle="${H}"`), 'the fixture is on feed page 1').toBe(true);
-  // JSON routes: only ?v=2 is served; the bare URLs are a 404 with no figures.
+  // JSON routes: only ?v=3 is served; the bare URLs are a 404 with no figures.
   for (const r of ['pane', 'pane-chart']) {
     const bare = await api.get(`${P}/${r}`);
     expect(bare.status(), `${r} bare`).toBe(404);
     expect(await bare.text(), `${r} bare body`).not.toMatch(/\d/);
-    const res = await api.get(`${P}/${r}?v=2`);
-    expect(res.status(), `${r}?v=2`).toBe(200);
+    const res = await api.get(`${P}/${r}?v=3`);
+    expect(res.status(), `${r}?v=3`).toBe(200);
     const body = await res.text();
-    surfaces.push({ name: `${r}?v=2`, kind: 'json', body, fixture: true });
+    surfaces.push({ name: `${r}?v=3`, kind: 'json', body, fixture: true });
     const j = JSON.parse(body);
     if (r === 'pane-chart') checkPacked(j, 'pane-chart', found);
     else {

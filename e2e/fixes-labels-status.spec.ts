@@ -104,7 +104,7 @@ test('F-11 frozen record: the profile says "Disconnected (date) · record frozen
 
 test('F-11 frozen record: the pane (JSON and the feed\'s server-rendered pane) and the feed card carry the frozen line in absolute dates; a live, fresh card shows no status line; an idle card says "Not updated since (date)"', async ({ browser, request }) => {
   test.setTimeout(test.info().timeout + 60_000);
-  const json = await (await request.get('/u/fls_frozen/pane?v=2')).json();
+  const json = await (await request.get('/u/fls_frozen/pane?v=3')).json();
   const paneText = (json.status as { text: string }[]).map((s) => s.text).join('');
   expect(paneText).toMatch(new RegExp(`^${frozenStatic()} · Last close [A-Z][a-z]{2} \\d{1,2}, \\d{4}$`));
   expect(paneText).not.toMatch(/Connected:|ago|updated/);
@@ -215,7 +215,7 @@ test('QA round 2 (N7, N8), PR #85 review (B1): every account removed, no disconn
   await glue(block.locator('[data-status="line1"]'), `since ${dateText(REMOVED, now(), { year: 'always' })}`);
   await narrow(page);
   // The pane JSON and the trade page say the same, with "updated" (absolute on the cached pane).
-  const json = await (await request.get('/u/fls_gone/pane?v=2')).json();
+  const json = await (await request.get('/u/fls_gone/pane?v=3')).json();
   const paneText = (json.status as { text: string }[]).map((x) => x.text).join('');
   expect(paneText).toMatch(new RegExp(`^${gone} · Last close .+ · updated [A-Z][a-z]{2} \\d{1,2}, \\d{4}$`));
   expect(paneText).not.toMatch(/record frozen|Disconnected/);

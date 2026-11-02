@@ -157,7 +157,7 @@ test('F-4 rework: the link-preview text matches the card, with open positions, a
   const mixed = await description(handle('open_mixed'));
   expect(mixed).toContain('average per closed trade');
   // F-6's one wording for open positions in text, after the closed-trade figures, then the disclaimer.
-  expect(mixed).toMatch(/Evidence: \w+ · 3 open positions · 2\sup, 1\sdown · \+2\.5% avg unrealized\. Not investment advice\./); // \s: F-6's no-break spaces
+  expect(mixed).toMatch(/Evidence: \w+ · Still open: 3 positions · 2\sup, 1\sdown · lowest -8\.0%\sdown, highest \+12\.1%\sup, unrealized as of [A-Z][a-z]{2} \d{1,2}, \d{4}\. Not investment advice\./); // \s: the line's no-break spaces (F-34)
   expect(mixed).not.toMatch(/\bO\d\b/); // no symbol
   // No closes: the empty-record line alone (F-6 / PR-2b); the picture still shows the open positions.
   expect(await description(handle('open_only'))).not.toMatch(/%/);

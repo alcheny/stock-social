@@ -174,7 +174,7 @@ async function grab(api: APIRequestContext, path: string, init?: { method?: 'POS
 
 function surfaces(ym: string) {
   return [
-    '/', `/u/${AUTHOR}`, `/u/${AUTHOR}/pane?v=2`, `/u/${AUTHOR}/pane-chart?v=2`, `/u/${AUTHOR}/month/${ym}`,
+    '/', `/u/${AUTHOR}`, `/u/${AUTHOR}/pane?v=3`, `/u/${AUTHOR}/pane-chart?v=3`, `/u/${AUTHOR}/month/${ym}`,
     `/t/${encodeURIComponent(target.symbol)}`, `/u/${AUTHOR}/trade/${encodeURIComponent(target.sell)}`,
     `/u/${AUTHOR}/story`, `/u/${AUTHOR}/opengraph-image`, `/u/${AUTHOR}/trade/${encodeURIComponent(target.sell)}/opengraph-image`,
   ];
@@ -321,7 +321,7 @@ test('F-26 author: the held line on their own card and on the trade page (privat
     expect(prof.headers()['cache-control'] ?? '').toMatch(/private.*no-store|no-store.*private/);
 
     // Nothing public or shared carries the line, even when the author asks.
-    for (const s of [`/u/${AUTHOR}/pane?v=2`, `/u/${AUTHOR}/pane-chart?v=2`, `/u/${AUTHOR}/story`, `/u/${AUTHOR}/opengraph-image`, `/u/${AUTHOR}/trade/${encodeURIComponent(target.sell)}/opengraph-image`]) {
+    for (const s of [`/u/${AUTHOR}/pane?v=3`, `/u/${AUTHOR}/pane-chart?v=3`, `/u/${AUTHOR}/story`, `/u/${AUTHOR}/opengraph-image`, `/u/${AUTHOR}/trade/${encodeURIComponent(target.sell)}/opengraph-image`]) {
       const r = await page.request.get(s);
       const body = (await r.body()).toString('utf8');
       expect(body, s).not.toContain('Thesis held for review');

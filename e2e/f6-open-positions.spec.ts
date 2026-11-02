@@ -90,7 +90,8 @@ test('F-6 profile: realized leads, unrealized directly beneath at the same size,
   expect(await realized.evaluate((el) => el.nextElementSibling?.classList.contains('open-stats'))).toBe(true);
   // The count once, big; the caption names it (UX lead D2) and keeps each count with its word (D4).
   await expect(unrealized.locator('.stat b').nth(0)).toHaveText('3');
-  await expect(unrealized.locator('.stat small').nth(0)).toHaveText('open positions · 1 up, 1 down, 1 flat');
+  await expect(unrealized.locator('.stat small').nth(0)).toHaveText('open positions'); // F-34 (Q3): the caption names the count; the line carries the split
+  expect(await unrealized.locator('[data-open-line]').evaluate((el) => el.textContent)).toBe('Still open: 3 positions · 1\u00a0up, 1\u00a0down, 1\u00a0flat · lowest -30.0%\u00a0down, highest +10.0%\u00a0up');
   expect(await unrealized.evaluate((el) => el.textContent)).toContain('1\u00a0up');
   const avg = unrealized.locator('.stat b').nth(1);
   await expect(avg).toHaveText('-6.7%');
@@ -110,7 +111,7 @@ test('F-6 profile: realized leads, unrealized directly beneath at the same size,
   // The chart plots closed trades only (CH-1) and says what is not plotted.
   await expect(page.locator('figure.chart figcaption')).toHaveText('Return if every trade were the same size');
   expect(await page.locator('figure.chart').evaluate((el) => el.nextElementSibling?.classList.contains('chart-note'))).toBe(true);
-  await expect(page.locator('.chart-note')).toHaveText('Chart: closed trades only. Not plotted: 3 open positions · 1 up, 1 down, 1 flat · -6.7% avg unrealized');
+  await expect(page.locator('.chart-note')).toHaveText('Chart: closed trades only. Not plotted: open positions.');
   // The open list: as of the oldest read, each account's holding separately, 0.0% uncolored.
   await expect(page.getByText(`Unrealized, at current value, as of ${ON}. Not in the closed-trade figures or the chart.`)).toBeVisible();
   const rows = page.locator('ul.positions li');
@@ -119,14 +120,14 @@ test('F-6 profile: realized leads, unrealized directly beneath at the same size,
   await expect(rows.nth(2).locator('b').last()).toHaveText('0.0%');
   expect(await rows.nth(2).locator('b').last().getAttribute('class')).toBeNull();
   // The unfurl text says so too.
-  expect((await page.locator('meta[property="og:description"]').getAttribute('content'))?.replace(/\u00a0/g, ' ')).toContain('3 open positions · 1 up, 1 down, 1 flat · -6.7% avg unrealized');
+  expect((await page.locator('meta[property="og:description"]').getAttribute('content'))?.replace(/\u00a0/g, ' ')).toContain('Still open: 3 positions · 1 up, 1 down, 1 flat · lowest -30.0% down, highest +10.0% up, unrealized as of Oct 30, 2026');
   await common(page);
 });
 
 test('F-6 profile: every open position losing reads down with "0 up" printed (AC4)', async ({ page }) => {
   await page.goto('/u/f6_losing');
   const unrealized = page.locator('section.open-stats');
-  await expect(unrealized).toContainText('open positions · 0 up, 3 down');
+  await expect(unrealized).toContainText('Still open: 3 positions · 0 up, 3 down · lowest -40.0% down, highest -10.0% down');
   await expect(unrealized.locator('.stat b').nth(1)).toHaveText('-25.0%');
   await expect(unrealized.locator('.stat b').nth(1)).toHaveClass('down');
   // Realized +9.0% over 3 wins, combined (0.27 - 0.75) / 6 = -8.0%.
@@ -139,7 +140,7 @@ test('F-6 profile: every open position losing reads down with "0 up" printed (AC
 
 test('F-6 profile: open positions and no closes show the unrealized grid alone, with no combined figure', async ({ page }) => {
   await page.goto('/u/f6_openonly');
-  await expect(page.locator('section.open-stats')).toContainText('open position · 0 up, 1 down');
+  await expect(page.locator('section.open-stats')).toContainText('Still open: 1 position · at -5.0% down');
   await expect(page.locator('section.open-stats .stat b').nth(1)).toHaveText('-5.0%');
   await expect(page.locator('p.open-combined')).toHaveCount(0);
   await expect(page.locator('section.stats')).toHaveCount(1);
@@ -182,18 +183,18 @@ test('F-6 feed: the card says what else is open and the pane shows both grids an
     expect(found, 'f6_mixed not in feed list').toBe(true);
     const row = page.locator('.row[data-handle="f6_mixed"]').first();
     const also = row.locator('article.card p.open-also');
-    await expect(also).toHaveText(`Also open: 3 positions · 1 up, 1 down, 1 flat · -6.7% avg unrealized, as of ${ON}`);
-    await expect(also.locator('b')).toHaveClass('down');
+    await expect(also).toHaveText('Still open: 3 positions · 1 up, 1 down, 1 flat · lowest -30.0% down, highest +10.0% up, unrealized as of Oct 30, 2026');
+    await expect(also.locator('b').first()).toHaveClass('down');
     // Body size, not small print.
-    expect(await also.locator('b').evaluate((el) => getComputedStyle(el).fontSize)).toBe(await page.evaluate(() => getComputedStyle(document.body).fontSize));
+    expect(await also.locator('b').first().evaluate((el) => getComputedStyle(el).fontSize)).toBe(await page.evaluate(() => getComputedStyle(document.body).fontSize));
     const pane = row.locator('section.pane');
-    await expect(pane.locator('section.open-stats')).toContainText('open positions · 1 up, 1 down, 1 flat');
+    await expect(pane.locator('section.open-stats')).toContainText('Still open: 3 positions · 1 up, 1 down, 1 flat · lowest -30.0% down, highest +10.0% up');
     // With open positions the figures lead the pane, as on the profile (business lead D1): realized, unrealized and the
     // combined line come before the chart.
     const order = await pane.evaluate((el) => [...el.querySelectorAll('section.stats, p.open-combined, figure.chart')].map((n) => n.className.split(' ')[0] + (n.classList.contains('open-stats') ? '.open' : '')));
     expect(order).toEqual(['stats', 'stats.open', 'open-combined', 'chart']);
     await expect(pane.locator('p.open-combined')).toHaveText('Including open positions at current value: +2.1% avg / result (8 results)');
-    await expect(pane.locator('.chart-note')).toHaveText('Chart: closed trades only. Not plotted: 3 open positions · 1 up, 1 down, 1 flat · -6.7% avg unrealized');
+    await expect(pane.locator('.chart-note')).toHaveText('Chart: closed trades only. Not plotted: open positions.');
     // A record with no open positions (the demo traders) gets no new line, and its pane keeps today's order.
     const demo = page.locator('.row[data-handle="momentum_maya"], .row[data-handle="dividend_dan"], .row[data-handle="yolo_yuki"]');
     await expect(demo.locator('[data-open]')).toHaveCount(0);
@@ -236,14 +237,14 @@ test('F-6 stock pages: the aggregate only, never who holds it; not counted for r
 test('F-6: the Similar trades pane (/u/<h>/pane) carries open positions for a connected record only (review B2)', async ({ request }) => {
   // F-23: the pane JSON carries the pane's model: the open block (counts by printed tone, the average at the printed
   // precision) and the as-of UTC day, never the raw unrealized_pct values or a ms time.
-  const mixed = await (await request.get('/u/f6_mixed/pane?v=2')).json();
+  const mixed = await (await request.get('/u/f6_mixed/pane?v=3')).json();
   expect(mixed.model.open).toEqual({ n: 3, up: 1, down: 1, flat: 1, avg: -0.067 });
   expect(mixed.model.openAsOf).toBe('2026-10-30');
   expect(JSON.stringify(mixed)).not.toMatch(/unrealized|"open":\[/);
-  const stray = await (await request.get('/u/f6_stray/pane?v=2')).json();
+  const stray = await (await request.get('/u/f6_stray/pane?v=3')).json();
   expect(stray.model.open).toBeNull();
   expect(stray.model.openAsOf).toBeNull();
-  expect((await request.get('/u/f6_importing/pane?v=2')).status()).toBe(404);
+  expect((await request.get('/u/f6_importing/pane?v=3')).status()).toBe(404);
 });
 
 test('F-6 (business lead D5): at 360 px every big value sits on one line at one size in both grids, nothing widens the page', async ({ page }) => {

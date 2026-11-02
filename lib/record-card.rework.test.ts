@@ -19,7 +19,9 @@ const tr = (symbol: string, open: number, close: number, r: number): ConfidenceI
   symbol, openedAt: new Date(t0 + open * DAY), closedAt: new Date(t0 + close * DAY), returnPct: r, holdingDays: close - open,
 });
 const KINDS: CardKind[] = ['unfurl', 'square', 'story'];
-const base = { handle: 'rework_test', name: 'Rework Trader', state: 'connected' as RecordState, demo: false, verified: true, now, link: null };
+// F-34: the positions' as-of date rides with them (openLine prints no undated value).
+const AS_OF = new Date(Date.UTC(2026, 9, 30, 9));
+const base = { handle: 'rework_test', name: 'Rework Trader', state: 'connected' as RecordState, demo: false, verified: true, now, link: null, openAsOf: AS_OF };
 const card = (trades: ConfidenceInput[], o: Partial<CardInput> = {}) => recordCard({ ...base, kind: 'unfurl', trades, verified: trades.length > 0, ...o });
 // Records per evidence tier and sign (one-trade bets, spaced so holds never overlap).
 const record = (k: number, spanDays: number, f: (i: number) => number) =>
@@ -186,12 +188,12 @@ test('F-6 on the card: realized and unrealized apart, in words, percent only, at
   for (const kind of KINDS) {
     const m = card(R.winning, { kind, open: OPEN.mixed });
     assert.equal(m.headlineLabel, 'average per closed trade');
-    assert.equal(m.open!.full, 'Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%');
-    assert.equal(m.open!.short, '3 open, unrealized · 2 up, 1 down · lowest -8.0%, highest +12.1%'); // the preview says "unrealized" too
-    assert.equal(m.open!.note, 'unrealized, not sold yet');
+    assert.equal(m.open!.full, 'Still open: 3 positions · 2\u00a0up, 1\u00a0down · lowest -8.0%\u00a0down, highest +12.1%\u00a0up');
+    assert.equal(m.open!.line.withAsOf, 'Still open: 3 positions · 2\u00a0up, 1\u00a0down · lowest -8.0%\u00a0down, highest +12.1%\u00a0up, unrealized as of Oct 30, 2026'); // the preview says "unrealized" too
+    assert.equal(m.open!.note, 'unrealized as of Oct 30, 2026');
     const alt = cardAlt(m);
-    for (const s of [m.open!.split, m.open!.spread, 'Still open, unrealized as of the last sync: 3 positions']) assert.ok(alt.includes(s), `${kind}: ${s}`);
-    assert.doesNotMatch(m.open!.full + m.open!.short, /likely/); // never read as the average's range
+    for (const s of [m.open!.split.replace(/\u00a0/g, ' '), m.open!.spread.replace(/\u00a0/g, ' '), 'Still open: 3 positions, 2 up, 1 down, lowest -8.0% down, highest +12.1% up, unrealized as of Oct 30, 2026.']) assert.ok(alt.includes(s), `${kind}: ${s}`);
+    assert.doesNotMatch(m.open!.full + m.open!.line.withAsOf, /likely/); // never read as the average's range
   }
   // No open positions: exactly today's card.
   const { open: _o, ...plain } = card(R.winning);
@@ -202,20 +204,21 @@ test('F-6 on the card: realized and unrealized apart, in words, percent only, at
 });
 
 test('F-6 on the card: all winning, all losing, mixed, flat, one position; losses as prominent as gains', () => {
-  assert.equal(cardOpen(OPEN.winning)!.full, 'Still open: 3 positions · 3 up, 0 down · lowest +2.0%, highest +40.0%');
-  const l = cardOpen(OPEN.losing)!;
-  assert.equal(l.full, 'Still open: 3 positions · 0 up, 3 down · lowest -21.5%, highest -3.1%');
+  assert.equal(cardOpen(OPEN.winning, AS_OF)!.full, 'Still open: 3 positions · 3\u00a0up, 0\u00a0down · lowest +2.0%\u00a0up, highest +40.0%\u00a0up');
+  const l = cardOpen(OPEN.losing, AS_OF)!;
+  assert.equal(l.full, 'Still open: 3 positions · 0\u00a0up, 3\u00a0down · lowest -21.5%\u00a0down, highest -3.1%\u00a0down');
   assert.deepEqual([l.lowTone, l.highTone], ['down', 'down']);
   // One position: no up/down count, just its percent (UX test 2026-11-01).
-  assert.equal(cardOpen([0.0004])!.full, 'Still open: 1 position · at 0.0%');
-  assert.equal(cardOpen([0.0004])!.short, '1 open, unrealized · at 0.0%');
-  assert.equal(cardOpen([-0.08])!.spread, 'at -8.0%');
-  assert.equal(cardOpen([0.0004, -0.0003])!.full, 'Still open: 2 positions · 0 up, 0 down, 2 flat · at 0.0%');
-  assert.equal(cardOpen([0.05, 0.0501])!.spread, 'at +5.0%'); // printed alike: one figure
-  assert.equal(cardOpen([]), null);
-  assert.equal(cardOpen([Number.NaN]), null);
+  assert.equal(cardOpen([0.0004], AS_OF)!.full, 'Still open: 1 position · at 0.0%\u00a0flat');
+  assert.equal(cardOpen([0.0004], AS_OF)!.line.withAsOf, 'Still open: 1 position · at 0.0%\u00a0flat, unrealized as of Oct 30, 2026');
+  assert.equal(cardOpen([-0.08], AS_OF)!.spread, 'at -8.0%\u00a0down');
+  assert.equal(cardOpen([0.0004, -0.0003], AS_OF)!.full, 'Still open: 2 positions · 0\u00a0up, 0\u00a0down, 2\u00a0flat · at 0.0%\u00a0flat');
+  assert.equal(cardOpen([0.05, 0.0501], AS_OF)!.spread, 'at +5.0%\u00a0up'); // printed alike: one figure
+  assert.equal(cardOpen([], AS_OF), null);
+  assert.equal(cardOpen([Number.NaN], AS_OF), null);
+  assert.equal(cardOpen(OPEN.mixed, null), null); // never an undated value
   // The same fields and sizes whether the open positions gain or lose (the image draws both from the same row).
-  assert.deepEqual(Object.keys(cardOpen(OPEN.losing)!), Object.keys(cardOpen(OPEN.winning)!));
+  assert.deepEqual(Object.keys(cardOpen(OPEN.losing, AS_OF)!), Object.keys(cardOpen(OPEN.winning, AS_OF)!));
 });
 
 test('F-6 on the card: an empty record with open positions still shows them; never while importing or with no broker', () => {
@@ -227,7 +230,7 @@ test('F-6 on the card: an empty record with open positions still shows them; nev
     assert.equal(m.chart, null);
     assert.equal(m.disclaimer, DISCLAIMER);
     assert.ok(m.label);
-    assert.match(cardAlt(m), /Still open, unrealized as of the last sync: 3 positions, 2 up, 1 down/);
+    assert.match(cardAlt(m), /Still open: 3 positions, 2 up, 1 down, lowest -8\.0% down, highest \+12\.1% up, unrealized as of Oct 30, 2026\./);
   }
   assert.equal(card(R.winning, { state: 'importing', open: OPEN.mixed }).open, null);
   assert.equal(card(R.winning, { state: 'none', open: OPEN.mixed }).open, null);

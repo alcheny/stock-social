@@ -17,6 +17,8 @@ const DAY = 86_400_000;
 const NOW = new Date(Date.UTC(2026, 9, 20, 12));
 const t0 = Date.UTC(2025, 0, 1);
 let seq = 0;
+// F-34: the positions' as-of date (openLine prints no undated value).
+const OPEN_AS_OF = new Date('2026-09-30T12:00:00Z');
 const tr = (open: number, close: number, r: number, symbol = `Q${seq++}`): RecapTrade => ({
   sellId: `s${seq++}`, symbol, openedAt: new Date(t0 + open * DAY), closedAt: new Date(t0 + close * DAY), returnPct: r, holdingDays: close - open,
 });
@@ -50,7 +52,7 @@ test('trade payload: strip figures from every closed trade of the trader (losses
   assert.ok(s.text.startsWith(`${all.length} closed trades · `), s.text);
   assert.ok(s.text.includes(`${evidenceRangeText(cardEvidence(all, NOW))} · 95% range · losses included`), s.text);
   // The open count only when the loader passed open positions (connected or failed records).
-  assert.ok(recordStrip(tradeStripInput({ ...v, open: [0.1, -0.2] }), 'page').text.endsWith('losses included · 2 open, unrealized'));
+  assert.ok(recordStrip(tradeStripInput({ ...v, open: [0.1, -0.2], openAsOf: OPEN_AS_OF }), 'page').text.endsWith('losses included · Still open: 2 positions · 1\u00a0up, 1\u00a0down · lowest -20.0%\u00a0down, highest +10.0%\u00a0up, unrealized as of Sep 30, 2026'));
   assert.ok(!/open/.test(s.text));
 });
 
@@ -91,7 +93,7 @@ test('F-12 AC6: losing and winning months show the same fields (month figures an
 const STATES: RecordState[] = ['connected', 'failed', 'importing', 'none'];
 test('F-12 AC4: trade and month alt = prefix + strip alt: count, average with range in words, losses included, disclaimer', () => {
   const all = [...record(40, wobble(0.009)), ...sept(6, wobble(0.02))];
-  const v = tradeView(all, { open: [0.1, 0.2, 0.3] });
+  const v = tradeView(all, { open: [0.1, 0.2, 0.3], openAsOf: OPEN_AS_OF });
   const s = recordStrip(tradeStripInput(v), 'image');
   const alt = tradeAlt(v, s);
   assert.ok(alt.startsWith(`Closed trade ${v.symbol} +`), alt);
@@ -100,10 +102,10 @@ test('F-12 AC4: trade and month alt = prefix + strip alt: count, average with ra
   assert.match(alt, /46 closed trades, average per trade [+-]\d+\.\d%, 95% range [+-]\d+\.\d% to [+-]\d+\.\d%\./);
   assert.ok(perTrade.low < perTrade.high);
   assert.match(alt, /Losses included\./);
-  assert.match(alt, /3 open positions, unrealized\./);
+  assert.match(alt, /Still open: 3 positions, 3 up, 0 down, lowest \+10\.0% up, highest \+30\.0% up, unrealized as of Sep 30, 2026\./);
   assert.ok(alt.endsWith(DISCLAIMER), alt);
   assert.ok(!/[·()]/.test(alt), alt);
-  const r = recapView(all, '2026-09', { open: [0.1] });
+  const r = recapView(all, '2026-09', { open: [0.1], openAsOf: OPEN_AS_OF });
   const w = recordStrip(recordStripInput(r), 'image'), m = recordStrip(monthStripInput(r), 'figures');
   const malt = monthAlt(r, w, m);
   assert.ok(malt.startsWith('September 2026 closed trades by @f12_trader on Stock Social.'), malt);
@@ -121,7 +123,7 @@ test('F-12 AC5 / #44: no win rate, verdict or completeness words in alt or metad
   for (const trades of [record(40, wobble(0.01)), record(3, wobble(-0.2)), [...record(20, wobble(-0.03)), ...sept(1, () => -0.5)]]) {
     const all = [...trades, ...sept(3, wobble(0.01))];
     for (const state of STATES) for (const demo of [false, true]) {
-      const v = tradeView(all, { state, demo, verified: !demo, open: [0.1] });
+      const v = tradeView(all, { state, demo, verified: !demo, open: [0.1], openAsOf: OPEN_AS_OF });
       const ts = recordStrip(tradeStripInput(v), 'image');
       const r = recapView(all, '2026-09', { state, demo, verified: !demo });
       const w = recordStrip(recordStripInput(r), 'image'), m = recordStrip(monthStripInput(r), 'figures');
@@ -146,7 +148,7 @@ test('F-12 AC5 / #44: no win rate, verdict or completeness words in alt or metad
 });
 
 test('importing trader: no figures, no open count on the strip even if open positions were passed', () => {
-  const v = tradeView(record(12, wobble(0.02)), { state: 'importing', verified: false, open: [0.1] });
+  const v = tradeView(record(12, wobble(0.02)), { state: 'importing', verified: false, open: [0.1], openAsOf: OPEN_AS_OF });
   const s = recordStrip(tradeStripInput(v), 'page');
   assert.ok(s.importing);
   assert.deepEqual(s.figures, []);
@@ -182,7 +184,7 @@ test('F-12 AC3 (model): trade image lines fit the band in the worst cases; the t
   const long = 'abcdefghijklmnopqrst';
   for (const state of STATES) for (const demo of [false, true]) for (const [sym, ret, hold] of [['ABCDEFGHIJ', -0.987, 0.2], ['BRK.B', 12.345, 1234], ['X', 0, 1]] as const) {
     const all = [...record(40, wobble(0.009)), tr(700, 700 + hold, ret, sym)];
-    const v = { ...tradeView(all, { state, demo, verified: !demo, open: [0.1, 0.2, 0.3], handle: long }), thesis: longThesis };
+    const v = { ...tradeView(all, { state, demo, verified: !demo, open: [0.1, 0.2, 0.3], openAsOf: OPEN_AS_OF, handle: long }), thesis: longThesis };
     const s = recordStrip(tradeStripInput(v), 'image');
     const hero = tradeHero(v);
     const thesis = hero.find((l) => l.role === 'thesis')!;
@@ -213,7 +215,7 @@ test('F-12 AC3 (model): month image lines fit the band in the worst cases; no wi
   const long = 'abcdefghijklmnopqrst';
   for (const state of STATES) for (const demo of [false, true]) for (const month of [sept(25, (i) => (i % 2 ? 9.5 : -0.99)), sept(1, () => -0.5), sept(8, wobble(0.01))]) {
     const all = [...record(40, wobble(0.009)), ...month];
-    const r = recapView(all, '2026-09', { state, demo, verified: !demo, open: [0.1, 0.2], handle: long });
+    const r = recapView(all, '2026-09', { state, demo, verified: !demo, open: [0.1, 0.2], openAsOf: OPEN_AS_OF, handle: long });
     const w = recordStrip(recordStripInput(r), 'image'), m = recordStrip(monthStripInput(r), 'figures');
     const band = monthBand(r, w, m);
     const placed = checkBand(band.lines, `${state} demo=${demo} n=${month.length}`);
@@ -228,7 +230,7 @@ test('F-12 AC3 (model): month image lines fit the band in the worst cases; no wi
   // The month so far: September as the current month, with the longest label.
   const nowSept = new Date(Date.UTC(2026, 8, 30, 12));
   const all = [...record(40, wobble(0.009)), ...sept(25, wobble(0.01))];
-  const r: RecapView = { ...recapView(all, '2026-09', { state: 'failed', open: [0.1], handle: long }), recap: monthRecap(all, '2026-09', nowSept)! };
+  const r: RecapView = { ...recapView(all, '2026-09', { state: 'failed', open: [0.1], openAsOf: OPEN_AS_OF, handle: long }), recap: monthRecap(all, '2026-09', nowSept)! };
   const placed = checkBand(monthBand(r, recordStrip(recordStripInput(r), 'image'), recordStrip(monthStripInput(r), 'figures')).lines, 'so far');
   assert.match(placed.find((l) => l.role === 'monthCount')!.text, /this month so far$/);
 });

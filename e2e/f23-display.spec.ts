@@ -217,7 +217,7 @@ for (const tz of ['Pacific/Auckland', 'America/Los_Angeles']) {
 test('F-23 AC 3/5 feed: the card and its swiped-open pane print the stored-value figures; the /pane model prints the profile headline', async ({ browser, request }) => {
   test.setTimeout(120_000);
   // The /pane model (the lazy Similar-sheet pane renders from it): headline, worst, last 5, as printed.
-  const body = await (await request.get(`/u/${H}/pane?v=2`)).json();
+  const body = await (await request.get(`/u/${H}/pane?v=3`)).json();
   expect(`${(body.model.winRate * 100).toFixed(0)}%`).toBe(WIN);
   expect(pct(body.model.avgReturn)).toBe(AVG);
   expect(tone(body.model.avgReturn)).toBe(tone(S.avgReturn));
