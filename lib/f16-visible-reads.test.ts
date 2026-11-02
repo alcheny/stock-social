@@ -128,6 +128,7 @@ export const ALLOW: Allow[] = [
   { file: 'lib/positions.ts', count: 3, reason: 'sync write of the open positions snapshot (E4)' },
   { file: 'lib/public-trades.ts', count: 1, reason: 'F-7 import rebuild (write)' },
   { file: 'lib/sync.ts', count: 4, reason: 'rebuild and sync (writes; owned by the sync sessions)' },
+  { file: 'lib/matcher-rebuild.ts', count: 1, reason: 'F-36: the version rebuild reads a record\'s share returns before and after its own rebuild (inside its lock) to count changed returns and sign changes; counts only, logged as totals, never shown' },
   { file: 'lib/matcher-report.ts', count: 1, reason: 'F-32 Part A: the version rebuild counts a record\'s closes before and after its own rebuild (inside its lock); counts only, logged as totals, never shown' },
   { file: 'lib/options-sync.ts', count: 7, reason: 'options rebuild and sync (writes; owned by the sync sessions); F-24 D4: the close-change snapshot, one trader by id' },
   { file: 'lib/feed.ts', count: 1, reason: 'olderThan: a window probe that returns one timestamp (no trader data); elig applies the predicate to every row it can rank' },
