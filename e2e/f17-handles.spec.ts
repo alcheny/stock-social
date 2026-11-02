@@ -3,6 +3,7 @@
 // directly under the field, the field is aria-invalid and described by the alert, the alert is role=alert and the
 // field has focus. After a rename the old handle answers the neutral retired 404 and serves none of the trader's
 // images. Fixture rows are this file's own (a random tag), removed by handle at the end.
+import { PAYLOAD_V } from '../lib/chart-series.ts';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 // This file's own pool: ending lib/db.ts's shared pool here would end it for the next spec in the same worker.
@@ -108,7 +109,7 @@ test('after a rename the old handle is a neutral 404 and serves none of the trad
   expect(body).not.toContain('%');
   expect(await page.locator(`a[href*="${next}"]`).count()).toBe(0);
   await expect(page.locator('meta[property="og:image"]')).toHaveCount(0);
-  for (const path of ['/opengraph-image', '/story', `/trade/${sell}`, `/trade/${sell}/opengraph-image`, '/pane']) {
+  for (const path of ['/opengraph-image', '/story', `/trade/${sell}`, `/trade/${sell}/opengraph-image`, `/pane?v=${PAYLOAD_V}`]) { // F-23: the current body version, so the 404 is the retired handle's
     expect((await page.request.get(`/u/${old}${path}`)).status(), path).toBe(404);
   }
   expect((await page.request.get(`/u/${next}/trade/${sell}/opengraph-image`)).status()).toBe(200);

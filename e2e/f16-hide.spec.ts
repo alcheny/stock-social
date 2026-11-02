@@ -6,6 +6,7 @@
 // handle) with five large recent closes on symbol S (S is T's alone) and three on R, and helper trader W with three on R,
 // so R is in the sitemap only while both count. Removed by id at the end.
 import { execFileSync } from 'node:child_process';
+import { PAYLOAD_V } from '../lib/chart-series.ts';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { feedLock } from './feed-lock.ts';
 
@@ -50,8 +51,9 @@ test('a hidden profile is counted on no public surface, and its old handle is a 
       story: `/u/${handle}/story`,
       tradeImage: `/u/${handle}/trade/${sell}/opengraph-image`,
       monthImage: `/u/${handle}/month/${ym}/opengraph-image`,
-      pane: `/u/${handle}/pane`,
-      paneChart: `/u/${handle}/pane-chart`,
+      // F-23 (#97): the pane payloads answer only at their current body version (`?v=`); any other is a 404.
+      pane: `/u/${handle}/pane?v=${PAYLOAD_V}`,
+      paneChart: `/u/${handle}/pane-chart?v=${PAYLOAD_V}`,
       trade: `/u/${handle}/trade/${sell}`,
       profile: `/u/${handle}`,
     };
@@ -82,7 +84,7 @@ test('a hidden profile is counted on no public surface, and its old handle is a 
       expect((await request.get(u)).headers()['cache-control'], u).toBe(IMAGE_CACHE);
     }
     // The old handle is retired before and after the hide.
-    for (const u of [`/u/${old}`, `/u/${old}/trade/${sell}`, `/u/${old}/opengraph-image`, `/u/${old}/pane`]) expect(await status(request, u), u).toBe(404);
+    for (const u of [`/u/${old}`, `/u/${old}/trade/${sell}`, `/u/${old}/opengraph-image`, `/u/${old}/pane?v=${PAYLOAD_V}`]) expect(await status(request, u), u).toBe(404);
 
     // The owner's audited script, as the runbook runs it (one trust_audit row in the same transaction).
     execFileSync(process.execPath, ['scripts/hide.ts', 'profile', String(t), 'impersonation-elsewhere'], { env: process.env, stdio: 'pipe' });
@@ -96,7 +98,7 @@ test('a hidden profile is counted on no public surface, and its old handle is a 
     // Orchestrator review item 3: the images' and the story's 404s are never cached either, as the pane's.
     for (const u of [urls.pane, urls.paneChart, urls.profileImage, urls.story, urls.tradeImage, urls.monthImage]) expect((await request.get(u)).headers()['cache-control'], u).toBe('no-store');
     // The rename chain: the old handle's URLs stay 404 (retired), the new handle's are 404 (hidden).
-    for (const u of [`/u/${old}`, `/u/${old}/trade/${sell}`, `/u/${old}/opengraph-image`, `/u/${old}/story`, `/u/${old}/pane`]) expect(await status(request, u), u).toBe(404);
+    for (const u of [`/u/${old}`, `/u/${old}/trade/${sell}`, `/u/${old}/opengraph-image`, `/u/${old}/story`, `/u/${old}/pane?v=${PAYLOAD_V}`]) expect(await status(request, u), u).toBe(404);
     // R still has W's trades, so its page still answers; only T's are gone from it.
     await page.goto(`/t/${R}`);
     await expect(page.locator('main')).not.toContainText(handle);
