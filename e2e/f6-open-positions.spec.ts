@@ -240,7 +240,9 @@ test('F-6: the Similar trades pane (/u/<h>/pane) carries open positions for a co
   const mixed = await (await request.get('/u/f6_mixed/pane?v=3')).json();
   expect(mixed.model.open).toEqual({ n: 3, up: 1, down: 1, flat: 1, avg: -0.067 });
   expect(mixed.model.openAsOf).toBe('2026-10-30');
-  expect(JSON.stringify(mixed)).not.toMatch(/unrealized|"open":\[/);
+  // F-34 (plan §6): the model carries the printed line (withAsOf says "unrealized as of …"), never a raw field or list.
+  expect(JSON.stringify(mixed)).not.toMatch(/unrealized_pct|"unrealized":|"open":\[/);
+  expect(mixed.model.openLine.withAsOf).toBe('Still open: 3 positions · 1\u00a0up, 1\u00a0down, 1\u00a0flat · lowest -30.0%\u00a0down, highest +10.0%\u00a0up, unrealized as of Oct 30, 2026');
   const stray = await (await request.get('/u/f6_stray/pane?v=3')).json();
   expect(stray.model.open).toBeNull();
   expect(stray.model.openAsOf).toBeNull();
