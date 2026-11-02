@@ -48,6 +48,19 @@ second-vote mean 4.00, final vote 15/15, all approving, 14 of them with conditio
   carries no ranking weight yet, so new traders do not read it as a penalty. No "proven", "top" or "skill" words. Why:
   approved by the approval council (cycle 5); BL, TR, LC (F1/F3b).
 
+- 2026-11-02 (owner): cycle-5 Q3 answered yes: ranking weight starts at the moderate tier (30 bets over 90 days) with a
+  1-point floor on the spread, replacing the 10-bet floor. OD 2.33: method (c), the near-edge distance from 0, documented
+  on /how. OD 2.32: one range rule, the arithmetic mean of simple returns; a zero-width range prints "Too early to tell";
+  the wording "average per trade so far, likely between X and Y". DESIGN TR-9 and CLAUDE.md:92 are amended by the
+  owner's protected-files PR, not here. Why: the owner's answers, 2026-11-02.
+- 2026-11-02 (committee, within those decisions): the ranking interval is TR-9's pace interval (return per 30 days
+  invested) computed on simple returns, so a record and its exact loss mirror weigh exactly the same; the floor is
+  v = max(ss/(K−1), 0.01²·n/K) per bet inside the error term, ranking only; "zero width" means the printed one-decimal
+  ends are equal; the suggestions section orders by weight, then trader id (no count, size or recency). Why:
+  `docs/features/logs/F-33/committee-2026-11-01.md` rounds 1-2 and the orchestrator's rulings.
+- 2026-11-02 (committee): the OD 2.32 card wording is not built in this PR: it is a scheduled hand-off (below). Why:
+  it is not one of this file's ACs and moves pinned image layouts; committee ruling 4, BL round 2 D3.
+
 ## Acceptance criteria
 - [ ] The probe's ten +1% record and the jitter record each weigh less than the 200-bet record. The ten −1% twin does
       the same (symmetric test).
@@ -71,9 +84,17 @@ second-vote mean 4.00, final vote 15/15, all approving, 14 of them with conditio
 - The fixes-lane step that prints "Too early to tell" now.
 
 ## Open questions
-- Owner (cycle-5 Q3): may ranking weight start at the moderate tier, with a 1-point floor on the spread, replacing
-  your 10-bet floor? The council recommends yes.
-- Owner (OD 2.32, OD 2.33, OD 2.34): put all three in the same sitting as Q3.
+- Answered 2026-11-02: cycle-5 Q3, OD 2.32, OD 2.33 (see Decisions). Still open: OD 2.34 (open positions in the range).
+- Owner: a record of 30+ bets whose returns all round to the same value prints "Too early to tell" yet carries ranking
+  weight through the 1-point floor (measured: 40 × exactly +1%, 1-day holds over 120 days, weight 0.2041, below the
+  200-bet record's 0.2985 and above every record under the tier). Both rules are yours (OD 2.32 prints, Q3 weighs);
+  say if such a record must never sit in the weighted group.
+- Owner: the suggestions section's new-record slot still picks the record with the fewest closes (an order by count,
+  against "no order uses trade count", though it favours low frequency). Alternative: the latest first close.
+- Owner: with most records at weight 0 the section orders by trader id, which favours the earliest sign-ups. A fixed
+  hash of the id would be equally stable and seniority-neutral.
+- Owner: OD 2.32 is only partly applied: the ticker, recap, trade-share and tools ranges keep the log rule (with the
+  zero-width rule) until the hand-off below lands.
 
 ## POLICY notes
 - F4 (losses never hidden, ranked like gains): the change is symmetric and tested on both signs.
@@ -81,7 +102,15 @@ second-vote mean 4.00, final vote 15/15, all approving, 14 of them with conditio
 - F1/F3b: no "top", "best", "proven" or "skill" wording. TR-9 stays a documented method on /how.
 
 ## Hand-offs to in-flight work
-- F-16/F-17 (#100) and F-25 (#102) edit `lib/feed.ts`. Build after both merge.
+- F-16/F-17 (#100) and F-25 (#102) edit `lib/feed.ts`. F-25 merged into this branch on 2026-11-02; #100 is still open
+  and this branch merges main again when it lands.
+- Scheduled next item, OD 2.32 card wording: the record card's label and range read the owner's words "average per trade
+  so far, likely between X and Y" (unfurl, square, story, alt text, share prompt), with the unfurl layout measured and
+  the snapshot regenerated in its own commit. Not built here.
+- Scheduled follow-up, OD 2.32 range rule: the ticker baseline (`app/t/ticker-sql.ts`, needs an EXPLAIN rows-read test),
+  recap, trade-share, tools card and `lib/ticker.ts` move from the log interval to the arithmetic one.
+- F-2 mixer owners: with every weight 0, the tail of a skewed pool can reach 6 hyperactive cards in 10 (measured on 3
+  of 12 day seeds, positions ~166-177); `test.todo` in lib/feed.test.ts and a ponytail in lib/discovery/explore.ts.
 - The fixes lane (claude/fixes-cycle5 or its successor) prints "Too early to tell" for a zero-width range now. This
   feature takes that over and keeps one producer.
 
