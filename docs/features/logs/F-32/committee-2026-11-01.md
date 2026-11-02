@@ -30,3 +30,19 @@ plus "Round 2 changes").
 - `PROFILE.excludedCorporate` keeps "a share move" (unpaired ADJUSTMENT rows still count there).
 - The 14-day window is not printed on /how; whether to state it is an owner item.
 - `MatchOptions.reasons` is a test hook (per-sell reason), so the fuzz checks reasons per sell, not only totals.
+
+## Round 2 and review
+- Business lead round 2: CHANGES REQUIRED (2: assert the underline in both schemes; T10, the corporate/transfer/held
+  order with only the transfer line linked). Both added and green.
+- Engineer round 2: SIGN, on condition that the per-reason report is wired into the rebuild loop once chore C5-43(b) is
+  on main and before this PR merges (a blocking item in the PR body). Non-blocking: `MatchOptions.reasons` notes that
+  production callers never pass it (done).
+- `npm test` found one failure: `lib/copy.test.ts` requires /how's excluded list to name "Transfers in" (POLICY F3). The
+  copy was fixed, not the test: the transfer sentence is now an item of that list ("Transfers in and out of an account.
+  A sell is counted as "excluded: a share transfer in the same stock" ..."), still transfers' one home, with
+  id="transfers".
+- Independent review: invariants hold (relabel only, one bucket per sell, loader flags exactly the three types, count
+  only). Finding 1 (verified, fixed): a transfer-in lot and another unpriceable action at the same instant gave the
+  later sells a reason that depended on which vendor id sorted first; the lot now names the transfer as its cause only
+  when no other action shares its day (as a buy that day). Pinned in both id orders; the test fails without the fix.
+  Finding 2: the report wiring (same as the engineer's condition).

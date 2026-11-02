@@ -195,7 +195,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   // Same UTC day as a repricing action on the pair (or an account-wide one): the order within that day is unknown.
   const daysOf = (m: Map<string, number[]>) => new Map([...m].map(([k, list]) => [k, new Set(list.map((t) => Math.floor(t / DAY)))]));
   const days = daysOf(times), transferDays = daysOf(transferTimes);
-  const sameDay = (ds: Map<string, Set<number>>, a: Activity) => {
+  const sameDay = (ds: Map<string, Set<number>>, a: { accountId: string; symbol: string; executedAt: Date }) => {
     const d = Math.floor(a.executedAt.getTime() / DAY);
     return !!(ds.get(`${a.accountId}|${a.symbol}`)?.has(d) || ds.get(`${a.accountId}|`)?.has(d));
   };
@@ -317,7 +317,9 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         // Independent review (finding 3): an unpriceable action on a pair the ledger holds none of (not shares it hands
         // over: a spin-off's received shares) says earlier shares exist: the gap.
         if (u <= 0 && ca.scope !== 'account' && !b.lots.length && moved?.at !== e.at) addGap(b, Math.abs(u) || 1);
-        else if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true, ...(isTransfer(ca) ? { cause: 'transfer' as const } : {}) });
+        // F-32 Part A (independent review): a transfer-in lot names the transfer as its cause only when no other action
+        // shares its day (as a buy that day), so the reason never depends on which vendor id sorts first at a tie.
+        else if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true, ...(isTransfer(ca) && !sameDay(days, ca) ? { cause: 'transfer' as const } : {}) });
         else if (u < 0) addGap(b, removeOldest(b.lots, -u));
       }
       continue;

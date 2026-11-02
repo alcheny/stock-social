@@ -195,3 +195,12 @@ test('engineer review: an oversell drawing a transfer-tainted lot inside a split
     assert.deepEqual(counts(r), { shown: 0, excluded: 0, corporate: 1, transfer: 0, held: 0 }, `split day ${d}`);
   }
 });
+
+test('independent review: a transfer in and another action at the same instant: the reason never depends on which vendor id sorts first', () => {
+  const run = (xt: string, other: CorporateAction) =>
+    counts(accounted([act('BUY', 10, 100, 0), act('SELL', 10, 90, 40), act('SELL', 5, 90, 60)], [transfer(20, 5, { externalId: xt }), other]));
+  // An unpriceable action that day taints the lots: it wins the reason in both orders.
+  for (const [xt, xa] of [['x1', 'x2'], ['x2', 'x1']]) assert.equal(run(xt, unknown(20, undefined, { externalId: xa })).transfer, 0, `transfer id ${xt}`);
+  // A split that day resolves cleanly (it taints nothing); both orders give the same reasons.
+  assert.deepEqual(run('x1', split(20, 2, 1, { externalId: 'x2' })), run('x2', split(20, 2, 1, { externalId: 'x1' })));
+});
