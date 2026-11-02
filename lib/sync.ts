@@ -105,13 +105,17 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const actionsOf = actionIndex(actions);
     let excludedCorporate = 0;
     const flushed = new Set<string>(); // pairs replayed with their actions
+    // F4-1: a symbol-less unusable sell (account scope) reaches every pair's replay in its account (actionIndex), and each
+    // replay counts it; it is one sell, so each replay's count of it is taken back and it is counted once below.
+    const accountSell = (ca: (typeof actions)[number]) => ca.kind === 'unpriceable' && ca.reason === 'trade' && ca.side === 'SELL' && ca.scope === 'account';
     const flush = async (rows: Activity[], keys?: Set<string>) => {
       if (!rows.length) return;
       for (const k of keys ?? [pairKey(rows[0].accountId, rows[0].symbol)]) flushed.add(k);
-      const m = matchTrades(rows, actions.length ? actionsOf(keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : []);
+      const acts = actions.length ? actionsOf(keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : [];
+      const m = matchTrades(rows, acts);
       excluded += m.excluded;
       excludedHeld += m.excludedHeld ?? 0; // F-24 RT-2
-      excludedCorporate += m.excludedCorporate;
+      excludedCorporate += m.excludedCorporate - acts.filter(accountSell).length;
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
         await tx`insert into closed_trades ${tx(m.trades.slice(i, i + INSERT_CHUNK).map((t) => {
@@ -175,7 +179,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       })), new Set(keys));
     }
     // F3-1: an unusable sell in a pair with no stored activity is never replayed above; it is still counted.
-    for (const ca of actions) if (ca.kind === 'unpriceable' && ca.reason === 'trade' && ca.side === 'SELL' && !flushed.has(pairKey(ca.accountId, ca.symbol))) excludedCorporate++;
+    // F4-1: each symbol-less unusable sell once, whether or not any pair of its account was replayed.
+    for (const ca of actions) if (ca.kind === 'unpriceable' && ca.reason === 'trade' && ca.side === 'SELL' && (accountSell(ca) || !flushed.has(pairKey(ca.accountId, ca.symbol)))) excludedCorporate++;
     const setAside = live.filter((k) => !attachedIds.has(k.sell_id as string));
     if (setAside.length) {
       await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status, ...thesisMeta(k as unknown as KeptThesis) })))}
@@ -184,14 +189,23 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           thesis_hold_rule = excluded.thesis_hold_rule, thesis_reviewed_at = excluded.thesis_reviewed_at,
           thesis_reports_from = excluded.thesis_reports_from, thesis_checked_version = excluded.thesis_checked_version`;
     }
-    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)} and ${notDuplicate(tx)}
+    const [{ future: futureActs }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)} and ${notDuplicate(tx)}
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
       and ${notShared(tx, userId)}`;
+    // F4-1: a future-dated unusable sell (F3-1 row, any scope) is counted as future too, with the same filters
+    // loadCorporateActions applies (paper accounts, marked accounts, an activity stored first); once its date passes it
+    // loads with the actions and is counted in excluded_corporate instead.
+    const [{ future: futureSells }] = await tx`select count(*)::int as future from corporate_actions a where a.user_id = ${userId} and not (${notFuture(tx)})
+      and a.kind = 'unpriceable' and a.detail->>'reason' = 'trade' and a.detail->>'side' = 'SELL'
+      and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+      and not exists (select 1 from activities x where x.source = a.source and x.external_id = a.external_id and x.created_at <= a.created_at)
+      and not exists (select 1 from shared_account_marks m where m.user_id = ${userId} and m.account_id = a.account_id)`;
+    const future = (futureActs as number) + (futureSells as number);
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
     // F-24 RT-2: sells counted while a possible re-issue in their pair is held (owner-visible; shown nowhere yet).
     await tx`update users set excluded_held = ${excludedHeld} where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
-    return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate };
+    return { trades: written, excluded, future, maxHeld, excludedCorporate };
   };
   return tx ? run(tx) : sql.begin(run);
 }

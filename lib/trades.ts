@@ -67,6 +67,15 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 //   units and a date opens a lot with no basis (a sell drawing it is counted). With no usable units or date, the pair's
 //   ledger is unknown from that row on (from the start when undated): its lots and every later lot of the pair are
 //   tainted, and a sell is counted. They are not repricing actions (no late-posting window, no same-day rule).
+// - Symbol-less unusable trade rows (fixes cycle 4, F4-1): a vendor BUY/SELL with an id and no symbol is an F3-1 row with
+//   scope 'account' (lib/corporate-actions.ts#unusableTrade). A sell is counted in `excludedCorporate` (once: the rebuild
+//   replays each pair with the account's account-wide rows and de-duplicates the count, lib/sync.ts#rebuildTrades). In a
+//   long-only ledger it sold shares some pair of the account held, which one is unknown, so every pair holding lots then
+//   has an unknown ledger from that row on (as a unit-less row on its own pair): its lots and later lots are tainted. A
+//   buy may have opened a lot in any pair, existing or new, so the whole account's ledger is unknown from that row on.
+//   ponytail: a symbol-less sell is read as a long close of shares held; a pair holding none then (the sell a short or
+//   of shares before the history) is left as it was, like F-30's residual — fix: the vendor's symbol on every trade row
+//   (vendor question list) or a positions read with units (owner item).
 // - Held possible re-issues (F-24, council cycle 5 RT-2; POLICY F3c "count, never guess"): a row the vendor may have
 //   re-issued under a new id is passed in with `held`. It is either a second genuine fill or a duplicate, and the
 //   readings price every later sell of the pair differently. So a held row opens no lot; a held sell is counted only when
@@ -199,6 +208,9 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   // in that account for good (over-counts, never publishes a wrong figure) — fix: clear it at a vendor-confirmed zero
   // position (the positions read) for the pair.
   const unknownFrom = new Set<string>();
+  // F4-1: accounts a symbol-less unusable buy made unknown (every pair, existing or later, from that row on).
+  const unknownAccounts = new Set<string>();
+  const unknown = (key: string) => unknownFrom.has(key) || unknownAccounts.has(key.slice(0, key.lastIndexOf('|')));
   const held = (lots: Lot[]) => lots.reduce((s, l) => s + l.units, 0);
   const taint = (lots: Lot[]) => { for (const l of lots) l.tainted = true; };
   // Removes `units` from the oldest lots (a cash-in-lieu fraction, shares removed by an unpriceable action).
@@ -223,6 +235,12 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       if (isTradeRow(ca)) {
         // F3-1: an unusable vendor trade row (see the header). Counted when it is a sell, never priced.
         if (ca.side === 'SELL') excludedCorporate++;
+        if (ca.scope === 'account') {
+          // F4-1: no symbol, so no pair (see the header): a sell leaves every pair holding lots unknown, a buy the account.
+          if (ca.side === 'BUY') unknownAccounts.add(ca.accountId);
+          for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`) && (ca.side === 'BUY' || other.lots.length)) { taint(other.lots); unknownFrom.add(k); }
+          continue;
+        }
         if (ca.units !== undefined && !ca.undated) {
           if (ca.side === 'SELL') addGap(b, removeOldest(b.lots, ca.units)); // C4-2: an unusable oversell leaves a gap too
           else b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
@@ -251,7 +269,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       } else if (ca.kind === 'symbol-change') {
         // F3-1: an unknown ledger stays unknown under its new symbol, whether or not lots move (a unit-less or undated buy
         // leaves none; a share count that doesn't match leaves them behind, tainted).
-        if (unknownFrom.has(key) && ca.newSymbol !== ca.symbol) {
+        if (unknown(key) && ca.newSymbol !== ca.symbol) {
           const unknownTo = `${ca.accountId}|${ca.newSymbol}`;
           unknownFrom.add(unknownTo);
           taint(book(unknownTo).lots);
@@ -272,7 +290,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && openedInWindow(b.lots, e.at))) taint(b.lots);
         const to = book(toKey);
         to.lots = [...to.lots, ...b.lots].sort((x, y) => x.at.getTime() - y.at.getTime());
-        if (unknownFrom.has(toKey)) taint(to.lots); // F3-1: lots moved into a pair whose ledger is unknown
+        if (unknown(toKey)) taint(to.lots); // F3-1: lots moved into a pair whose ledger is unknown
         books.set(key, { lots: [] }); // a recycled ticker starts fresh lots
         movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
         if (r.p !== r.q) exchangedInto.set(toKey, e.at);
@@ -300,7 +318,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     if (a.held) { heldKeys.add(key); if (a.side === 'SELL') heldSells.push(a); continue; }
     if (a.side === 'BUY') {
       // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
-      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknownFrom.has(key) ? { tainted: true } : {}) });
+      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknown(key) ? { tainted: true } : {}) });
       continue;
     }
 
@@ -334,7 +352,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     if (!tiny(remaining, a.units)) {
       // Oversold: this sell, and every later sell of the pair through the gap (C4-2). Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
       // An oversell in a pair whose ledger an unusable trade row made unknown (F3-1) is that cause, not missing history.
-      if (tainted || unknownFrom.has(key)) excludedCorporate++; else excluded++;
+      if (tainted || unknown(key)) excludedCorporate++; else excluded++;
       addGap(b, remaining); // C4-2: a short or earlier history
       continue;
     }

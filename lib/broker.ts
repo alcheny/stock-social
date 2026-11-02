@@ -219,6 +219,8 @@ export function splitPositionKinds(results: AccountPosition[]): { equityLike: Ac
 // or date is returned in `unusable` (lib/corporate-actions.ts#unusableTrade), stored with the corporate actions and
 // counted by the matcher, never priced. Option rows are filtered out first (toOptionRows counts them), so a price-less
 // option row is counted once, as an option, never as an unusable share row.
+// Fixes cycle 4, F4-1: a BUY/SELL row with an id and no symbol (the SDK types the symbol as nullable) is never dropped
+// either: unusableTrade stores it with account scope (no pair to put it in) and the matcher counts it, never prices it.
 export type Unusable = ReturnType<typeof unusableTrade> & {};
 export function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?: string } | null; option_symbol?: unknown; option_type?: string; trade_date?: string | null; price?: number; units?: number; fee?: number; type?: string }[]): { activities: Fetched[]; unusable: Unusable[] } {
   const out: Fetched[] = [];
@@ -227,11 +229,11 @@ export function toActivities(accountId: string, rows: { id?: string; symbol?: { 
     const symbol = a.symbol?.symbol;
     // Option rows go to toOptionRows (OPTIONS, K1–K9 above); this path is shares, ETFs and crypto. The option filter runs
     // before unusableTrade (merge with F3-1).
-    if (!a.id || !symbol || a.option_symbol) continue;
+    if (!a.id || a.option_symbol) continue;
     if (a.type !== 'BUY' && a.type !== 'SELL') continue;
     if (hasOptionType(a.option_type) || isOccSymbol(symbol)) continue; // OPTIONS: an option row (toOptionRows counts it), one definition (round 7)
-    const bad = unusableTrade(accountId, { ...a, id: a.id, symbol, type: a.type });
-    if (bad) { unusable.push(bad); continue; }
+    const bad = unusableTrade(accountId, { ...a, id: a.id, symbol, type: a.type }); // F4-1: always unusable with no symbol
+    if (bad || !symbol) { if (bad) unusable.push(bad); continue; }
     out.push({
       externalId: a.id, accountId, symbol, side: a.type, units: Math.abs(vendorNumber(a.units)), price: vendorNumber(a.price), fee: Math.abs(a.fee === undefined || a.fee === null ? 0 : vendorNumber(a.fee)),
       executedAt: new Date(a.trade_date!), verified: true, raw: a,

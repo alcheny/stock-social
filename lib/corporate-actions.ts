@@ -31,7 +31,9 @@ export type CorporateAction =
   // Fixes cycle 3, F3-1: a vendor BUY/SELL row the importer can't price (lib/broker.ts#toActivities via unusableTrade):
   // `units` when the row's share count is usable, `undated` when its date is missing or unparseable (then `executedAt` is
   // the epoch: it can't be placed, so it applies before every row of its pair). Never a repricing action.
-  | (Base & { kind: 'unpriceable'; reason: 'trade'; side: 'BUY' | 'SELL'; units?: number; undated?: boolean; scope?: 'pair' });
+  // Fixes cycle 4, F4-1: a row with no symbol has scope 'account' and `symbol` '' (the column is NOT NULL): the matcher
+  // can't tell which pair it traded, so it reaches every pair of its account (lib/trades.ts).
+  | (Base & { kind: 'unpriceable'; reason: 'trade'; side: 'BUY' | 'SELL'; units?: number; undated?: boolean; scope?: 'pair' | 'account' });
 
 export const RATIO_TOLERANCE = 1e-6;
 // A sell this soon before a repricing action may have traded at post-action prices against unadjusted lots (brokers
@@ -217,8 +219,11 @@ export function fromVendorRows(accountId: string, rows: VendorRow[]): { activiti
 // Strings must be plain decimals ('12.5', '-3', '1e-2'); '0x10' is not read as 16.
 const DECIMAL = /^\s*[-+]?(\d+(\.\d*)?|\.\d+)(e[-+]?\d+)?\s*$/i;
 export const vendorNumber = (x: unknown): number => (typeof x === 'number' ? x : typeof x === 'string' && DECIMAL.test(x) ? Number(x) : NaN);
-export type TradeVendorRow = { id: string; symbol: string; type: 'BUY' | 'SELL'; trade_date?: string | null; price?: unknown; units?: unknown; fee?: unknown };
+// Fixes cycle 4, F4-1: a row with an id and no symbol is never dropped either. Whatever its price, units and date, it is
+// unusable: it is stored with `symbol` '' and scope 'account' (the account's pairs are all candidates) and counted once.
+export type TradeVendorRow = { id: string; symbol?: string | null; type: 'BUY' | 'SELL'; trade_date?: string | null; price?: unknown; units?: unknown; fee?: unknown };
 export function unusableTrade(accountId: string, row: TradeVendorRow): (CorporateAction & { raw: unknown }) | null {
+  const symbol = row.symbol || '';
   const price = vendorNumber(row.price);
   const units = Math.abs(vendorNumber(row.units));
   const at = row.trade_date ? new Date(row.trade_date) : null;
@@ -226,10 +231,10 @@ export function unusableTrade(accountId: string, row: TradeVendorRow): (Corporat
   const hasUnits = Number.isFinite(units) && units > 0;
   // A fee that is present but not a finite number makes the price unusable too (it would publish NaN or -Infinity).
   const feeOk = row.fee === undefined || row.fee === null || Number.isFinite(vendorNumber(row.fee));
-  if (dated && hasUnits && Number.isFinite(price) && price > 0 && feeOk) return null;
+  if (symbol && dated && hasUnits && Number.isFinite(price) && price > 0 && feeOk) return null;
   return {
-    externalId: row.id, accountId, symbol: row.symbol, executedAt: dated ? at! : new Date(0), kind: 'unpriceable', reason: 'trade', side: row.type,
-    ...(hasUnits ? { units } : {}), ...(dated ? {} : { undated: true }), raw: row,
+    externalId: row.id, accountId, symbol, executedAt: dated ? at! : new Date(0), kind: 'unpriceable', reason: 'trade', side: row.type,
+    ...(hasUnits ? { units } : {}), ...(dated ? {} : { undated: true }), ...(symbol ? {} : { scope: 'account' as const }), raw: row,
   };
 }
 
