@@ -90,6 +90,12 @@ async function page(sh: Shard, scope: Scope, shift: number, exclude: number[], l
 // predicate repeated word for word) in a materialized CTE, so the plan never visits a trader without such a row.
 export const MATURED_PER_RUN = 50;
 export const MATURED_BOX_MS = 20_000;
+// Matured records go oldest matured row first (tester QA 1), so a shard with more than MATURED_PER_RUN due records never
+// leaves the same records waiting tick after tick; the deploy catch-up comes after them.
+// ponytail: the box and the stops are checked before each rebuild, so one very large record started near the limit runs
+// past them (as syncUser's rebuild can) — fix: a statement_timeout on the pass's transactions.
+// ponytail: a record with an import running is skipped; an import still running 8 days after a row's date leaves that row
+// to the import's own rebuild (which normally publishes it) — fix: page by the watermark per record (as above).
 // The window (BACKFILL_MS) plus the grace: a row older than this that the pass missed waits for the record's next rebuild.
 export const MATURED_LOOKBACK_DAYS = 8;
 // ponytail: a matured row the pass misses for more than MATURED_LOOKBACK_DAYS (8 days of failed or busy runs) waits for the
@@ -114,12 +120,14 @@ export function maturedQuery(sh: Shard, scope: Scope, limit: number) {
     and not exists (select 1 from connections c where c.user_id = u.id and c.state = 'importing')`;
   return sql`with due as materialized (${union(due)}), ahead as materialized (${union(ahead)})
     select id, bool_and(initial) as initial from (
-      select u.id, false as initial from users u join (select user_id, max(executed_at) as mx from due group by user_id) d on d.user_id = u.id
+      select u.id, false as initial, d.first from users u
+        join (select due.user_id, max(due.executed_at) as mx, min(due.executed_at) filter (where due.executed_at > coalesce(w.published_through, '-infinity'::timestamptz)) as first
+          from due join users w on w.id = due.user_id group by due.user_id) d on d.user_id = u.id
         where d.mx > coalesce(u.published_through, '-infinity'::timestamptz) and ${eligible}
       union all
-      select u.id, true as initial from users u join (select distinct user_id from ahead) a on a.user_id = u.id
+      select u.id, true as initial, null::timestamptz as first from users u join (select distinct user_id from ahead) a on a.user_id = u.id
         where u.published_through is null and ${eligible}
-    ) x group by id order by bool_and(initial), id limit ${limit}`;
+    ) x group by id order by bool_and(initial), min(first) nulls last, id limit ${limit}`;
 }
 export type MatureRebuild = (userId: number, tx: TransactionSql) => Promise<unknown>;
 // One transaction per record under the per-user lock (busy: left, the watermark unmoved, so the next tick retries); the

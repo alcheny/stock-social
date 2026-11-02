@@ -64,6 +64,9 @@ export async function insertActivities(userId: number, source: 'snaptrade' | 'de
 // F-35 (engineer r1-2, r2-1): a row stored dated ahead lowers the record's watermark to this transaction's clock, so a
 // transaction that started before a rebuild committed (an import step waiting on the lock) never stores a row the matured
 // pass skips. A null watermark stays null (the deploy catch-up still selects the record).
+// Exactness needs every writer of activities, option rows or corporate actions, and every rebuild, to hold the
+// per-user lock (USER_LOCK) for its whole transaction (syncUser, importStep, the matcher rebuild and the matured pass do):
+// an unlocked rebuild could commit a watermark past a row another open transaction has yet to commit (tester QA 7).
 export async function lowerWatermark(db: Db, userId: number) {
   await db`update users set published_through = now() where id = ${userId} and published_through > now()`;
 }

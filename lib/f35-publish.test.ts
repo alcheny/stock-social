@@ -373,6 +373,21 @@ dbTest('budget: the pass never starves the workers: with 50 matured records and 
   } finally { await h.cleanup(); }
 });
 
+dbTest('order: with more due records than a run takes, the oldest matured row goes first (never the same records left waiting by id)', async () => {
+  const h = await harness();
+  try {
+    const young = await h.mk('y'), old = await h.mk('e'); // `old` has the larger id
+    await h.S.insertActivities(young.id, 'snaptrade', [h.share(young, 'yb', 'BUY', 100, 2 * HOUR)]);
+    await h.S.insertActivities(old.id, 'snaptrade', [h.share(old, 'eb', 'BUY', 100, 2 * HOUR)]);
+    await h.sql`update users set published_through = now() where id in ${h.sql([young.id, old.id])}`;
+    await h.age(young, 3 * HOUR);
+    await h.age(old, 30 * HOUR);
+    // Both in one scope; a run that takes one record takes the one whose row matured first.
+    const pick = async (shard: number) => (await h.H.maturedQuery({ shard, of: 1 }, { ids: [young.id, old.id] }, 1)).map((r) => r.id);
+    assert.deepEqual(await pick(0), [old.id]);
+  } finally { await h.cleanup(); }
+});
+
 dbTest('AC7: the matured-rows query reads the partial indexes (both branches), never a sequential scan of the raw tables', async () => {
   const h = await harness();
   try {
