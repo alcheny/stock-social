@@ -34,6 +34,9 @@ A signed-out first visitor sees a stock and a percentage with no idea what the p
   the design system council's slot rule: it waits while the line shows and appears on card 1 after dismissal (or on a later
   visit), on the footer link's line. On short screens (≤ 480 px tall), while the line shows, card 1's symbol and return are
   smaller. Decided in the build (F-10 budget conflict); the owner may revisit the trade-off.
+- 2026-11-02: The owner accepted OD 2.37: the first-visit line becomes "Closed trades imported read-only from
+  connected broker accounts. Losses included." (fixes-list item F6-4). The pin test changes its expected value. Why:
+  the owner's decision of 2026-11-02 (OD 2.37); POLICY F3a (the old line called demo cards verified).
 
 ## Acceptance criteria
 - [ ] Signed out, the first visit shows exactly "Verified trades, straight from the broker. Losses included." linking to
