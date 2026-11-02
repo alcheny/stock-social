@@ -137,3 +137,46 @@ Claims: the example is labelled fictional (§11). Records: §12 entry above.
    decision date or move the constant to the deploy day?
 4. Should `OPTIONS.howMath` gain "the same formula as shares"? Not in the decisions, so not planned.
 5. Sign-change count on share closes only (options already include fees): confirm.
+
+## Round 2 changes (orchestrator's synthesis of the business lead's and the engineer's round-1 reviews)
+
+Both reviewers: CHANGES REQUIRED in round 1. The changes below replace the round-1 text where they disagree.
+
+- R2-1 (engineer 1, business lead 5): **no audit branch in `lib/trades.ts`.** The fixture check is test-only:
+  `scripts/f36-audit.ts` runs `node --test` (every `*.test.ts`, the `.db.test.ts` files with `DATABASE_URL` set,
+  engineer 2) with `NODE_OPTIONS=--import <hook>`; the hook (`scripts/f36-audit-hook.mjs` + loader) rewrites the
+  `returnPct:` line of `lib/trades.ts` in memory only (anchor must match exactly once, else it throws), computes the
+  legacy `numerator / cost` beside the new figure, and appends `<test file> <symbol> <sellId> legacy now
+  entryFee=yes|no` per changed trade (percents and yes/no only, never a fee amount). The script fails on any
+  `entryFee=no` line and prints the sorted list the PR body pastes. No production debris, no ponytail for it.
+- R2-2 (engineer 3, business lead 6): the guard folds into the existing first condition:
+  `if (tainted || noBasis || latePosted(a) || sameDayAction(a)) excludedCorporate++`, where `noBasis` is set when a
+  drawn lot has `!(price > 0)` or the final `!(cost + entryFees > 0)`. The oversell branch is unchanged. A test pins
+  the bucket for a gapped sell plus a no-basis sell. If a zero-fee fixture ever hits the guard, the PR lists it apart
+  as a guard change.
+- R2-3 (engineer 5): no second property test file. The cycle-4 model (`lib/fixes-cycle4.property.test.ts:126`) takes
+  the new denominator and records the legacy figure; the same file adds: same sign as legacy, `|new| ≤ |legacy|`,
+  equality when the trade's entry fees are 0. Order independence and the partition invariant are already asserted
+  there.
+- R2-4 (engineer 6): add a case with a huge entry fee and exit fee 0 → result ≥ −1.
+- R2-5 (engineer 7): expected changed expectations (from the engineer's scratch audit on main): `lib/trades.test.ts`
+  "FIFO across two lots, fees on both legs"; `lib/corporate-actions.test.ts` "1:10 reverse split … (fee 10)"; the C4
+  property model's tests. Each keeps its assertion, only the figure moves, with `// F-36`. The audit output is final.
+- R2-6 (engineer 8; business lead 1 superseded): no `e2e/f23-payload-scan` `/fee/i` assertion (it matches "feed" and
+  unrelated words). The AC asks for a source scan plus a render test; both stay.
+- R2-7 (engineer 4): `lib/f36-fees.db.test.ts` also deep-equals the unchanged return shape. The PR says that F-24's
+  `logRewrites` adds each fee-bearing record's changed closes to `users.closes_rewritten` (intended).
+- R2-8 (engineer 9, business lead 4): the date constant renders with `timeZone: 'UTC'` (pinned in a test). It must be
+  the day the version-3 rebuild runs in production: if the deploy slips, the constant moves (owner item in the PR). The
+  third round-1 ponytail is dropped.
+- R2-9 (business lead 2, 3): copy:
+  - math line: `Return = (sale proceeds − purchase cost − purchase fees − sale fees) ÷ (purchase cost + purchase fees),
+    using the fees the broker reported. Nothing is weighted by size.`
+  - example (unchanged, fictional, no currency sign): `A fictional example: paid 100 plus a fee of 10, sold for 165
+    with no fee on the sale. (165 − 100 − 10) ÷ (100 + 10) = 55 ÷ 110 = +50%.`
+  - note: `returns of trades with a purchase fee were recalculated to divide by the purchase cost plus that fee.
+    Before, they divided by the purchase cost alone, so both gains and losses looked bigger.`
+- R2-10 (business lead 7, 8): no options wording on /how; one sentence in the COMPLIANCE §12 entry. The sign-change
+  count covers share closes only.
+- R2-11 (business lead 10): the 360 px user test and the reviewer check /how at 320 px in light and dark, with the
+  Disclaimer right after the math list.
