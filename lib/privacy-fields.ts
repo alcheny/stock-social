@@ -30,7 +30,7 @@ export const PUBLIC_USE = 'Your public record is also used to describe your trad
 // trader writes it, under its own moderation; not part of what the import publishes).
 export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.id': 'key', 'closed_trades.user_id': 'key', 'closed_trades.sell_id': 'key (vendor activity id, never shown)',
-  'closed_trades.trade_key': 'key (hash of sell_id)', 'closed_trades.verified': 'shown as the Verified badge',
+  'closed_trades.trade_key': 'key (hash of sell_id; shown in trade-page URLs)', 'closed_trades.verified': 'shown as the Verified badge',
   'closed_trades.thesis': 'written by the trader', 'closed_trades.thesis_status': 'moderation state',
   // fix-user-text B (F-9): shown with the note it dates ("Written ‹date›"); the hold rule only to the note's author.
   'closed_trades.thesis_written_at': 'when the trader wrote the note', 'closed_trades.thesis_edited_at': 'when the trader last edited the note',

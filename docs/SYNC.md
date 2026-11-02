@@ -279,6 +279,24 @@ amends #62's 24-hour grace, which published a sell dated up to a day ahead (coun
 - Owner queries: `select count(*) from users where published_through is null and exists (select 1 from activities a
   where a.user_id = users.id and a.executed_at > a.created_at and a.executed_at > now())` (deploy catch-up left).
 
+## Matcher catch-up (chores cycle 5, C5-43 part b)
+
+A `MATCHER_VERSION` bump (`lib/trades.ts`) reaches every record without waiting for later deploys. The deploy's
+`scripts/db-setup.ts` still runs `rebuildAllForMatcher` within `MATCHER_REBUILD_MS`; whatever it leaves, every shard
+call of the cron (`lib/matcher-rebuild.ts#catchUpMatcher`, after the shard's sync) picks up:
+- up to 200 of the shard's records (`id % of = shard`) with stored rows and no `matcher_rebuilt` row for the version
+  or a newer one, frozen and disconnected records included (older code still serving the cron during the next deploy
+  never rebuilds a record back, and stops once a newer version is done);
+- each rebuilt with `rebuildRecord` under the trader's lock, within 20 s of the call's time left (`MATCHER_CATCHUP_MS`);
+- a record whose sync holds the lock is skipped (`busy`) and taken by a later call.
+- inside the lock the record's marker is read again: a record a newer version reached after the batch was selected is
+  left alone (`newer`), and `matcher_rebuilt` never moves down to an older version.
+
+When no record is left in any shard, the version is written to `matcher_runs` and later calls cost one primary-key read.
+The response's `matcher` field carries `{ rebuilt, failed, busy, newer, left, done }` (counts only), or `null` once the version
+is done. The housekeeping-only call does not run it. Alert on `failed` that stays above 0 across rounds: the version
+stays open until that record rebuilds.
+
 ## Logs (numbers only, no personal data)
 
 | Line | When | Fields |
