@@ -9,6 +9,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { PROMO } from '../lib/promo-words.ts';
 
 export type Violation = { file: string; line: number; rule: string; detail: string };
 
@@ -59,14 +60,11 @@ const MARK_RE = new RegExp(`\\b(${MARKS.map((m) => m.replace(/ /g, '[\\s-]?')).j
 const MARK_EXEMPT = new Set(['docs/POLICY.md', 'scripts/compliance.ts', 'scripts/compliance.test.ts', 'scripts/policy.test.ts']);
 
 // 5. Promotional, promissory or advice language, in product code and copy (not docs, which discuss it).
-export const PROMO: RegExp[] = [/\bguaranteed? (returns?|profits?|gains?|income|results?|winners?)\b/i, /\brisk[- ]free\b/i,
-  /\b(can'?t|cannot|won'?t) lose money\b/i, /\bget rich\b/i, /\bbeat the market\b/i, /\b(sure thing|easy money|free money)\b/i,
-  /\b(you should|we recommend( that you)?|time to) (buy|sell)\b/i, /\bbuy now\b/i, /\bcopy (this|their|my|his|her) trades?\b/i,
-  /\b(proven|guaranteed) (strategy|system|track record|winner)\b/i, /\b(outperforms?|make money|passive income|hot (pick|stock)|top picks?|pick of the day)\b/i,
-  // Completeness claims the data can't back (options and some positions are excluded): POLICY F3.
-  /\b(every closed trade is published|see every trade|all (of )?(their|his|her|my) trades|from any broker|every trade, verified|every (verified )?(closed )?trade (in|is listed)|recaps show every|all the trades in it)\b/i,
-  // "Verified" means broker-sourced only; never "verified by/via/on" someone, which implies endorsement (POLICY F3a).
-  /\bverified (via|by|on)\b/i];
+// The phrases live in lib/promo-words.ts (no fs or child_process, so moderation can import them without tracing this
+// scanner into the server bundle; F4-6). That file is exempt from this one check, since it spells the phrases;
+// scripts/compliance.test.ts pins the list, so editing it fails a protected test.
+export { PROMO };
+const PROMO_EXEMPT = new Set(['lib/promo-words.ts']);
 const PRODUCT = /^(app|lib|public|components)\//;
 const isTest = (f: string) => /\.test\.[jt]sx?$/.test(f) || f.startsWith('e2e/');
 
@@ -74,6 +72,9 @@ const isTest = (f: string) => /\.test\.[jt]sx?$/.test(f) || f.startsWith('e2e/')
 export const LICENSE_OK = new Set(['MIT', 'MIT-0', 'Zlib', 'OFL-1.1', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', 'BlueOak-1.0.0', 'Python-2.0', 'CC-BY-4.0']);
 export const LICENSE_REVIEWED: [RegExp, string][] = [
   [/^@img\/sharp-libvips-/, 'LGPL-3.0-or-later prebuilt libvips binary, dynamically linked by the optional image optimizer; used unmodified'],
+  // Owner decision 2026-11-02: an optional native dependency of the image optimizer (installed only where no prebuilt
+  // native binary fits the platform), already in the lockfile; never bundled into the app, used unmodified.
+  [/^@img\/sharp-wasm32$/, 'Apache-2.0 AND LGPL-3.0-or-later AND MIT: optional dependency of the image optimizer, installed only on platforms with no native binary; not bundled into the app; used unmodified'],
 ];
 
 export function scanText(file: string, text: string, onlyLines?: Set<number>): Violation[] {
@@ -89,7 +90,7 @@ export function scanText(file: string, text: string, onlyLines?: Set<number>): V
     if (LOCAL_PATH.test(raw)) out.push({ file, line, rule: 'personal data', detail: 'local machine path' });
     if (!MARK_EXEMPT.has(file)) { const m = raw.match(MARK_RE); if (m) out.push({ file, line, rule: 'third-party mark or real person', detail: m[0] }); }
     if (!MARK_EXEMPT.has(file)) { const m = raw.match(MINORS_RE); if (m) out.push({ file, line, rule: 'minors targeting', detail: m[0] }); }
-    if (PRODUCT.test(file) && !isTest(file)) for (const re of PROMO) { const m = raw.match(re); if (m) out.push({ file, line, rule: 'promissory or advice language', detail: m[0] }); }
+    if (PRODUCT.test(file) && !isTest(file) && !PROMO_EXEMPT.has(file)) for (const re of PROMO) { const m = raw.match(re); if (m) out.push({ file, line, rule: 'promissory or advice language', detail: m[0] }); }
   });
   return out;
 }
