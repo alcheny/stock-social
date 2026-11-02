@@ -69,6 +69,9 @@ is still told apart from a loss mainly by hue.
   (its AC12 test checks only the image warn tone and that F-20's pin exists). Why: decided by the committee under the
   owner's instruction of 2026-11-01; the owner question lives in F-20, and a copy here would break on an owner reversal
   F-27 does not own.
+- 2026-11-02: The owner accepted OD 2.42 (the hues as applied in #77) and OD 2.45 (the tuned plum Demo hue on the card
+  if it meets A1 contrast; the image font for U+2212 minus once its licence is checked; fixes-list item F6-9). Why:
+  the owner's decisions of 2026-11-02 (accepted en bloc).
 
 ## Acceptance criteria
 - [x] The bar baseline `<line>` in `Spread.tsx` and `Timeline.tsx` has `stroke="var(--control)"`, and no chart

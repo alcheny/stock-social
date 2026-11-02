@@ -178,7 +178,7 @@ test('F-21 profile #excluded (R1, R4): the reason lines add up to the heading, g
   await expect(page.locator('#excluded .options-gated')).toHaveText(`${OPTIONS.gated(1000, 0)} ${OPTIONS.howLink}`);
   await expect(page.locator('#excluded .options-technical, #excluded .options-short')).toHaveCount(0);
   // Gate open (the options consent gate cannot open in this build): the section's own markup, with the app's stylesheet.
-  const c = { excluded_positions: 1, excluded_future_sells: 0, excluded_corporate: 2, excluded_held: 1, excluded_shared: 1, public: null,
+  const c = { excluded_positions: 1, excluded_future_sells: 0, excluded_corporate: 2, excluded_held: 1, excluded_shared: 1, excluded_transfer: 2, public: null,
     options: { shown: 3, short: 1, other: 2, openLong: 1, openShort: 1, openOther: 1, unsupported: 0, exerciseShares: 1 }, gate: 'open' as const };
   await page.setContent(`<!doctype html><html><head><meta name="viewport" content="width=device-width"><style>${css}</style></head><body><main class="page">${renderToStaticMarkup(h(ExcludedSection, { c }))}</main></body></html>`);
   expect(countIn(await page.locator('#excluded-h').textContent())).toBe(exclusionTotal(c));

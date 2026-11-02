@@ -47,7 +47,7 @@ async function loadTrade(handle: string, match: ReturnType<typeof sql>) {
       case when ct.thesis_status = 'published' then ct.thesis_written_at end as thesis_written_at,
       case when ct.thesis_status = 'published' then ct.thesis_edited_at end as thesis_edited_at,
       u.display_name, u.public_filer_id, ct.filing_url, ct.opened_at, ct.trade_key,
-      u.excluded_positions, u.excluded_future_sells, u.excluded_corporate, u.excluded_held, u.excluded_shared, pf.excluded as public_excluded -- F-21
+      u.excluded_positions, u.excluded_future_sells, u.excluded_corporate, u.excluded_held, u.excluded_shared, u.excluded_transfer, pf.excluded as public_excluded -- F-21
     from closed_trades ct join users u on u.id = ct.user_id and ${visibleUser('u')} and ${filerVisibleSql('u')}
       left join public_filers pf on pf.id = u.public_filer_id
     where u.handle = ${handle} and ${match}`;

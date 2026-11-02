@@ -27,7 +27,9 @@ export type CorporateAction =
   | (Base & { kind: 'symbol-change'; newSymbol: string; outUnits: number; inUnits: number })
   // Anything that cannot be priced exactly. `units` > 0: shares received with no known basis (a spin-off's new shares);
   // < 0: shares removed. scope 'account' taints every open lot in the account (a spin-off whose parent is not named).
-  | (Base & { kind: 'unpriceable'; reason: 'spin-off' | 'unknown'; units?: number; scope?: 'pair' | 'account' })
+  // `transfer` (F-32 Part A): the row is a vendor transfer (TRANSFER or an external transfer in or out, unpaired), set by
+  // loadCorporateActions from the stored row's type. The matcher counts the sells it excludes under their own reason.
+  | (Base & { kind: 'unpriceable'; reason: 'spin-off' | 'unknown'; units?: number; scope?: 'pair' | 'account'; transfer?: true })
   // Fixes cycle 3, F3-1: a vendor BUY/SELL row the importer can't price (lib/broker.ts#toActivities via unusableTrade):
   // `units` when the row's share count is usable, `undated` when its date is missing or unparseable (then `executedAt` is
   // the epoch: it can't be placed, so it applies before every row of its pair). Never a repricing action.
@@ -154,6 +156,8 @@ export type VendorRow = {
 // rarely named) — fix: a vendor field naming the parent and its basis allocation percent.
 const SPIN = /spin[\s-]?off/i;
 // Vendor types that can move shares without a trade. BUY and SELL stay with lib/broker.ts.
+// F-32 Part A: the vendor types that are transfers (an unpaired ADJUSTMENT is not: Part B names it broker-initiated).
+export const TRANSFER_TYPES = ['TRANSFER', 'EXTERNAL_ASSET_TRANSFER_IN', 'EXTERNAL_ASSET_TRANSFER_OUT'] as const;
 const SHARE_TYPES = new Set(['SPLIT', 'STOCK_DIVIDEND', 'REI', 'ADJUSTMENT', 'TRANSFER', 'EXTERNAL_ASSET_TRANSFER_IN', 'EXTERNAL_ASSET_TRANSFER_OUT']);
 
 // REI (dividend reinvestment) is a purchase: with units and a price it becomes a BUY activity, otherwise unpriceable.
@@ -313,13 +317,20 @@ export async function insertCorporateActions(db: Db, userId: number, source: 'sn
 // an account marked as another profile's (lib/shared-accounts.ts#notShared), whose activities the rebuild leaves out too.
 // Other kinds of action in a marked account are still loaded: they touch only that account's pairs, whose activities are
 // left out, so nothing is published or counted from them.
+// F-32 Part A: an unpriceable 'unknown' action whose stored vendor row is a transfer gets `transfer: true`. It is derived
+// here, from the row's type, so rows stored before F-32 are read the same way, and nothing new is stored (no units, date
+// or account beyond what the row already holds). A spin-off keeps its own reason.
+export function withTransfer(a: CorporateAction, vendorType: string | null | undefined): CorporateAction {
+  return a.kind === 'unpriceable' && a.reason === 'unknown' && (TRANSFER_TYPES as readonly string[]).includes(vendorType ?? '') ? { ...a, transfer: true } : a;
+}
+
 export async function loadCorporateActions(db: Db, userId: number, notFuture: PendingQuery<PgRow[]>): Promise<CorporateAction[]> {
-  const rows = await db<Row[]>`select external_id, account_id, symbol, kind, detail, executed_at from corporate_actions a
+  const rows = await db<(Row & { vendor_type: string | null })[]>`select external_id, account_id, symbol, kind, detail, executed_at, a.raw->>'type' as vendor_type from corporate_actions a
     where a.user_id = ${userId} and ${notFuture}
     and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
     and not (a.kind = 'unpriceable' and a.detail->>'reason' = 'trade'
       and (exists (select 1 from activities x where x.source = a.source and x.external_id = a.external_id and x.created_at <= a.created_at)
         or exists (select 1 from shared_account_marks m where m.user_id = ${userId} and m.account_id = a.account_id)))
     order by a.executed_at, a.external_id`;
-  return rows.map((r) => ({ ...r.detail, externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, executedAt: r.executed_at, kind: r.kind }) as CorporateAction);
+  return rows.map((r) => withTransfer({ ...r.detail, externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, executedAt: r.executed_at, kind: r.kind } as CorporateAction, r.vendor_type));
 }

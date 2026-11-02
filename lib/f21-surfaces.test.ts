@@ -133,7 +133,7 @@ test('F-21 line look: muted, underlined, no warning colour, no icon (source scan
 
 test('F-21 profile #excluded (R1, R4): the heading equals the summed reason counts in both gate states; focus target; held via PROFILE.excludedHeld', () => {
   const opts = { shown: 2, short: 1, other: 1, openLong: 1, openShort: 1, openOther: 1, unsupported: 0, exerciseShares: 1 };
-  const c = { excluded_positions: 1, excluded_future_sells: 1, excluded_corporate: 2, excluded_held: 1, excluded_shared: 1, public: null, options: opts };
+  const c = { excluded_positions: 1, excluded_future_sells: 1, excluded_corporate: 2, excluded_held: 1, excluded_shared: 1, excluded_transfer: 2, public: null, options: opts };
   for (const gate of ['open', 'closed'] as const) {
     const html = renderToStaticMarkup(h(ExcludedSection, { c: { ...c, gate } }));
     const n = exclusionTotal({ ...c, gate });
@@ -142,6 +142,7 @@ test('F-21 profile #excluded (R1, R4): the heading equals the summed reason coun
     const sum = [...html.matchAll(/data-n="(\d+)"/g)].reduce((a, m) => a + Number(m[1]), 0);
     assert.equal(sum, n, gate);
     assert.match(html, /data-excluded-held/);
+    assert.match(html, /<p class="muted" data-excluded-transfer="true" data-reason="transfer" data-n="2"><a class="tap44 excluded-link" href="\/how#transfers">/); // F-32's reason, summed
     if (gate === 'closed') {
       assert.ok(html.includes(OPTIONS.gated(4, 3).replace(/'/g, '&#x27;')));
       assert.doesNotMatch(html, /options-short|options-technical|options-open-other|options-summarized/);
@@ -151,7 +152,7 @@ test('F-21 profile #excluded (R1, R4): the heading equals the summed reason coun
     }
   }
   // Nothing excluded: no section (only a context line about open options, if any).
-  const zero = { excluded_positions: 0, excluded_future_sells: 0, excluded_corporate: 0, excluded_held: 0, excluded_shared: 0, public: null };
+  const zero = { excluded_positions: 0, excluded_future_sells: 0, excluded_corporate: 0, excluded_held: 0, excluded_shared: 0, excluded_transfer: 0, public: null };
   assert.equal(renderToStaticMarkup(h(ExcludedSection, { c: { ...zero, options: { ...opts, shown: 0, short: 0, other: 0, exerciseShares: 0, openOther: 0, openShort: 0 }, gate: 'open' } })), '');
   // Open options only: their context line, counted 0, with no heading.
   assert.equal(renderToStaticMarkup(h(ExcludedSection, { c: { ...zero, options: { ...opts, shown: 0, short: 0, other: 0, exerciseShares: 0, openOther: 0 }, gate: 'open' } })),

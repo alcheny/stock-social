@@ -4,7 +4,7 @@
 // with their class names: the gated sentence and its /how link (gate closed), the short, technical and open-other lines
 // (gate open), and the exercise-share line (both). The pane and strip lines link here (#excluded; focus via RowFocus).
 // Pure: no reads (the page passes the stored counters it loaded).
-import { EXCLUSIONS, OPTIONS } from '@/lib/copy.ts';
+import { EXCLUSIONS, OPTIONS, PROFILE } from '@/lib/copy.ts';
 import { exclusionReasons, exclusionTotal, type ExclusionInput, type Reason } from '@/lib/exclusions.ts';
 
 const CLASS: Record<string, string> = {
@@ -17,6 +17,9 @@ function ReasonLine({ r }: { r: Reason }) {
     ...(r.key === 'options.gated' ? { 'data-options': 'gated' } : {}) };
   // Fix round 3 (item 6), moved: the gated sentence, then its own short link to /how.
   if (r.key === 'options.gated') return <p className={CLASS[r.key]} {...data}>{r.text} <a className="options-how" href="/how#options">{OPTIONS.howLink}</a></p>;
+  // F-32 Part A, moved into the section: the transfer line is a real link to the /how sentence, its name completed by a
+  // visually hidden suffix.
+  if (r.key === 'transfer') return <p className="muted" data-excluded-transfer {...data}><a className="tap44 excluded-link" href="/how#transfers">{r.text}<span className="sr-only"> {PROFILE.excludedTransferLink}</span></a></p>;
   return <p className={CLASS[r.key] ?? 'muted'} {...data}>{r.text}</p>;
 }
 

@@ -245,7 +245,7 @@ const worst = { id: '1', underlying: 'ABCDE', right: 'PUT' as const, expiry: '20
 const trades = [worst, ...Array.from({ length: 13 }, (_, i) => ({ ...worst, id: String(i + 2), underlying: ['XYZ', 'QRS', 'LMNOP'][i % 3], right: (i % 2 ? 'CALL' : 'PUT') as 'CALL' | 'PUT', returnPct: [-0.5, 0.31, -0.12, 0.08][i % 4], closedAt: new Date(Date.parse('2026-10-03') - i * DAY) }))];
 const summary = { n: 14, winRate: 5 / 14, avg: -0.22, range: { low: -0.41, high: -0.03 }, bets: 9 };
 const openModel: OptionHeadline = { gate: 'open', counts: counts({ shown: 14, short: 3, other: 2, openLong: 1, openShort: 2, unsupported: 2 }), summary };
-const zeroShares = { excluded_positions: 0, excluded_future_sells: 0, excluded_corporate: 0, excluded_held: 0, excluded_shared: 0, public: null }; // F-21
+const zeroShares = { excluded_positions: 0, excluded_future_sells: 0, excluded_corporate: 0, excluded_held: 0, excluded_shared: 0, excluded_transfer: 0, public: null }; // F-21
 const openRows = [{ key: 'k', underlying: 'ABCDE', right: 'PUT' as const, expiry: '2026-12-19', pct: -0.999 }];
 
 async function mount(page: Page, nodes: ReactElement[], scheme: 'light' | 'dark') {

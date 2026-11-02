@@ -1231,6 +1231,9 @@ select schema_add_column('users', 'excluded_held', 'int not null default 0');
 -- duplicate: left out of the rebuild); one suspected by a give-up (a busy account, failed or multi-page widened reads)
 -- was never decided, so it stays held (its pair's later sells counted).
 select schema_add_column('activity_reissues', 'undecided', 'boolean not null default false');
+-- F-32 Part A (council cycle 5, C5-1): sells a vendor transfer row excludes (lib/trades.ts `excludedTransfer`), counted
+-- under their own reason, never excluded_corporate. A count only: no transfer units, date or account is stored.
+select schema_add_column('users', 'excluded_transfer', 'int not null default 0');
 -- F-21 (docs/features/F-21-exclusion-counts-beside-the-headline.md, committee 2026-11-02 decisions 4-5): two stored
 -- counters for the one exclusion sum (lib/exclusions.ts), written in the rebuild's own transaction. Sells only, so the
 -- sum never mixes buys and sells under "trades". A record fills them on its next rebuild (owner step after deploy:

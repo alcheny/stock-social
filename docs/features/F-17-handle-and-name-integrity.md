@@ -70,6 +70,12 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 - 2026-11-01: Leaving the untouched provisional handle and renaming back to one's own held handle don't start the 30-day clock; a taken-back hold ends with `until = now()`, never a delete. Why: decided by the committee under the owner's instruction of 2026-11-01; at most one hold exists either way, and nothing is deleted (Q8, business lead B3).
 - 2026-11-01: The "New handle" label is visible. Why: decided by the committee under the owner's instruction of 2026-11-01; WCAG 3.3.2, and the rule message sits beside a visible field name (Q11).
 - 2026-11-01: Brand words stay substring rules; only "Verified" and "Official" match on word boundaries. Why: decided by the committee under the owner's instruction of 2026-11-01; a name that embeds the product's name still impersonates it (engineer E7).
+- 2026-11-02: Unblocked: F-9 merged in #65 (ff25ad5). Built in #100 (841d723d). Why: the
+  stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02.
+- 2026-11-02: The owner accepted OD 2.17 (OD-12): an old handle is reserved for 365 days; a handle that ever had a
+  connected record is retired and never reissued; one rename per 30 days. Where #100 already builds part of this, the
+  rest is mapped in `docs/direction/owner-decisions-2026-11-02-worklist.md`. Why: the owner's decision of 2026-11-02
+  (OD 2.17, accepted en bloc).
 
 ## Acceptance criteria
 - [x] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and

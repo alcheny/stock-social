@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { COUNTERS, CAUSE_COUNTER, exclusionReasons, exclusionTotal, lineCount, NOT_EXCLUSIONS, PUBLIC_KINDS, RESULT_DATA, RESULT_KEYS, type ExclusionInput } from './exclusions.ts';
 import { CAUSES } from './options.ts';
+import { EXCLUDED_KEYS } from './trades.ts';
 import { PUBLIC_REASONS } from './public-trades.ts';
 import { EXCLUSIONS, OPTIONS, PROFILE, PUBLIC } from './copy.ts';
 import type { OptionCounts } from './options-view.ts';
@@ -51,7 +52,8 @@ export function unclassified(s: Sources): string[] {
       if (!col || (col !== 'public' && !counters[col])) out.push(`${where}.${k}`);
     }
   };
-  check('MatchResult', anchored(s.trades, /export type MatchResult = \{([^}]*)\};/, ['trades', 'excluded', 'excludedCorporate', 'excludedHeld'], 'MatchResult'));
+  check('MatchResult', anchored(s.trades, /export type MatchResult = \{([^}]*)\};/, ['trades', ...EXCLUDED_KEYS], 'MatchResult'));
+  for (const k of EXCLUDED_KEYS) if (!(k in RESULT_KEYS.MatchResult)) out.push(`MatchResult.${k}`); // #108's runtime list, beside the scan
   check('options', anchored(s.options, /export function matchOptions\(.*?\): \{([^}]*)\}/, ['trades', 'counts', 'short', 'other'], 'matchOptions'));
   check('options', anchored(s.optionsSync, /export async function rebuildOptionTrades\(.*?\): Promise<\{([^}]*)\}>/, ['trades', 'short', 'other', 'counts'], 'rebuildOptionTrades'));
   check('public', anchored(s.publicTrades, /export function matchPublic\(.*?\): \{([^}]*)\}/, ['trades', 'excluded', 'openSymbols'], 'matchPublic'));
@@ -65,7 +67,7 @@ test('F-21 guard: every exclusion counter in the sources is summed or named as l
   assert.deepEqual(unclassified(real()), []);
   // The writer scan is anchored too: it sees the rebuild's own writes, the two F-21 counters included.
   const written = new Set(real().writers.flatMap((src) => [...src.matchAll(/update users set ([^`]*)`/g)].flatMap((w) => [...w[1].matchAll(/\b(excluded_\w+)\s*=/g)].map((c) => c[1]))));
-  for (const c of ['excluded_positions', 'excluded_future', 'excluded_future_sells', 'excluded_corporate', 'excluded_held', 'excluded_shared', 'excluded_options_short', 'excluded_exercise_shares']) assert.ok(written.has(c), `writer scan misses ${c}`);
+  for (const c of ['excluded_positions', 'excluded_future', 'excluded_future_sells', 'excluded_corporate', 'excluded_held', 'excluded_shared', 'excluded_transfer', 'excluded_options_short', 'excluded_exercise_shares']) assert.ok(written.has(c), `writer scan misses ${c}`);
   for (const c of Object.keys(COUNTERS)) assert.ok(userColumns(real().schema).includes(c), `${c} is not a users column`);
   // Runtime sources: the filing reasons, the option causes and the filing copy's keys.
   for (const r of PUBLIC_REASONS) assert.ok(r in PUBLIC_KINDS, `public reason ${r} unclassified`);
@@ -79,7 +81,7 @@ test('F-21 guard: every exclusion counter in the sources is summed or named as l
 test('F-21 guard, mutation check: a dummy key in MatchResult, the options result, the public-filing result or the schema each fails', () => {
   const s = real();
   const cases: [string, Sources, string][] = [
-    ['MatchResult', { ...s, trades: s.trades.replace('excludedHeld?: number };', 'excludedHeld?: number; excludedX: number };') }, 'MatchResult.excludedX'],
+    ['MatchResult', { ...s, trades: s.trades.replace('excludedTransfer?: number };', 'excludedTransfer?: number; excludedX: number };') }, 'MatchResult.excludedX'],
     ['options result', { ...s, options: s.options.replace('short: number; other: number } {', 'short: number; other: number; excludedX: number } {') }, 'options.excludedX'],
     ['public-filing result', { ...s, publicTrades: s.publicTrades.replace('openSymbols: string[] } {', 'openSymbols: string[]; excludedX: number } {') }, 'public.excludedX'],
     ['schema', { ...s, schema: `${s.schema}\nselect schema_add_column('users', 'excluded_x', 'int not null default 0');\n` }, 'schema.users.excluded_x'],
@@ -94,18 +96,18 @@ test('F-21 guard, mutation check: a dummy key in MatchResult, the options result
 });
 
 const opts = (o: Partial<OptionCounts> = {}): OptionCounts => ({ shown: 0, short: 0, other: 0, openLong: 0, openShort: 0, openOther: 0, unsupported: 0, exerciseShares: 0, ...o });
-const input = (o: Partial<ExclusionInput> = {}): ExclusionInput => ({ excluded_positions: 0, excluded_future_sells: 0, excluded_corporate: 0, excluded_held: 0, excluded_shared: 0, public: null, options: opts(), gate: 'closed', ...o });
+const input = (o: Partial<ExclusionInput> = {}): ExclusionInput => ({ excluded_positions: 0, excluded_future_sells: 0, excluded_corporate: 0, excluded_held: 0, excluded_shared: 0, excluded_transfer: 0, public: null, options: opts(), gate: 'closed', ...o });
 
 test('F-21 sum: each summed counter counts once; left-out kinds and open options never count (R2: a long option close counts)', () => {
   assert.equal(exclusionTotal(input()), 0);
-  for (const k of ['excluded_positions', 'excluded_future_sells', 'excluded_corporate', 'excluded_held', 'excluded_shared'] as const) assert.equal(exclusionTotal(input({ [k]: 1 })), 1, k);
+  for (const k of ['excluded_positions', 'excluded_future_sells', 'excluded_corporate', 'excluded_held', 'excluded_shared', 'excluded_transfer'] as const) assert.equal(exclusionTotal(input({ [k]: 1 })), 1, k);
   for (const k of ['shown', 'short', 'other', 'exerciseShares'] as const) for (const gate of ['open', 'closed'] as const) assert.equal(exclusionTotal(input({ gate, options: opts({ [k]: 1 }) })), 1, `${k} ${gate}`);
   for (const k of ['openLong', 'openShort', 'openOther', 'unsupported'] as const) assert.equal(exclusionTotal(input({ options: opts({ [k]: 5 }) })), 0, k);
   for (const r of PUBLIC_REASONS) assert.equal(exclusionTotal(input({ public: { [r]: 3 } })), PUBLIC_KINDS[r].summed ? 3 : 0, r);
   assert.equal(exclusionTotal(input({ public: { unknown_kind: 4 } })), 0);
   // Every counter the sum reads is a summed COUNTER.
   const summedCols = Object.entries(COUNTERS).filter(([, k]) => k.summed).map(([c]) => c).sort();
-  assert.deepEqual(summedCols, ['excluded_corporate', 'excluded_exercise_shares', 'excluded_future_sells', 'excluded_held', 'excluded_options_other', 'excluded_options_short', 'excluded_positions', 'excluded_shared']);
+  assert.deepEqual(summedCols, ['excluded_corporate', 'excluded_exercise_shares', 'excluded_future_sells', 'excluded_held', 'excluded_options_other', 'excluded_options_short', 'excluded_positions', 'excluded_shared', 'excluded_transfer']);
   assert.equal(COUNTERS.excluded_future.summed, false);
   // Importing: no line (TR-3).
   assert.equal(lineCount(input({ excluded_corporate: 2 }), 'importing'), 0);
@@ -116,7 +118,7 @@ test('F-21 reasons (R4): the lines\' n values sum to the total in both gate stat
   let seed = 7;
   const rnd = (k: number) => { seed = (seed * 48271) % 2147483647; return seed % k; };
   for (let i = 0; i < 500; i++) {
-    const c = input({ excluded_positions: rnd(3), excluded_future_sells: rnd(2), excluded_corporate: rnd(3), excluded_held: rnd(2), excluded_shared: rnd(2),
+    const c = input({ excluded_positions: rnd(3), excluded_future_sells: rnd(2), excluded_corporate: rnd(3), excluded_held: rnd(2), excluded_shared: rnd(2), excluded_transfer: rnd(3),
       public: rnd(2) ? { no_price: rnd(3), unreconciled: rnd(2), gift: rnd(3), indirect: rnd(2) } : null,
       options: opts({ shown: rnd(3), short: rnd(2), other: rnd(3), openLong: rnd(2), openShort: rnd(2), openOther: rnd(2), exerciseShares: rnd(3) }) });
     for (const gate of ['open', 'closed'] as const) {
@@ -137,8 +139,8 @@ test('F-21 reasons (R4): the lines\' n values sum to the total in both gate stat
     { key: 'options.technical', n: 4, text: OPTIONS.technical(3, 1) }, { key: 'options.openOther', n: 0, text: OPTIONS.openOther(1) }]);
   assert.deepEqual(exclusionReasons(input({ options: opts({ exerciseShares: 2 }), gate: 'open' })), [{ key: 'options.exerciseShares', n: 2, text: OPTIONS.exerciseShares(2) }]);
   // Share reasons reuse their constants; held only through PROFILE.excludedHeld (decision 11).
-  assert.deepEqual(exclusionReasons(input({ excluded_positions: 1, excluded_future_sells: 2, excluded_corporate: 3, excluded_held: 4, excluded_shared: 5, public: { no_price: 1, unreconciled: 2, indirect: 9 } })).map((x) => x.text), [
-    PROFILE.excludedPositions(1), PROFILE.excludedFuture(2), PROFILE.excludedCorporate(3), PROFILE.excludedHeld(4), EXCLUSIONS.excludedShared(5),
+  assert.deepEqual(exclusionReasons(input({ excluded_positions: 1, excluded_future_sells: 2, excluded_corporate: 3, excluded_held: 4, excluded_shared: 5, excluded_transfer: 6, public: { no_price: 1, unreconciled: 2, indirect: 9 } })).map((x) => x.text), [
+    PROFILE.excludedPositions(1), PROFILE.excludedFuture(2), PROFILE.excludedCorporate(3), PROFILE.excludedTransfer(6), PROFILE.excludedHeld(4), EXCLUSIONS.excludedShared(5),
     PUBLIC.excluded.no_price(1), PUBLIC.excluded.unreconciled(2)]);
 });
 

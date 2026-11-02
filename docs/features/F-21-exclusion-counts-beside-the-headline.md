@@ -72,6 +72,9 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 - 2026-11-01: Recorded as a decided limit: the share card and the feed card keep the clean headline (cycle-3 owner
   question Q4, D22). Owner flag: OD 2.7's consent version names the public exclusion counts before real users. Why:
   approval council cycle 5; BL, LC, PR.
+- 2026-11-02: Unblocked: F-23 (#97, ca34767) and F-24 (#84, bdf3ea9) have merged. It rides in the pane/strip slot with
+  F-34 and F-29, with one builder owning the pane's line order (exclusions, open, options qualifier). Why: the
+  stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02.
 
 - 2026-11-02: Option exclusions are summed in both gate states, and their re-signed count lines move word for word into
   the profile's `#excluded` section. The AI legal committee's sign-off on showing them while the gate is closed blocks the

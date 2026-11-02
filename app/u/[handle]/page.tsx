@@ -408,7 +408,7 @@ export default async function Profile({ params, searchParams }: Params) {
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
       {complete && trades.length === 0 && open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={longValues(pct(open.avg), String(open.n))} />}
-      {/* F-21: the one sum and its reason lines (positions, future sells, corporate, F-24 held, shared accounts, the summed
+      {/* F-21: the one sum and its reason lines (positions, future sells, corporate, F-32 transfer, F-24 held, shared accounts, the summed
           filing reasons, then the option count lines per gate); the pane and strip lines link here. */}
       <ExcludedSection c={{ ...fromRow(user, filer?.excluded ?? null), options: opt.counts, gate: opt.gate }} />
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
