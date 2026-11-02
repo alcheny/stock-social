@@ -69,7 +69,7 @@ test('finding 13: /t/compare prints the evidence tier and bets, never "Past resu
   const DAY = 86_400_000, T0 = Date.UTC(2025, 0, 1);
   const rows = (n: number, r: (i: number) => number): TickerRow[] => Array.from({ length: n }, (_, i) => ({ userId: i % 12, returnPct: r(i), holdingDays: 2, openedAt: new Date(T0 + i * 6 * DAY), closedAt: new Date(T0 + (i * 6 + 2) * DAY), verified: true }));
   const today = new Date(T0 + 700 * DAY);
-  const c = compareTickers(rows(120, (i) => 0.03 + (i % 5) / 1000), rows(120, (i) => ((i % 7) - 3) / 100), today);
+  const c = compareTickers(rows(120, (i) => 0.03 + (i % 5) / 100 /* FIXES-CYCLE5 part 2: wide enough to print a range */), rows(120, (i) => ((i % 7) - 3) / 100), today);
   let verdicts = 0;
   for (const side of [c.a, c.b]) {
     const conf = side.summary.conf as Confidence;

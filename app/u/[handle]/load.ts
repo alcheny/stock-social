@@ -9,6 +9,7 @@ import { sql } from '../../../lib/db.ts';
 import { applyClocks, publicRecordDetail } from '../../../lib/connections.ts';
 import { isDemoUser as readDemo } from '../../../lib/demo.ts';
 import { filerInfo } from '../../../lib/public-gate.ts';
+import { optionHeadline } from '../../../lib/options-load.ts'; // FIXES-CYCLE5 part 2 (C5-34)
 
 export type PerRequest = <F extends (...args: never[]) => unknown>(fn: F) => F;
 
@@ -31,6 +32,9 @@ export function profileReads(perRequest: PerRequest) {
     demo: perRequest((userId: number) => readDemo(userId)),
     // F-7: the filer behind a users row (null for a broker or demo user); visibility is lib/public-gate.ts#filerVisible.
     filer: perRequest((userId: number) => filerInfo(userId)),
+    // FIXES-CYCLE5 part 2 (C5-34, round 2 item 10): the option headline once per request, so the owner's square card
+    // (the Share preview) beside the unfurl card reads nothing twice.
+    options: perRequest((userId: number) => optionHeadline([userId])),
   };
 }
 export type ProfileReads = ReturnType<typeof profileReads>;

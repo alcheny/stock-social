@@ -83,6 +83,11 @@ export type Strip = {
 // Tone by the printed sign ("0.0%" is neither), so colour never disagrees with the text.
 const toneOf = (x: number): StripTone => { const p = pct(x); return p.startsWith('+') ? 'up' : p.startsWith('-') || (p.startsWith('≈') && x < 0) ? 'down' : null; };
 const words = (low: number, high: number) => `${RECORD_STRIP.rangeLabel} ${pct(low)} to ${pct(high)}`;
+// FIXES-CYCLE5 part 2 (C5-5; legal committee C17-C19): the one producer of the strip's average, both forms from one
+// constant pair. Visible (width-limited band): "‹figure› per closed trade". Width-free (alt, link previews): "average per
+// closed trade ‹figure›" in the alt, "‹figure› average per closed trade" before the range in a preview sentence.
+export const stripAverage = (avg: number, form: 'short' | 'alt' | 'preview'): string =>
+  form === 'short' ? `${pct(avg)} ${RECORD_STRIP.perClosedShort}` : form === 'alt' ? `${SHARE_CARD.perClosedTrade} ${pct(avg)}` : `${pct(avg)} ${SHARE_CARD.perClosedTrade}`;
 
 export function recordStrip(i: StripInput, surface: StripSurface): Strip {
   const full = surface === 'page' || surface === 'image';
@@ -105,12 +110,12 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
       altParts.push(RECORD_STRIP.early.toLowerCase());
     } else {
       const range = evidenceRangeText(i.evidence)!;
-      figures.push({ role: 'average', text: `${pct(i.avg)} ${SHARE_CARD.perTrade}`, tone: toneOf(i.avg), sep: first });
+      figures.push({ role: 'average', text: stripAverage(i.avg, 'short'), tone: toneOf(i.avg), sep: first }); // FIXES-CYCLE5 part 2 (C5-5)
       figures.push({ role: 'range', text: range, tone: null, sep: ' ' });
       // Every surface labels the range, the feed card too (user test 2026-11-01: a bare range under a big return reads as
       // the trader's lowest and highest trade).
       figures.push({ role: 'rangeLabel', text: RECORD_STRIP.rangeLabel, tone: null, sep: ' · ' });
-      altParts.push(`${SHARE_CARD.perTrade} ${pct(i.avg)}, ${words(i.evidence.perTrade!.low, i.evidence.perTrade!.high)}`);
+      altParts.push(`${stripAverage(i.avg, 'alt')}, ${words(i.evidence.perTrade!.low, i.evidence.perTrade!.high)}`); // FIXES-CYCLE5 part 2 (C5-5)
     }
     // OPTIONS (legal re-sign): the alt text says exactly "excluding options" right after the figures it qualifies.
     if (i.excludingOptions && surface !== 'figures') altParts.push(OPTIONS.altQualifier);
@@ -273,8 +278,10 @@ export function layoutBand(lines: ImageLine[]): { lines: ImageLine[]; fits: bool
 }
 
 // The figures as one line without the count, for a sentence that already leads with it (wholeRecordPreview's
-// recordCountText): "+0.9% average per trade (…) · 95% range · losses included".
+// recordCountText): "+0.9% average per closed trade (…) · 95% range · losses included".
+// FIXES-CYCLE5 part 2 (C5-5, LC C18): a link preview has no width limit, so its average keeps the full words.
 export function stripTextAfterCount(s: Strip): string {
   const rest = s.figures.filter((p) => p.role !== 'count');
-  return rest.map((p, k) => (k === 0 ? '' : p.sep) + p.text).join('');
+  const text = (p: StripPart) => (p.role === 'average' ? p.text.replace(` ${RECORD_STRIP.perClosedShort}`, ` ${SHARE_CARD.perClosedTrade}`) : p.text);
+  return rest.map((p, k) => (k === 0 ? '' : p.sep) + text(p)).join('');
 }

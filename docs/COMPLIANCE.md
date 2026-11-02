@@ -179,6 +179,8 @@ privacy-policy diff for every new field or vendor; deletion tested end to end, i
   return on what the contracts cost, fees included; share-only headline) and the excluded list now names short
   options, exercised or assigned options and the share trades held over that day, and adjusted, non-stock and dangling
   contracts.
+  2026-11-02: /how names trades from before the earliest date the trader's broker provides (not imported; such sells
+  excluded and counted as having no recorded entry). Fixes cycle 5 part 2, MK-P6; legal committee 2026-11-02 §3a (C3).
 - Counsel opinions: adviser status, each Phase 2/3 feature, state coverage.
 
 ## 13. Penalty exposure: laws that fine per user, per message or per violation

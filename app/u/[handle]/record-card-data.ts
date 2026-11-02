@@ -7,7 +7,7 @@
 import { cache } from 'react';
 import { filerVisible } from '../../../lib/public-gate.ts';
 import { cardLink, recordCard, type CardKind, type CardModel } from '../../../lib/record-card.ts';
-import { optionHeadline, paneView } from '../../../lib/options-load.ts'; // OPTIONS (AC 24): the flag and the line only
+import { paneView } from '../../../lib/options-load.ts'; // OPTIONS (AC 24): the flag and the line only
 import { reads, type ProfileReads } from './load.ts';
 
 export function recordCardLoader(r: ProfileReads) {
@@ -19,7 +19,7 @@ export function recordCardLoader(r: ProfileReads) {
     // F-7: a filer's card exists only while its profile does (switch on, neither hidden nor removed: the profile's own
     // rule, lib/public-gate.ts#filerVisible, the same test as filerVisibleSql), and only with a priced close.
     if (user.public_filer_id && !filerVisible(await r.filer(id))) return null;
-    const [rows, { public: { state } }, demo, options] = await Promise.all([r.trades(id), r.detail(id), r.demo(id), optionHeadline([id])]);
+    const [rows, { public: { state } }, demo, options] = await Promise.all([r.trades(id), r.detail(id), r.demo(id), r.options(id) /* FIXES-CYCLE5 part 2: per request */]);
     if (user.public_filer_id && !rows.length) return null;
     const opt = paneView(options.get(id)!);
     // F-6: the unrealized percent of each open position only (no symbol, no account): the card prints no symbols.

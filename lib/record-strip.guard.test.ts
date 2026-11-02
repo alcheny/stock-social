@@ -16,7 +16,7 @@ const MONTH = 'app/u/[handle]/month/[ym]';
 const HTML_SURFACES = ['app/ui.tsx', 'app/feed-rows.tsx', `${TRADE}/page.tsx`, `${MONTH}/page.tsx`];
 const IMAGE_SURFACES = [`${TRADE}/opengraph-image.tsx`, `${MONTH}/opengraph-image.tsx`];
 const STOCK_IMAGE = 'app/t/[symbol]/opengraph-image.tsx';
-const STRIP_WORDS = ['average per trade', RECORD_STRIP.early, RECORD_STRIP.rangeLabel, 'losses included'];
+const STRIP_WORDS = ['average per trade', RECORD_STRIP.perClosedShort /* FIXES-CYCLE5 part 2 (round 2 item 11) */, RECORD_STRIP.early, RECORD_STRIP.rangeLabel, 'losses included'];
 
 function tsx(dir: string): string[] {
   return readdirSync(join(ROOT, dir)).flatMap((n) => {

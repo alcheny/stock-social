@@ -3,6 +3,7 @@ import { confidence, evidenceLine, pct, rangeText, stats, type Confidence } from
 import { wireDay } from './public-wire.ts'; // F-23
 import { FIXES_LABELS, type TrustKind } from './copy.ts';
 import { counted } from './format.ts';
+import { shownEvidence } from './zero-width.ts'; // FIXES-CYCLE5 part 2 (C5-4)
 
 const SYMBOL = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
@@ -37,7 +38,9 @@ export type BaselineKind = 'empty' | 'demo_only' | 'too_few_trades' | 'shown';
 export function baselineKind(summary: Pick<TickerSummary, 'demoOnly' | 'conf'>, others: { n: number }, self?: { conf: Confidence | null } | null): BaselineKind {
   if (others.n === 0) return 'empty';
   if (summary.demoOnly) return 'demo_only';
-  if (!(self ?? summary).conf?.perTrade) return 'too_few_trades';
+  // FIXES-CYCLE5 part 2 (C5-4): the printed evidence, so a zero-width side never reads 'shown'.
+  const conf = (self ?? summary).conf;
+  if (!conf || !shownEvidence(conf).perTrade) return 'too_few_trades';
   return 'shown';
 }
 
@@ -389,7 +392,8 @@ export const compareOverlapText = (kind: TrustKind, n: number, a: string, b: str
 
 // /t/SYMBOL meta description: the count names the state, then the headline numbers. No sample-data tail.
 export function tickerDescription(symbol: string, s: TickerSummary): string {
-  const tier = s.conf!.tier === 'too-early' ? 'too early' : s.conf!.tier;
+  const t = shownEvidence(s.conf!).tier; // FIXES-CYCLE5 part 2 (C5-4): a zero-width range is "too early"
+  const tier = t === 'too-early' ? 'too early' : t;
   return `${FIXES_LABELS.tickerCount[trustKind(s)](String(s.n), symbol)} · ${(s.winRate! * 100).toFixed(0)}% win rate · ${pct(s.avgReturn!)} avg return · Evidence: ${tier}`;
 }
 

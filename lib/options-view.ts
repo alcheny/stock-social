@@ -2,7 +2,8 @@
 // helpers the renders use. No reads here (client components import it: the pane).
 import type { OptionSummary } from './options.ts';
 import { pct } from './trades.ts';
-import { OPTIONS } from './copy.ts';
+import { OPTIONS, RECORD_STRIP } from './copy.ts';
+import { rangePair, zeroWidth } from './zero-width.ts'; // FIXES-CYCLE5 part 2 (C5-4)
 
 export type OptionCounts = {
   shown: number; // long option closes in option_trades
@@ -31,8 +32,12 @@ export type OptionRecord =
 export type OptionHeadline = { gate: 'closed'; counts: OptionCounts } | { gate: 'open'; counts: OptionCounts; summary: OptionSummary | null };
 
 /** D6: the options line's text from a summary ("Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)"). */
+// FIXES-CYCLE5 part 2 (C5-4, round 2 item 3): the options line goes through the one zero-width rule; a zero-width range
+// reads "Too early to tell", never "(+1.0% to +1.0%)".
+export const optionRangeText = (s: Pick<OptionSummary, 'range'>): string | null =>
+  rangePair(s.range) ?? (zeroWidth(s.range) ? RECORD_STRIP.early : null);
 export const optionsLineText = (s: OptionSummary) =>
-  OPTIONS.line(s.n, `${(s.winRate * 100).toFixed(0)}%`, pct(s.avg), s.range ? `(${pct(s.range.low)} to ${pct(s.range.high)})` : null);
+  OPTIONS.line(s.n, `${(s.winRate * 100).toFixed(0)}%`, pct(s.avg), rangePair(s.range) ?? (zeroWidth(s.range) ? `· ${RECORD_STRIP.early}` : null));
 
 /** Fix round 1 (review 3): the open block's "as of": the oldest read across share and option positions, or null when
  *  there is none (Math.min of nothing is Infinity, which printed "Invalid Date"). */

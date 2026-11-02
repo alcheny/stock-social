@@ -222,7 +222,7 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
       {/* If an extreme record ever overflows, the middle gives way, never the trust line or the disclaimer (POLICY F3). */}
       <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>{main}</div>
       <div style={{ ...col, flexShrink: 0 }}>
-        {m.trust && <span style={t(f.body)}>{noOrphan(`${m.evidence} · ${m.trust}`)}</span>}
+        {m.trust && <span style={t(f.body)}>{noOrphan(m.evidence ? `${m.evidence} · ${m.trust}` : m.trust) /* FIXES-CYCLE5 part 2: a zero-width card says "too early" once */}</span>}
         {m.link && <span style={t(f.body, C.muted)}>{m.link}</span>}
         {disclaimerLines(disclaimer || m.disclaimer).map((line) => <span key={line} style={t(f.disclaimer)}>{line}</span>)}
       </div>

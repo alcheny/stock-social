@@ -3,6 +3,8 @@
 
 import { count, counted, pct } from './format.ts';
 import { MIN_BETS, RANK_MIN_BETS, tooWide } from './confidence.ts';
+import { rangePair, shownEvidence } from './zero-width.ts'; // FIXES-CYCLE5 part 2 (C5-4)
+import { RECORD_STRIP } from './copy.ts'; // FIXES-CYCLE5 part 2 (C5-4)
 import { LATE_POSTING_DAYS, RATIO_TOLERANCE, renameRatio, resolveRatio, type CorporateAction, type Ratio } from './corporate-actions.ts';
 
 export type Activity = {
@@ -587,9 +589,12 @@ const plural = (n: number, w: string) => counted(n, w);
 // F-1 PR-3 fix round 4 (UX lead note 3): when trades outnumber bets, the line says why. Same-stock trades whose holds
 // overlap (in any account) are one bet, so a trader who scales in and out of a held position, or holds one stock in
 // several accounts, has few independent bets however many trades: "2,828 trades in 9 overlapping positions".
-export function evidenceLine(c: Confidence): string {
+// FIXES-CYCLE5 part 2 (C5-4, LC C9-C12): a zero-width range prints "Too early to tell" with its bets, never a verdict.
+export function evidenceLine(c0: Confidence): string {
+  const c = shownEvidence(c0);
   const grouped = c.n > c.k;
   if (c.tier === 'too-early' || !c.edge) {
+    if (!c.perTrade && c.k >= MIN_BETS) return `${RECORD_STRIP.early} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''})`;
     if (c.perTrade) return `Too early to tell: the range is still too wide to say much (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''})`;
     return grouped
       ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (${MIN_BETS} independent bets needed)`
@@ -598,8 +603,8 @@ export function evidenceLine(c: Confidence): string {
   return `Past results: ${edgeText(c.edge)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
 }
 
-export const rangeText = (c: Confidence): string | null =>
-  c.perTrade ? `(${pct(c.perTrade.low)} to ${pct(c.perTrade.high)})` : null;
+// FIXES-CYCLE5 part 2 (C5-4): no range when it is zero-width (lib/zero-width.ts, the one rule).
+export const rangeText = (c: Confidence): string | null => rangePair(c.perTrade);
 
 // TR-7: under 30 days of history or fewer than 10 closed trades.
 export function isNewRecord(trades: { openedAt: Date }[], closedCount: number, today: Date): boolean {

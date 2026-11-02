@@ -1,7 +1,7 @@
 import { MIN_REST, type Concentration as ConcentrationData } from '@/lib/ticker.ts';
 import { FIXES_LABELS as FL } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo notes
 import { pct, rangeText } from '@/lib/trades.ts';
-import { MIN_BETS } from '@/lib/confidence.ts';
+import { earlyText } from '@/lib/zero-width.ts'; // FIXES-CYCLE5 part 2 (C5-4)
 import { Badge } from '../../ui.tsx';
 import { toneClass } from '../../open-rows.tsx';
 
@@ -27,7 +27,7 @@ export default function Concentration({ c, symbol, demoOnly, mixed }: { c: Conce
           <p data-testid="concentration-rest">
             Without them: {Math.round(rest.winRate! * 100)}% win rate, avg{' '}
             <span className={toneClass(rest.avgReturn!)}>{pct(rest.avgReturn!)}</span>,{' '}
-            {rest.conf && rangeText(rest.conf) ? `${rangeText(rest.conf)} · 95% range` : `Too early to tell (${rest.conf?.k ?? 0} of ${MIN_BETS} bets)`} over {rest.n} trades.
+            {rest.conf && rangeText(rest.conf) ? `${rangeText(rest.conf)} · 95% range` : earlyText(rest.conf?.k ?? 0) /* FIXES-CYCLE5 part 2 (C5-4) */} over {rest.n} trades.
           </p>
         </>
       )}

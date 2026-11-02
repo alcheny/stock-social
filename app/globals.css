@@ -193,7 +193,8 @@ label.check { display: flex; gap: 8px; align-items: center; }
 .rows li:target { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 
 .share-prompt { display: flex; flex-direction: column; gap: 12px; max-width: 480px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 12px 0; }
-.share-prompt .preview { max-width: 100%; height: auto; aspect-ratio: 1200 / 630; border: 1px solid var(--line); border-radius: 8px; }
+/* FIXES-CYCLE5 part 2 (C5-34): the square picture Share attaches, at most F-4 AC9's readable 343 px wide */
+.share-prompt .preview { display: block; width: 100%; max-width: 343px; height: auto; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: 8px; }
 .share-prompt .actions a.button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 .share-prompt .note { border-left: 2px solid var(--line); padding-left: 10px; }
 .share-prompt .actions { display: flex; flex-direction: column; gap: 8px; }

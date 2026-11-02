@@ -133,10 +133,16 @@ test('evidence line explains overlapping positions when trades outnumber bets; u
   assert.equal(evidenceLine(confidence(chain('A', 2), today)), 'Too early to tell: 2 trades in 1 overlapping position (5 independent bets needed)');
   assert.equal(evidenceLine(confidence(clusters(4, 50), today)), 'Too early to tell (4 of 5 bets)');
   // Past the threshold, the bets line names the trades behind them, with grouped counts.
+  // FIXES-CYCLE5 part 2 (round 2 item 9): the grouped verdict branch on a fixture with a real spread (+200% and -60% bets)...
+  const spread = [...spaced(12, (i) => (i % 2 ? 2 : -0.6)), ...chain('Z', 4719)];
+  const sp = confidence(spread, today);
+  assert.equal(sp.k, 13);
+  assert.match(evidenceLine(sp), /^Past results: .* · Evidence: thin \(13 bets from 4,731 trades, [\d,]+ days\)$/);
+  // ...and the original fixture, whose range prints as one value, reads "Too early to tell" with its grouping (LC C9).
   const many = [...spaced(12, (i) => -0.05 + (i % 2 ? 0.001 : -0.001)), ...chain('Z', 4719)];
   const m = confidence(many, today);
   assert.equal(m.k, 13);
-  assert.match(evidenceLine(m), /^Past results: .* · Evidence: thin \(13 bets from 4,731 trades, [\d,]+ days\)$/);
+  assert.equal(evidenceLine(m), 'Too early to tell (13 bets from 4,731 trades)');
 });
 
 test('cluster count is the same for any input order or page split (the pure function sorts each symbol itself)', () => {

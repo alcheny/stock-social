@@ -235,7 +235,9 @@ export default async function Profile({ params, searchParams }: Params) {
   // Committee fix (item 5): no share invitation on a record that is importing or failed; "Try again" is the only primary.
   const shareable = state === 'connected' || state === 'none';
   // F-4 rework: the share prompt quotes the card's own range (around the average it prints) and alt, from its model.
-  const promptCard = isMe && !claimed && shareable && sharePromptShowing ? await loadRecordCard(user.handle, 'unfurl') : null;
+  // FIXES-CYCLE5 part 2 (C5-34): the square card, the picture both owner boxes preview and share (they never show
+  // together); from the request-cached reads, so it adds no query (lib/fixes-cycle5-part2-share.db.test.ts).
+  const promptCard = isMe && !claimed && shareable && (sharePromptShowing || trades.length > 0) ? await loadRecordCard(user.handle, 'square') : null;
   // A11Y-FIXES #10 (POLICY P2, F3a): a demo profile says so and never mentions connected accounts (mixed records count as demo).
   const connected = allVerified ? `${connectedLine(brokers, accounts)}. ${DEMO_PROFILE.connectedOnly}` : DEMO_PROFILE.line;
   // FIXES-LABELS: status. Live mode: this page is rendered per request; "updated" is the last successful sync.
@@ -273,7 +275,7 @@ export default async function Profile({ params, searchParams }: Params) {
   </>);
   const ownerShareCard = (<>
       {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (
-        <ShareCard handle={user.handle} recapYm={recapYm}
+        <ShareCard handle={user.handle} recapYm={recapYm} previewAlt={promptCard ? `Preview of your share card. ${cardAlt(promptCard)}` : ''}
           recapLabel={recapYm ? new Date(`${recapYm}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : null} />
       )}
   </>);

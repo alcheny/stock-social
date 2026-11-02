@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { markSharePromptSeen, recordShareAction, recordSharePromptAction } from '../../actions.ts';
 import { ShareButton } from '../../share-button.tsx';
+import { SharePreview } from './share-preview.tsx'; // FIXES-CYCLE5 part 2 (C5-34)
+import { shareImagePath } from '@/lib/share-image.ts';
 import { counted } from '@/lib/format.ts';
 import { PUBLIC_SHORT } from '@/lib/copy.ts';
 import { PUBLIC_FIELDS } from '@/lib/privacy-fields.ts';
@@ -16,7 +18,6 @@ const best = (p: Promise<unknown>) => p.catch((e) => console.error('share prompt
 export function SharePrompt({ handle, displayName, trades, range, isNew, previewAlt }: Props) {
   const [open, setOpen] = useState(true);
   const [done, setDone] = useState(false);
-  const [imgFailed, setImgFailed] = useState(false);
 
   useEffect(() => { best(markSharePromptSeen()); }, [handle]);
 
@@ -31,13 +32,8 @@ export function SharePrompt({ handle, displayName, trades, range, isNew, preview
     <section className="share-prompt" aria-labelledby="share-h">
       <h2 id="share-h" style={{ margin: 0 }}>Your record is live.</h2>
       <p className="muted" style={{ margin: 0 }}>Anyone with your link can see it, signed in or not.</p>
-      {imgFailed ? (
-        <p className="muted">Preview unavailable. Your link still works.</p>
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img className="preview" src={`/u/${handle}/opengraph-image`} width={1200} height={630} loading="eager" onError={() => setImgFailed(true)}
-          alt={previewAlt} />
-      )}
+      {/* FIXES-CYCLE5 part 2 (C5-34): the preview is the picture Share attaches (lib/share-image.ts) */}
+      <SharePreview src={shareImagePath(handle)} alt={previewAlt} lazy={false} />
       <p style={{ margin: 0 }}>{PUBLIC_SHORT.sharePrompt(PUBLIC_FIELDS.map((f) => f.words))}</p>
       {isNew && (
         <p className="muted note" style={{ margin: 0 }}>
@@ -47,7 +43,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew, preview
         </p>
       )}
       <div className="actions">
-        <ShareButton url={`/u/${handle}`} title={`${displayName} on Stock Social`} label="Share my record" image={`/u/${handle}/story?format=square`}
+        <ShareButton url={`/u/${handle}`} title={`${displayName} on Stock Social`} label="Share my record" image={shareImagePath(handle)}
           onShared={(how, picture) => { setDone(true); best(recordSharePromptAction(how)); best(recordShareAction(`/u/${handle}`, how, picture)); }} />
         <button type="button" className="link" onClick={close}>{done ? 'Done' : 'Not now'}</button>
       </div>

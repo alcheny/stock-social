@@ -15,6 +15,7 @@ import { dateText } from '@/lib/date-text.ts';
 import { pct, rangeText } from '@/lib/trades.ts';
 import { toneClass } from '@/lib/open-split.ts'; // A11Y-FIXES #23
 import { MIN_BETS } from '@/lib/confidence.ts';
+import { earlyText } from '@/lib/zero-width.ts'; // FIXES-CYCLE5 part 2 (C5-4)
 import { Badge, RowBadge } from '../../ui.tsx';
 import Spread from './Spread.tsx';
 import Timeline from './Timeline.tsx';
@@ -125,7 +126,7 @@ export default async function Ticker({ params, searchParams }: Params) {
       <section className="stats ticker-stats" aria-label="Summary">{/* FIXES-LABELS (PR #85 review, nit 1): ticker-stats tightens at 320 */}
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={toneClass(s.avgReturn!)}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>{/* A11Y-FIXES #23 */}
-          <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
+          <small className="range">{range ? `${range} · 95% range` : earlyText(c.k) /* FIXES-CYCLE5 part 2 (C5-4) */}</small>
           <small className="median">median {pct(spread.median! / 100)}</small>
         </div>
       </section>

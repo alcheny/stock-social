@@ -97,7 +97,7 @@ test('F-12 AC4: trade and month alt = prefix + strip alt: count, average with ra
   assert.ok(alt.startsWith(`Closed trade ${v.symbol} +`), alt);
   assert.ok(alt.endsWith(s.alt));
   const perTrade = cardEvidence(all, NOW).perTrade!;
-  assert.match(alt, /46 closed trades, average per trade [+-]\d+\.\d%, 95% range [+-]\d+\.\d% to [+-]\d+\.\d%\./);
+  assert.match(alt, /46 closed trades, average per closed trade [+-]\d+\.\d%, 95% range [+-]\d+\.\d% to [+-]\d+\.\d%\./);
   assert.ok(perTrade.low < perTrade.high);
   assert.match(alt, /Losses included\./);
   assert.match(alt, /3 open positions, unrealized\./);

@@ -232,6 +232,9 @@ export const WHOLE_RECORD = {
 export const RECORD_STRIP = {
   early: 'Too early to tell',
   rangeLabel: '95% range',
+  // FIXES-CYCLE5 part 2 (C5-5; legal committee 2026-11-02 C14-C20): the strip's visible average label, after the figure
+  // ("+0.9% per closed trade"). Width-free text (alt, link previews) keeps SHARE_CARD.perClosedTrade's full words.
+  perClosedShort: 'per closed trade',
   link: (handle: string) => `@${handle}'s record`,
 } as const;
 export type WholeRecordView = { stats: boolean; line: string | null; tone: 'muted' | 'warn' | null };
@@ -388,7 +391,7 @@ export function profileDescription(x: { state: RecordState; demo: boolean; verif
 export const HOW = {
   title: 'How records are calculated',
   verifiedTitle: 'What "Verified" means',
-  verified: 'Verified means imported read-only from the trader\u2019s broker through the integrated vendor. It does not verify identity, completeness or skill, and it is not an endorsement by a broker or by the vendor. Demo profiles carry a Demo badge instead.',
+  verified: 'Verified means imported read-only from the trader\'s broker through the integrated vendor. It does not verify identity, completeness or skill, and it is not an endorsement by a broker or by the vendor. Demo profiles carry a Demo badge instead.',
   mathTitle: 'The math',
   math: [
     'Each closed trade is one sell, matched to earlier buys of the same symbol in the same account, first in, first out.',
@@ -406,6 +409,8 @@ export const HOW = {
     'Exercised or assigned options, and share trades held over the day of an exercise or assignment in that stock. These are left out of the options average, so it does not include contracts that ended in the money.',
     'Options on futures or other non-stock underlyings, contracts adjusted after a corporate action, and contracts past expiry with no closing record.',
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded sells, never guessed).',
+    // FIXES-CYCLE5 part 2 (MK-P6; legal committee 2026-11-02 §3a, C1-C2): the committee's full sentence, verbatim.
+    'Trades from before the earliest date the trader\'s broker provides: they are not imported, so a record can start later than the trader\'s first trade, and a sell of shares bought before that date is excluded and counted as a sell with no recorded entry.',
     // Fixes cycle 4 (C4-2; UX lead, committee).
     'After a sell of more shares than the imported history holds (an earlier holding, a transfer in or a short sale), or a stock split, stock dividend or other corporate action on a stock the history shows none of, the later sells of that holding in that account (under its new symbol after a rename) are excluded and counted too, wins and losses alike: the history can\u2019t show which buys are left.',
     // Fixes cycle 4 (UX lead, round 4): the disclosure of F-30's accepted residual (lib/trades.ts ponytail in `replay`).
@@ -838,7 +843,8 @@ export function allCopy(): string[] {
 const billingDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 export const RECORD_TOOLS = {
   title: 'Record tools',
-  what: 'Put 2 to 4 public trader records side by side in the order you choose, save the comparison, and keep private notes only you can see.',
+  // FIXES-CYCLE5 part 2 (C5-41; legal committee 2026-11-02 §3b, C4-C7): verbatim and whole, never shortened.
+  what: 'Compare whole public records side by side: closed trades imported from connected accounts, losses and ranges included. Traders can\'t remove single trades.',
   free: 'Trader records stay free to view without a subscription.',
   trader: 'Record tools is included with your connected record.',
   removedNotice: 'A trader in your views or notes deleted their account; they and your note were removed.',

@@ -7,7 +7,8 @@ import type { ReactNode } from 'react';
 import { expiryText, OPTIONS } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { tone } from '@/lib/format.ts';
-import { closesOf, hasOptions, openOf, shareLabel, type OpenOptionView, type OptionCounts, type OptionHeadline, type OptionTradeView, type PaneOptionsView, isOptionsLine } from '@/lib/options-view.ts';
+import { rangePair } from '@/lib/zero-width.ts'; // FIXES-CYCLE5 part 2 (C5-4)
+import { optionRangeText, closesOf, hasOptions, openOf, shareLabel, type OpenOptionView, type OptionCounts, type OptionHeadline, type OptionTradeView, type PaneOptionsView, isOptionsLine } from '@/lib/options-view.ts';
 
 // Fix round 4 (N5): the colour follows the printed sign (lib/format.ts#tone): "0.0%" is never coloured.
 const sign = (x: number) => { const t = tone(x); return t === 'flat' ? '' : t; };
@@ -43,7 +44,8 @@ export function OptionsGrid({ m, long }: { m: OptionHeadline & { gate: 'open' };
     <p className="row-label" aria-hidden="true">{OPTIONS.gridLabel(s.n)}</p>
     <div className="stat big"><b>{`${(s.winRate * 100).toFixed(0)}%`}</b><small>win rate</small></div>
     <div className="stat big"><b className={sign(s.avg)}>{pct(s.avg)}</b><small>avg return / trade</small>
-      {s.range && <small className="range"><span className="nowrap">{`(${pct(s.range.low)} to ${pct(s.range.high)})`}</span> · 95% range</small>}
+      {/* FIXES-CYCLE5 part 2 (C5-4): a zero-width range reads "Too early to tell" (lib/zero-width.ts) */}
+      {rangePair(s.range) ? <small className="range"><span className="nowrap">{rangePair(s.range)}</span> · 95% range</small> : optionRangeText(s) && <small className="range">{optionRangeText(s)}</small>}
     </div>
   </section>;
 }

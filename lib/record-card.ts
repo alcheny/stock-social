@@ -9,7 +9,7 @@
 // link from the configured origin, and the alt text built from this model.
 import { HEAD_PILL_ROW, unfurlHeadRows } from './card-head.ts'; // FIXES-CYCLE4-PART2 (F4-15)
 import { counted } from './format.ts';
-import { imageTrust, isPublicRecord, OPTIONS, SHARE_CARD, type RecordState } from './copy.ts';
+import { imageTrust, isPublicRecord, OPTIONS, RECORD_STRIP, SHARE_CARD, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { confidence, headline, isNewRecord, pct, type Confidence, type ConfidenceInput, type Tier } from './trades.ts';
 import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, trustSign, type Span, type SpanUnit } from './confidence.ts';
@@ -18,6 +18,7 @@ import { openSummary, tone, type Tone } from './open-split.ts';
 import { downsampleIndices } from './downsample.ts';
 import { pathD } from './chart-series.ts';
 import { siteUrl } from './ticker.ts';
+import { rangePair, shownEvidence } from './zero-width.ts'; // FIXES-CYCLE5 part 2 (C5-4)
 
 export type CardKind = 'unfurl' | 'square' | 'story';
 
@@ -203,12 +204,14 @@ export function cardOpen(pcts: number[]): CardOpen | null {
 // taps a shared card lands on the same answer. `edge` is the printed range's sign; ranking keeps confidence()'s own
 // pace interval (evidenceWeight, lib/trades.ts), which this does not touch.
 // The profile's "(low to high)" for that same range; the display log records exactly this text.
-export const evidenceRangeText = (e: Pick<Confidence, 'perTrade'>): string | null =>
-  e.perTrade ? `(${pct(e.perTrade.low)} to ${pct(e.perTrade.high)})` : null;
+// FIXES-CYCLE5 part 2 (C5-4): never a zero-width pair (lib/zero-width.ts#rangePair, the one rule).
+export const evidenceRangeText = (e: Pick<Confidence, 'perTrade'>): string | null => rangePair(e.perTrade);
 
 // ponytail: the compare page still prints confidence()'s log-based range and tier (the trade and month pages call this
 // through lib/record-strip.ts#stripEvidence) — have it call cardEvidence too, or move confidence onto arithmeticRange.
-export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {
+// FIXES-CYCLE5 part 2 (C5-4, LC C11): what every card-path surface prints, so a zero-width range ("+1.0% to +1.0%")
+// reads "Too early to tell" on the card, the profile, the strips, the pane and the display log alike (zeroWidth: true).
+export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence & { zeroWidth?: true } {
   const c = confidence(trades, now);
   const r = arithmeticRange(trades);
   const perTrade = r && { low: r.low, mid: r.mid, high: r.high };
@@ -217,7 +220,7 @@ export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {
   const edge = tier === 'too-early' ? null : sign === 'unclear' ? 'unclear' : sign;
   // A record shorter than half a day reads "1 day" on the profile too (orchestrator review): the card's trust line never
   // says "over 0 days", and the profile's evidence line (Math.round of this span) now says the same.
-  return { ...c, tier, perTrade, edge, spanDays: c.n ? Math.max(c.spanDays, 0.5) : c.spanDays };
+  return shownEvidence({ ...c, tier, perTrade, edge, spanDays: c.n ? Math.max(c.spanDays, 0.5) : c.spanDays });
 }
 
 export type CardTone = 'ok' | 'muted' | 'warn' | 'demo';
@@ -239,7 +242,7 @@ export type CardModel = {
   period: string | null; // periodSince · periodLength
   periodSince: string | null;
   periodLength: string | null;
-  evidence: string | null;
+  evidence: string | null; // FIXES-CYCLE5 part 2 (round 2 item 6): null on a zero-width card, whose trust line says it
   newRecord: boolean; // TR-7, drawn as a badge
   trust: string | null;
   caption: string | null;
@@ -304,7 +307,7 @@ export function recordCard(i: CardInput): CardModel {
     range,
     count: `${countValue} · ${SHARE_CARD.lossesIncluded}`, countValue, countNote: SHARE_CARD.lossesIncluded,
     period: `${since(first)} · ${periodLength}`, periodSince: since(first), periodLength,
-    evidence: evidenceLabel(c),
+    evidence: c.zeroWidth ? null : evidenceLabel(c), // FIXES-CYCLE5 part 2: "too early" said once, in the trust line
     newRecord, // F-7 (C17): never on a public record (FIXES-CYCLE4-PART2: computed above, for the head rows)
     trust: trustLine(c, span),
     caption: SHARE_CARD.chartCaption,
@@ -323,7 +326,7 @@ export function cardAlt(m: CardModel): string {
     const sign = m.headlineTone === 'up' ? 'a gain' : m.headlineTone === 'down' ? 'a loss' : 'about even';
     parts.push(`The ${m.headlineLabel} is ${m.headline}, ${sign}${m.range ? `, ${m.range}` : ''}${m.shareLabel ? `, ${OPTIONS.altQualifier}` /* OPTIONS (legal re-sign) */ : ''}.`);
     if (m.newRecord) parts.push('New record.');
-    parts.push(`${m.count}.`, `${m.period}.`, `Chart: ${m.caption}.`, `${m.evidence}.`);
+    parts.push(`${m.count}.`, `${m.period}.`, `Chart: ${m.caption}.`, ...(m.evidence ? [`${m.evidence}.`] : [])); // FIXES-CYCLE5 part 2
     if (m.trust) parts.push(m.trust);
   }
   if (m.optionsLine) parts.push(m.optionsLine); // OPTIONS
@@ -345,5 +348,5 @@ export function cardDescription(m: CardModel, openLine: string | null = null): s
   // count line after the evidence, as the card and its alt carry them; the page adds the disclaimer after.
   const qualifier = m.shareLabel ? `, ${OPTIONS.altQualifier}` : '';
   const options = m.optionsLine ? ` · ${m.optionsLine}` : '';
-  return `${m.headline} ${m.headlineLabel}${qualifier}${m.range ? `, ${m.range}` : ''} · ${m.period} · ${m.evidence}${options}${m.open && openLine ? ` · ${openLine}` : ''}`;
+  return `${m.headline} ${m.headlineLabel}${qualifier}${m.range ? `, ${m.range}` : ''} · ${m.period} · ${m.evidence ?? RECORD_STRIP.early /* FIXES-CYCLE5 part 2 (C5-4) */}${options}${m.open && openLine ? ` · ${openLine}` : ''}`;
 }

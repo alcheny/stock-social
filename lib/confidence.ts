@@ -4,6 +4,7 @@
 // Imports only types from trades.ts (trades.ts imports these constants), so there is no runtime import cycle.
 import type { Confidence, Interval } from './trades.ts';
 import { count, counted } from './format.ts';
+import { RECORD_STRIP } from './copy.ts'; // FIXES-CYCLE5 part 2 (C5-4)
 
 // The owner's floor: below 5 independent bets the variance estimate is too unstable to mean anything, even with the
 // t multiplier (t at K = 5 is about 2.8), so there is no range at all.
@@ -79,6 +80,8 @@ const ownSpan = (c: Pick<Confidence, 'spanDays'>): Span => spanBetween(new Date(
 export function trustLine(c: Pick<Confidence, 'n' | 'k' | 'tier' | 'perTrade' | 'spanDays'>, span: Span = ownSpan(c)): string | null {
   if (c.n === 0) return null;
   if (c.k < MIN_BETS) return `Based on ${counted(c.n, 'trade')}. Too few trades to say much yet.`;
+  // FIXES-CYCLE5 part 2 (C5-4, LC C12): a zero-width range (dropped by lib/zero-width.ts#shownEvidence) says so in words.
+  if (c.tier === 'too-early' && !c.perTrade) return `Based on ${counted(c.n, 'trade')}. ${RECORD_STRIP.early}.`;
   if (c.tier === 'too-early') return `Based on ${counted(c.n, 'trade')}. The range is still too wide to say much.`;
   const sign = trustSign(c);
   const over = spanText(span, spanUnit(c.tier));
