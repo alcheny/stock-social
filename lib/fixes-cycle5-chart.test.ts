@@ -50,8 +50,8 @@ test('F5-14: an 80,000-close profile chart is bounded per range and in gzipped b
   assert.ok(B.ALL.pts.length > 1_000, 'the bounded line still has screen resolution');
   assert.ok(bounded.trades.length <= RANGES.length * PROFILE_CHART_POINTS, `${bounded.trades.length} trades`);
   const gz = gzipSync(JSON.stringify(bounded)).length, gzFull = gzipSync(JSON.stringify(full)).length;
-  assert.ok(gz < 100_000, `bounded chart ${gz} B gzipped`);
-  assert.ok(gzFull > 4 * gz, `full ${gzFull} B vs bounded ${gz} B`);
+  assert.ok(gz < 160_000, `bounded chart ${gz} B gzipped`); // the chart alone; the whole page's 300 KB bound is e2e/fixes-cycle5-chart.spec.ts
+  assert.ok(gzFull > 2.5 * gz, `full ${gzFull} B vs bounded ${gz} B`); // budget 5,000 (e2e run: 2,000 broke dense-profile pins)
 });
 
 test('F5-14: every figure the chart prints at rest equals the full-resolution chart', () => {

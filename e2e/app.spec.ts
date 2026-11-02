@@ -551,7 +551,9 @@ test('share card: each share is one click, no embed code or downloads, owner onl
   const card = page.getByRole('region', { name: 'Share your record' });
   await expect(card).toBeVisible();
   for (const gone of ['Embed your badge', 'Copy Markdown', 'Copy HTML', 'Save story', 'Save square']) await expect(page.getByText(gone)).toHaveCount(0);
-  await expect(page.locator('textarea')).toHaveCount(0);
+  // FIXES-CYCLE5 (F5-24): the owner's note fields are textareas now; no other textarea (no embed code) is on the page.
+  await expect(page.locator('textarea:not([name="thesis"])')).toHaveCount(0);
+  await expect(card.locator('textarea')).toHaveCount(0);
   await card.getByRole('button', { name: 'Share my record' }).click();
   await expect(card.getByRole('button', { name: 'Link copied' })).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${baseURL}/u/${handle}?via=card`);

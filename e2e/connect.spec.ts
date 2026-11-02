@@ -444,7 +444,8 @@ test('a vendor refusal fails the import and the hourly sync never publishes the 
   expect((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n).toBe(0);
   // The profile says so and offers the retry; the S8 empty-record line never shows.
   await page.goto(`/u/${handle}`);
-  await expect(page.locator('p[role="alert"]')).toContainText('The import did not finish, so this record may be incomplete.');
+  // FIXES-CYCLE5 (F5-25, F3-16): a static failed-import notice is a plain paragraph with no live-region role.
+  await expect(page.locator('p.record-failed:not([role])')).toContainText('The import did not finish, so this record may be incomplete.');
   await expect(page.getByRole('link', { name: 'Try again' })).toHaveAttribute('href', '/connect');
   await expect(page.locator('main')).not.toContainText('No closed trades yet');
   await expect(page.locator('.rows:not(.positions) li')).toHaveCount(0);
