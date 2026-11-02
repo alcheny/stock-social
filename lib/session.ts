@@ -23,7 +23,7 @@ export async function currentUser(): Promise<User | null> {
   const token = unsignToken((await cookies()).get(SESSION_COOKIE)?.value, sessionSecret());
   const id = await userIdForSession(token);
   if (!id) return null;
-  const [u] = await sql<User[]>`select * from users where id = ${id}`;
+  const [u] = await sql<User[]>`select * from users where id = ${id} and deleted_at is null`;
   return u ?? null;
 }
 
@@ -56,6 +56,8 @@ export async function signOut() {
 export async function origin(): Promise<string> {
   const site = process.env.NEXT_PUBLIC_SITE_URL;
   if (site) return site.replace(/\/$/, '');
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEV_AUTH !== '1') throw new Error('NEXT_PUBLIC_SITE_URL is required in production');
   const h = await headers();
-  return `${h.get('x-forwarded-proto') ?? 'http'}://${h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000'}`;
+  const proto = h.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+  return `${proto}://${h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000'}`;
 }
