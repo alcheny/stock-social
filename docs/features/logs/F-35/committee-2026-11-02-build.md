@@ -35,3 +35,21 @@ stops, counters, null last_synced_at restore); additive schema; log privacy.
    file's shard counts.
 Note (no change): a record with a matured row and a null watermark is counted as `matured`, not `maturedInitial` (the
 due branch wins the dedupe); the rebuild is the one it needed.
+
+## Tester QA (pass, no blocking findings)
+Ran green: f35-publish, sync.test (32), all 11 sync-reconcile* files (70, the F-24 regression gate), 6 sync-cadence*
+(37), 11 options* (77), corporate-actions* (49), sync-shard (16), copy, privacy-logs, feed-imported. Own edge script
+(own tagged users, deleted): a +50 h sell over three ticks publishes once; a paper-account future sell never counted,
+one harmless rebuild; undated option rows published, never future, never selected; a row dated exactly at the
+rebuild's now() publishes then and never enters the index; a null-watermark record with only a future BUY: one initial
+then one matured rebuild, excluded_positions untouched; an older waiting transaction's insert lowers the watermark.
+1. should-fix, taken: matured records ordered oldest matured row first (was by id), so a busy shard never strands the
+   same records past the 8-day bound; test added.
+2. note, taken: the rule "every writer and rebuild holds USER_LOCK" stated at lib/sync.ts#lowerWatermark (an unlocked
+   rebuild could pass a row another open transaction has not committed; every production path holds it).
+3. note, decided: the compare card keeps `PROFILE.excludedFuture` (pinned by lib/fixes-cycle3.test.ts) with the summed
+   count; the profile, month page and /me/record carry `futureWaiting`. Intended: the compare tool is the signed-in
+   viewer's tool, and its exact strings are an existing test's.
+4. note: e2e re-run at HEAD after the rebuild (below).
+5. note, ponytail: the box and stops are checked before each rebuild (a statement_timeout would cap one huge record).
+6. note, ponytail: an import running 8+ days after a row's date leaves the row to the import's own rebuild.
