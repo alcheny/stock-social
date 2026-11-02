@@ -29,7 +29,9 @@ export function withGate(url: string, fields?: readonly Field[]): string {
 
 // ponytail: a page opened before a flip keeps its g=o0 URLs, and shared caches may serve those for up to 60 s (pane) or
 // 300 s (story) after the flip, to those pre-flip pages only — purge the CDN as part of the consent-version deploy.
-/** `cacheable` only for a request made under the current key; a missing or stale key gets the body uncached. */
+/** A stale key (any `g` other than the current one) gets the body uncached. The current key, or no key at all, keeps the
+ *  route's own bounded caching: no page references a bare URL (every one carries `g`), so after a flip pages still reach
+ *  only URLs no cache saw before it, and F-16 E2's bounded caching of a bare share-image URL stands. */
 export function gateCacheControl(g: string | null, cacheable: string, fields?: readonly Field[]): string {
-  return g === gateKey(fields) ? cacheable : 'no-store';
+  return g === null || g === gateKey(fields) ? cacheable : 'no-store';
 }

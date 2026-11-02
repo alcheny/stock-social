@@ -246,12 +246,13 @@ test('D6 stop: on yolo_yuki\'s feed card the disclaimer, the strip qualifier and
   }
 });
 
-test('AC6: the pane and story bodies are cached only under the current gate key; a missing or stale key gets the body with no-store; the profile is never public', async ({ request }) => {
+test('AC6: the pane and story bodies are cached under the current gate key (or none, F-16 E2); a stale key gets the body with no-store; the profile is never public', async ({ request }) => {
   const get = (p: string) => request.get(p);
   const ok = await get('/u/yolo_yuki/pane?v=2&g=o0');
   expect(ok.status()).toBe(200);
   expect(ok.headers()['cache-control']).toBe('public, max-age=60');
-  for (const p of ['/u/yolo_yuki/pane?v=2&g=o1', '/u/yolo_yuki/pane?v=2', '/u/yolo_yuki/pane?v=2&g=x']) {
+  expect((await get('/u/yolo_yuki/pane?v=2')).headers()['cache-control']).toBe('public, max-age=60'); // no key: unchanged (F-16 E2)
+  for (const p of ['/u/yolo_yuki/pane?v=2&g=o1', '/u/yolo_yuki/pane?v=2&g=x']) {
     const r = await get(p);
     expect(r.status(), p).toBe(200);
     expect(r.headers()['cache-control'], p).toBe('no-store');

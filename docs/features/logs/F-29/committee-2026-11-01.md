@@ -70,3 +70,9 @@ apply meanwhile.
   condition that the open question states it unresolved, with the proposed wording; the feature file now does.
   Low findings carried to the PR: case-sensitive counts, /how built as dynamic (no-store) rather than static, the
   opengraph routes ignoring `g` (same image either way), and the profile description's double full stop (pre-existing).
+- Merges with main (2026-11-02): 7aa4cb92 (F-16, F-17, F-25 and others) and eb2a6492 (F-32 Part A). The conflicts were
+  resolved additively, and main's tests are untouched. F-25 pins the trade page's `const url` line, so the gate key is
+  applied where that `url` is used (`images: [{ url: withGate(url) }]`). F-16's E2 test pins bounded public caching on a
+  bare `/story` URL. The builder therefore narrowed D3 so that only a stale `g` gets `no-store`, while no `g` keeps the
+  route's own caching. This keeps F-29's guarantee, since every page reference carries `g`, so after a flip pages reach
+  only URLs no cache saw. No review round was run, because the orchestrator paused them (owner, token saving).

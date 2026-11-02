@@ -62,13 +62,13 @@ test('AC6: withGate URLs differ across gate states for the pane, the story and a
   }
 });
 
-test('AC6: gateCacheControl keeps the cacheable header only for the current key; anything else is no-store', () => {
+test('AC6: gateCacheControl keeps the cacheable header for the current key or no key (F-16 E2); a stale key is no-store', () => {
   const X = 'public, max-age=60';
   assert.equal(gateCacheControl('o0', X), X);
   assert.equal(gateCacheControl('o0', X, OPEN_FIELDS), 'no-store');
   assert.equal(gateCacheControl('o1', X, OPEN_FIELDS), X);
   assert.equal(gateCacheControl('o1', X), 'no-store');
-  assert.equal(gateCacheControl(null, X), 'no-store');
+  assert.equal(gateCacheControl(null, X), X); // no key: the route's own bounded caching (F-16 E2); no page links a bare URL
   assert.equal(gateCacheControl('zz', X), 'no-store');
 });
 
