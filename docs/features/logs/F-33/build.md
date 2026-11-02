@@ -108,3 +108,17 @@ reads acceptably next to "Too early to tell" is the owner's question (R2).
 - R3: ticker, recap, trade-share and tools ranges keep the log rule plus the zero-width rule (ponytail in `lib/record-card.ts`).
 - F-2 mixer: with every weight 0, the tail of a skewed pool can reach 6 of 10 hyperactive cards (todo + ponytail).
 - OD 2.34: the hold-losers path stays open (`test.todo` in `lib/rank-weight.test.ts`).
+
+## Build 2 — engineer, 2026-11-02 (independent review R3-R6; main merged first)
+- **R4:** chooseRows puts verified rows before Demo rows, so a weighted Demo row can follow a weight-0 verified row. The
+  order is unchanged; the lines now say so: SECTION.explain "Verified records with ranking weight come first, the rest in a
+  fixed order, Demo records last. Losses count the same as gains." and the personal variant likewise. The section test
+  checks the Demo case (weighted Demo after weight-0 verified), and e2e/section.spec.ts expects the new text.
+- **R5:** the stock page baseline (lib/ticker.ts#baselineLines) prints "Too early to tell" in a zero-width side's range
+  slot (FIXES_LABELS.baselineThis/Others). Under 5 bets on either side is unchanged (counts only). The tools card's range
+  row shows "Too early to tell" with no low end (lib/record-tools.ts, app/tools/page.tsx). Tested in lib/zero-width.f33.test.ts.
+- **R6:** OPTIONS.line puts " · " before "Too early to tell" ("-22.0% avg · Too early to tell"). Tested.
+- **R3:** the AC7 test title and comment say what it shows: closed figures only, at equal score; open losers are the OD
+  2.34 todo. Assertions unchanged.
+- Gates: tsc clean; npm test 2,431 tests, 2,401 pass, 0 fail, 4 todo; compliance auto ok (tree), with the extraneous
+  node_modules/@img/sharp-wasm32 set aside for the run as in build 1; guard origin/main ok. No build, no .next touched.

@@ -256,7 +256,7 @@ function CardBody({ c }: { c: Card }) {
           <div><dt>{R.closed}</dt><dd>{c.closed.toLocaleString('en-US')}</dd></div>
           <div><dt>{R.winRate}</dt><dd>{c.figures.winRate}</dd></div>
           <div><dt>{R.avg}</dt><dd className={c.figures.avgSign}>{c.figures.avg}</dd></div>
-          {c.figures.range && <div><dt>{R.range}</dt><dd>{c.figures.range}<br /><span className="small">{R.low}: {c.figures.low}</span></dd></div>}
+          {c.figures.range && <div><dt>{R.range}</dt><dd>{c.figures.range}{c.figures.low && <><br /><span className="small">{R.low}: {c.figures.low}</span></>}{/* F-33 R5: no low end for "Too early to tell" */}</dd></div>}
           <div className="rt-wide"><dt>{R.evidence}</dt><dd>{c.figures.evidence}</dd></div>
           <div><dt>{R.drawdown}</dt><dd className="down">{c.figures.drawdown}</dd></div>
         </dl>

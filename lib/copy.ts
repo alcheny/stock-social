@@ -231,6 +231,7 @@ export const WHOLE_RECORD = {
 // trader's record, never "full" or "whole" (POLICY F3a).
 // F-33 (OD 2.32): the one producer of these words (lib/zero-width.f33.test.ts checks no other source writes them).
 const EARLY = 'Too early to tell';
+const baselineRange = (range: string | null) => (!range ? '' : range === EARLY ? `: ${EARLY}` : `: 95% range of the average per trade ${range}`);
 export const RECORD_STRIP = {
   // A zero-width range (its printed low and high equal) prints it too.
   early: EARLY,
@@ -355,8 +356,9 @@ export const FIXES_LABELS = {
   baselineHeading: 'Closed trades recorded here: this stock and other stocks',
   // QA round 1 (finding 3): the range is the 95% range of the average per trade (the profile's wording), not the spread
   // of the trades (the dot plot's "range").
-  baselineThis: (sym: string, n: string, traders: string, range: string | null) => `${n} in ${sym} by ${traders}${range ? `: 95% range of the average per trade ${range}` : ''}.`,
-  baselineOthers: (n: string, range: string | null) => `${n} in other stocks recorded here${range ? `: 95% range of the average per trade ${range}` : ''}.`,
+  // F-33 review R5: a side whose range would print with no width says "Too early to tell" in its range slot.
+  baselineThis: (sym: string, n: string, traders: string, range: string | null) => `${n} in ${sym} by ${traders}${baselineRange(range)}.`,
+  baselineOthers: (n: string, range: string | null) => `${n} in other stocks recorded here${baselineRange(range)}.`,
   baselineNote: 'Side by side for context only. Different traders, sizes and timing. Not a rating of any stock.',
   // Code review: on a stock with some Demo trades, both sides are verified trades only (the other stocks' side always is).
   // QA round 1 (finding 12): the pane's and month page's footers on a Demo record name Demo, not connected accounts.
@@ -541,7 +543,8 @@ export const OPTIONS = {
   // Fix round 3 (item 8): an option row's link names the whole row and where it goes.
   rowName: (underlying: string, chip: string, exp: string, figure: string) => `${underlying} ${String(chip).toLowerCase()}, ${exp}, ${figure}, stock page`,
   // D6: "Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)".
-  line: (n: number, winPct: string, avg: string, range: string | null) => `${OPTION_LINE_HEAD(n, winPct)}${avg} avg${range ? ` ${range}` : ''}`,
+  // F-33 review R6: "Too early to tell" in the range slot reads after " · ", never run on from "avg".
+  line: (n: number, winPct: string, avg: string, range: string | null) => `${OPTION_LINE_HEAD(n, winPct)}${avg} avg${!range ? '' : range === EARLY ? ` · ${range}` : ` ${range}`}`,
   lineHead: (n: number, winPct: string) => OPTION_LINE_HEAD(n, winPct),
   short: (closed: number, open: number) => `Short options not shown: ${count(closed)} closed, ${count(open)} open. Their risk has no fixed amount to measure a percent against.`,
   // Fix round 1 (QA 8): share closes removed by the exercise-day rule are named as share trades, never option trades.
@@ -672,7 +675,8 @@ export const SECTION = {
   heading: "Other traders' records",
   // F-33 (orchestrator ruling R1, business lead round 2 D1): true of lib/discovery/section.ts#byEvidence (weight, then
   // id), including the many rows at weight 0; tested against the comparator in lib/discovery/section.test.ts.
-  explain: 'Records with ranking weight come first, the rest in a fixed order. Losses count the same as gains.',
+  // Review R4: Demo records read after every verified one (lib/discovery/section.ts#chooseRows), so the line says so.
+  explain: 'Verified records with ranking weight come first, the rest in a fixed order, Demo records last. Losses count the same as gains.',
   howLink: 'How ranking works',
   holds: ['under a day', '1 to 7 days', '1 to 4 weeks', '1 to 6 months', 'over 6 months'].map((b) => `Typical holding period: ${b}`),
   skip: 'Skip to the disclaimer',
@@ -774,7 +778,7 @@ export const FEED_EMPTY = {
 };
 export const SECTION_PERSONAL = {
   heading: 'More like what you read',
-  explain: 'Traders like the ones you follow, like and read. Those with ranking weight come first, the rest in a fixed order. Losses count the same as gains.',
+  explain: 'Traders like the ones you follow, like and read. Verified records with ranking weight come first, the rest in a fixed order, Demo records last. Losses count the same as gains.',
   similarHold: (handle: string) => `Similar holding period to @${handle}`,
   symbolsRead: 'Trades symbols you read',
   newToYou: 'New to you',

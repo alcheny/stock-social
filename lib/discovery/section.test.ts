@@ -286,10 +286,16 @@ test('F-33 R1: every row with ranking weight precedes every row at weight 0, in 
 
 test('F-33 R1: the section line is true of the comparator and says "ranking weight"; the section links to /how', () => {
   for (const line of [SECTION.explain, SECTION_PERSONAL.explain]) {
-    assert.match(line, /ranking weight come first, the rest in a fixed order\. Losses count the same as gains\.$/);
+    assert.match(line, /Verified records with ranking weight come first, the rest in a fixed order, Demo records last\. Losses count the same as gains\.$/);
     assert.doesNotMatch(line, /how much evidence/);
   }
-  assert.equal(SECTION.explain, 'Records with ranking weight come first, the rest in a fixed order. Losses count the same as gains.');
+  assert.equal(SECTION.explain, 'Verified records with ranking weight come first, the rest in a fixed order, Demo records last. Losses count the same as gains.');
+  // Review R4: a weighted Demo row reads after a weight-0 verified row, as the line says ("Demo records last").
+  const rows = chooseRows([{ ...T(1, 0.5, 0.9), verified: false }, { ...T(2, 3, 0), verified: true }, { ...T(3, 20, 0.2), verified: true }])!;
+  assert.deepEqual(rows.map((t) => t.trader), [3, 2, 1]);
+  const verified = rows.filter((t) => t.verified !== false);
+  assert.ok(verified.findIndex((t) => t.weight === 0) > verified.findIndex((t) => t.weight > 0), 'verified: weighted first');
+  assert.equal(rows.at(-1)!.verified, false, 'Demo last');
   // "come first": weight > 0 sorts before weight 0; "a fixed order": equal weights by id, whatever the closes or score.
   assert.ok(byEvidence({ weight: 0.01, trader: 9 }, { weight: 0, trader: 1 }) < 0);
   assert.ok(byEvidence({ weight: 0, trader: 1 }, { weight: 0, trader: 9 }) < 0);

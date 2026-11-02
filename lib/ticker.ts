@@ -1,7 +1,8 @@
 import { confidence, evidenceLine, pct, rangeText, stats, type Confidence } from './trades.ts';
 // FIXES-LABELS: D-03 / D-07 copy builders read the one copy block.
 import { wireDay } from './public-wire.ts'; // F-23
-import { FIXES_LABELS, type TrustKind } from './copy.ts';
+import { FIXES_LABELS, RECORD_STRIP, type TrustKind } from './copy.ts';
+import { zeroWidth } from './confidence.ts'; // F-33 review R5
 import { counted } from './format.ts';
 
 const SYMBOL = /^[A-Z][A-Z0-9.-]{0,9}$/;
@@ -398,8 +399,10 @@ export function tickerDescription(symbol: string, s: TickerSummary): string {
 // `s` is this stock's side: the page's summary, or on a mixed stock its verified trades only (`verifiedOnly`, code review:
 // the other stocks' side is verified trades only, so both sides are the same population and the line says so).
 export function baselineLines(symbol: string, s: Pick<TickerSummary, 'n' | 'traders' | 'conf'> & { verifiedOnly?: boolean }, others: { n: number; conf: Confidence | null }) {
-  const a = s.conf ? rangeText(s.conf) : null;
-  const b = others.conf ? rangeText(others.conf) : null;
+  // F-33 review R5: a side with a range that prints with no width says "Too early to tell" there (never a silent blank).
+  const shown = (c: Confidence | null) => (!c ? null : rangeText(c) ?? (c.perTrade && zeroWidth(c.perTrade) ? RECORD_STRIP.early : null));
+  const a = shown(s.conf);
+  const b = shown(others.conf);
   const ranged = a !== null && b !== null;
   return {
     this: FIXES_LABELS.baselineThis(symbol, counted(s.n, s.verifiedOnly ? 'verified closed trade' : 'closed trade'), counted(s.traders, 'trader'), ranged ? a : null),

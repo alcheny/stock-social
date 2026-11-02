@@ -102,7 +102,7 @@ test('F-2 PR-3: signed out, the section sits at position 6 with 3 rows, a true h
     expect(await rowsBefore(page)).toBe(5);
     await expect(s.getByRole('heading', { level: 2 })).toHaveText("Other traders' records"); // fix round 1: the UX lead's heading
     // F-33 (ruling R1, business lead round 2 D1/D2): the line true of the weight-then-id order, and a link to /how.
-    await expect(s.locator('.suggest-in > p')).toHaveText('Records with ranking weight come first, the rest in a fixed order. Losses count the same as gains. How ranking works');
+    await expect(s.locator('.suggest-in > p')).toHaveText('Verified records with ranking weight come first, the rest in a fixed order, Demo records last. Losses count the same as gains. How ranking works');
     await expect(s.locator('.suggest-in > p').getByRole('link', { name: 'How ranking works' })).toHaveAttribute('href', '/how');
     const rows = s.locator('.suggest-in > ul > li');
     await expect(rows).toHaveCount(3);

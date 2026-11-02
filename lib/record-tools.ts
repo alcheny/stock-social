@@ -7,7 +7,7 @@
 // discovery code and never logged (K5).
 import { sql } from './db.ts';
 import { confidence, evidenceLine, isNewRecord, pct, rangeText, stats, type Confidence } from './trades.ts';
-import { connectedLine, PROFILE, RECORD_BODY } from './copy.ts';
+import { connectedLine, PROFILE, RECORD_BODY, RECORD_STRIP } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { publicRecordDetail, recordInstitutions, type PublicState } from './connections.ts';
 import { paneTrust } from './pane.ts';
@@ -227,7 +227,8 @@ async function card(t: ViewTrader, now: Date): Promise<Card> {
       winRate: `${(s.winRate * 100).toFixed(0)}%`,
       avg: pct(s.avgReturn), avgSign: toneClass(s.avgReturn) ?? '', // A11Y-FIXES #23: 0.0% is neutral
       // F-33 (OD 2.32): a zero-width range prints neither the range nor its low end alone.
-      range: rangeText(c), low: c.perTrade && rangeText(c) ? pct(c.perTrade.low) : null,
+      // F-33 review R5: a zero-width range shows "Too early to tell" in the range row, with no low end.
+      range: rangeText(c) ?? (c.perTrade ? RECORD_STRIP.early : null), low: c.perTrade && rangeText(c) ? pct(c.perTrade.low) : null,
       evidence: evidenceLine(c),
       drawdown: pct(-s.maxDrawdown),
     } : null,

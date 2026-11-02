@@ -21,6 +21,7 @@ import { optionRangeText, optionsLineText } from './options-view.ts';
 import { optionSummary } from './options.ts';
 import { rankWeight } from './rank-weight.ts';
 import { pct } from './format.ts';
+import { baselineLines } from './ticker.ts';
 
 const DAY = 86_400_000;
 const now = new Date(Date.UTC(2026, 10, 1, 12));
@@ -92,7 +93,8 @@ test('F-33 AC2: the options range prints Too early to tell when it has no width'
   const flat = opt(Array(8).fill(0.2));
   assert.ok(flat.range && zeroWidth(flat.range));
   assert.equal(optionRangeText(flat.range), early);
-  assert.ok(optionsLineText(flat).endsWith(` avg ${early}`));
+  assert.ok(optionsLineText(flat).endsWith(` avg · ${early}`), 'review R6: a separator before the words');
+  assert.doesNotMatch(optionsLineText(flat), /avg Too early/);
   const wide = opt([0.2, -0.3, 0.5, 0.1, -0.2, 0.4, 0, 0.3]);
   assert.equal(optionRangeText(wide.range), `(${pct(wide.range!.low)} to ${pct(wide.range!.high)})`);
   const block = readFileSync(new URL('../app/u/[handle]/options-block.tsx', import.meta.url), 'utf8');
@@ -105,6 +107,23 @@ test('F-33 AC2: a range that prints with width is unchanged (control)', () => {
   const m = recordCard({ kind: 'unfurl', handle: 'zw_test', name: 'ZW', state: 'connected', demo: false, verified: true, now, link: null, trades: WIDE });
   assert.equal(m.range, SHARE_CARD.likely(pct(e.perTrade!.low), pct(e.perTrade!.high)));
   assert.notEqual(paneEvidence(WIDE, now).rangeLine, early);
+});
+
+// Review R5: the stock page's baseline and the tools card's range row say "Too early to tell", never a silent blank.
+test('F-33 review R5: a zero-width side of the stock baseline, and the tools range row, print Too early to tell', () => {
+  const zero = confidence(EXACT10, now), wide = confidence(WIDE, now);
+  const l = baselineLines('ZWT', { n: 10, traders: 1, conf: zero }, { n: 10, conf: wide });
+  assert.equal(l.this, `10 closed trades in ZWT by 1 trader: ${early}.`);
+  assert.match(l.others, /^10 closed trades in other stocks recorded here: 95% range of the average per trade \(.+ to .+\)\.$/);
+  assert.equal(l.ranged, true);
+  const both = baselineLines('ZWT', { n: 10, traders: 1, conf: zero }, { n: 10, conf: zero });
+  assert.ok(both.this.endsWith(`: ${early}.`) && both.others.endsWith(`: ${early}.`));
+  // Under 5 bets on one side: counts only on both, unchanged.
+  assert.equal(baselineLines('ZWT', { n: 3, traders: 1, conf: confidence(EXACT10.slice(0, 3), now) }, { n: 10, conf: wide }).this, '3 closed trades in ZWT by 1 trader.');
+  const tools = readFileSync(new URL('./record-tools.ts', import.meta.url), 'utf8');
+  assert.match(tools, /range: rangeText\(c\) \?\? \(c\.perTrade \? RECORD_STRIP\.early : null\)/);
+  const page = readFileSync(new URL('../app/tools/page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /\{c\.figures\.range && <div><dt>\{R\.range\}<\/dt><dd>\{c\.figures\.range\}\{c\.figures\.low && /);
 });
 
 // R2 (orchestrator ruling 2): zero width is a printing rule; the weight comes from the floored error term.

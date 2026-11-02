@@ -162,7 +162,10 @@ test('F-33 AC6: a record and its negation weigh exactly the same; +5% and −5% 
   assert.deepEqual(rankTraders([l, g]).map((x) => x.id), ['loss', 'gain']);
 });
 
-test('F-33 AC7: 30 winners at +1% (10 losers held open) never outrank a 200-bet record with the same closed figures', () => {
+// Review R3: this compares closed figures only, at equal score. The record's 10 open losers are not in its input, so the
+// test shows the tier and floor rank a 30-bet record of these closes below a 200-bet one; the property that open losers
+// lower the weight is the OD 2.34 todo below.
+test('F-33 AC7 (closed figures only): 30 winners at +1% rank below a 200-bet record of the same closed figures at equal score; open losers are not read (OD 2.34)', () => {
   // The 10 losers at −20% are still open, so they are not closed trades and are not in the record's input at all.
   const thirty = record(same(30, 0.01), 120, 2);
   const twoHundred = record(same(200, 0.01), 400, 2);
