@@ -870,4 +870,4 @@ h1 { overflow-wrap: anywhere; }
 /* ---- end F-27 ---- */
 /* F-32 Part A: the profile's transfer-count line is a real link (44px tall, muted, underlined so it is not marked by colour
    alone); position: relative holds its sr-only suffix inside it; long counts wrap at 320px. */
-.excluded-link { position: relative; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.excluded-link { position: relative; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }

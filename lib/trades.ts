@@ -116,6 +116,7 @@ export const MATCHER_VERSION = 3;
 // `reasons` (test hook, F-32 Part A engineer review): filled with each sell's outcome by its vendor id (an unusable sell
 // row's too), so a property test can check every sell's reason, not only the totals. A held sell that stands for its
 // counted twin is 'twin' (counted once, under its twin's reason).
+// Production callers never pass it.
 export type SellReason = 'shown' | 'excluded' | 'corporate' | 'transfer' | 'held' | 'twin';
 export type MatchOptions = { orderKnown?: boolean; reasons?: Map<string, SellReason> };
 export function matchTrades(activities: Activity[], actions: CorporateAction[] = [], opts: MatchOptions = {}): MatchResult {

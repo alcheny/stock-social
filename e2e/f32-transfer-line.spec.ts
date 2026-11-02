@@ -74,6 +74,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(link).toHaveAttribute('href', '/how#transfers');
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect(line.locator('svg, img, [role=alert], [role=img]')).toHaveCount(0);
+    expect(await link.evaluate((a) => getComputedStyle(a).textDecorationLine)).toContain('underline'); // not colour alone
     const c = await colours(page);
     expect(c.link).toBe(c.muted);
     expect(contrast(c.link, c.bg)).toBeGreaterThanOrEqual(4.5);
@@ -107,6 +108,23 @@ test('F-32 Part A (P3): no transfer units, date or account in the profile HTML o
   await page.waitForLoadState('networkidle');
   bodies.push(await page.content());
   for (const b of bodies) for (const s of [UNITS, ACCOUNT, DATE, 'Mar 14, 2024']) expect(b.includes(s), s).toBe(false);
+});
+
+test('F-32 Part A (T10): corporate 1, transfer 2, held 1 → three lines in that order, and only the transfer line is a link', async ({ page }) => {
+  await sql`update users set excluded_corporate = 1, excluded_transfer = 2, excluded_held = 1 where handle = ${HANDLE}`;
+  try {
+    await page.goto(`/u/${HANDLE}`);
+    const lines = [PROFILE.excludedCorporate(1), PROFILE.excludedTransfer(2), PROFILE.excludedHeld(1)];
+    const texts = await page.locator('p.muted').allTextContents();
+    const at = lines.map((l) => texts.findIndex((t) => t.startsWith(l)));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((x, y) => x - y)).toEqual(at);
+    for (const [l, linked] of [[lines[0], 0], [lines[1], 1], [lines[2], 0]] as const) {
+      await expect(page.locator('p.muted', { hasText: l }).locator('a')).toHaveCount(linked);
+    }
+  } finally {
+    await sql`update users set excluded_corporate = 0, excluded_transfer = 2, excluded_held = 0 where handle = ${HANDLE}`;
+  }
 });
 
 test('F-32 Part A: excluded_transfer = 0 → the line is gone', async ({ page }) => {
