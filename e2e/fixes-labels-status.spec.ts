@@ -90,8 +90,8 @@ test('F-11 frozen record: the profile says "Disconnected (date) · record frozen
   const block = page.locator('.record-status-block');
   const line1 = block.locator('[data-status="line1"]');
   expect(await said(line1)).toMatch(new RegExp(`^Record since .+ · ${frozenLive()}$`));
-  // Words in <time datetime>: the disconnect date carries its ISO instant.
-  const disc = line1.locator(`time[datetime="${DISCONNECTED.toISOString()}"]`);
+  // Words in <time datetime>: the disconnect date carries its UTC day (F-23: what the line prints, no finer).
+  const disc = line1.locator(`time[datetime="${DISCONNECTED.toISOString().slice(0, 10)}"]`);
   expect(await disc.textContent()).toBe(dateText(DISCONNECTED, now(), { year: 'always' }));
   await glue(line1, `Disconnected ${dateText(DISCONNECTED, now(), { year: 'always' })}`);
   expect(await said(block.locator('[data-status="line2"]'))).toMatch(/^Last close [A-Z][a-z]{2} \d{1,2}(, \d{4})?$/); // frozen wins: no "updated", no idle
@@ -104,7 +104,7 @@ test('F-11 frozen record: the profile says "Disconnected (date) · record frozen
 
 test('F-11 frozen record: the pane (JSON and the feed\'s server-rendered pane) and the feed card carry the frozen line in absolute dates; a live, fresh card shows no status line; an idle card says "Not updated since (date)"', async ({ browser, request }) => {
   test.setTimeout(test.info().timeout + 60_000);
-  const json = await (await request.get('/u/fls_frozen/pane')).json();
+  const json = await (await request.get('/u/fls_frozen/pane?v=2')).json();
   const paneText = (json.status as { text: string }[]).map((s) => s.text).join('');
   expect(paneText).toMatch(new RegExp(`^${frozenStatic()} · Last close [A-Z][a-z]{2} \\d{1,2}, \\d{4}$`));
   expect(paneText).not.toMatch(/Connected:|ago|updated/);
@@ -124,7 +124,7 @@ test('F-11 frozen record: the pane (JSON and the feed\'s server-rendered pane) a
         const card = row.locator('article.card');
         if (h === 'fls_frozen') {
           await expect(card.locator('.record-status[data-status="card"]')).toHaveText(frozenStatic());
-          await expect(card.locator(`.record-status time[datetime="${DISCONNECTED.toISOString()}"]`)).toHaveCount(1);
+          await expect(card.locator(`.record-status time[datetime="${DISCONNECTED.toISOString().slice(0, 10)}"]`) /* F-23: the UTC day */).toHaveCount(1);
           // Between the hero and the thesis. F-26: a card with no published note has no note element, so the line is followed
           // by the note slot when there is a note, else by what follows the slot (the open line or the footer).
           expect(await card.locator('.record-status').evaluate((el) => {
@@ -182,7 +182,7 @@ test('F-11 two accounts, one removed: "Account 1 of 2 · (inst)" and "Account 2 
   expect(await said(block.locator('[data-status="line1"]'))).toMatch(/^Record since .+ · Connected: Fake Brokerage \(1 account\)$/);
   const items = block.getByRole('list', { name: 'Accounts in this record' }).locator('li');
   await expect(items).toHaveText(['Account 1 of 2 · Fake Brokerage', `Account 2 of 2 removed ${dateText(REMOVED, now(), { year: 'always' })}`]);
-  await expect(items.nth(1).locator(`time[datetime="${REMOVED.toISOString()}"]`)).toHaveCount(1);
+  await expect(items.nth(1).locator(`time[datetime="${REMOVED.toISOString().slice(0, 10)}"]`) /* F-23: the UTC day */).toHaveCount(1);
   const line2 = block.locator('[data-status="line2"]');
   expect(await said(line2)).toMatch(/^Last close [A-Z][a-z]{2} \d{1,2}(, \d{4})? · updated 2 hours ago \([A-Z][a-z]{2} \d{1,2}(, \d{4})?\)$/);
   // The relative time is a <time> whose datetime is the last successful sync, showing its absolute date beside it
@@ -192,7 +192,11 @@ test('F-11 two accounts, one removed: "Account 1 of 2 · (inst)" and "Account 2 
   await expect(rel).toHaveText(/^2\shours\sago\s\([A-Z][a-z]{2}\s\d{1,2}(,\s\d{4})?\)$/);
   expect(await rel.getAttribute('title')).toMatch(/^[A-Z][a-z]{2} \d{1,2}(, \d{4})?$/);
   const iso = (await rel.getAttribute('datetime'))!;
-  expect(Math.abs(Date.parse(iso) - (Date.now() - 2 * 3_600_000))).toBeLessThan(10 * 60_000);
+  // F-23: to the hour (the line prints hours): the sync's UTC hour, 'YYYY-MM-DDTHH:00Z'.
+  expect(iso).toMatch(/^\d{4}-\d\d-\d\dT\d\d:00Z$/);
+  const lag = Date.now() - 2 * 3_600_000 - Date.parse(iso);
+  expect(lag).toBeGreaterThan(-10 * 60_000);
+  expect(lag).toBeLessThan(70 * 60_000);
   // Status in words, never by colour alone: the line has no colour class.
   for (const cls of await block.locator('p, li').evaluateAll((els) => els.map((e) => e.className))) expect(cls).not.toMatch(/\b(up|down)\b/);
   await expect(page.locator('ul.rows.closes li')).toHaveCount(2); // the removed account's trade stays listed (TR-1, TR-5)
@@ -211,7 +215,7 @@ test('QA round 2 (N7, N8), PR #85 review (B1): every account removed, no disconn
   await glue(block.locator('[data-status="line1"]'), `since ${dateText(REMOVED, now(), { year: 'always' })}`);
   await narrow(page);
   // The pane JSON and the trade page say the same, with "updated" (absolute on the cached pane).
-  const json = await (await request.get('/u/fls_gone/pane')).json();
+  const json = await (await request.get('/u/fls_gone/pane?v=2')).json();
   const paneText = (json.status as { text: string }[]).map((x) => x.text).join('');
   expect(paneText).toMatch(new RegExp(`^${gone} · Last close .+ · updated [A-Z][a-z]{2} \\d{1,2}, \\d{4}$`));
   expect(paneText).not.toMatch(/record frozen|Disconnected/);

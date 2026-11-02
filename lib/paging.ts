@@ -3,6 +3,8 @@
 // footer's disclaimer stays in reach on any record, without JavaScript. Nothing is hidden: every close is in exactly
 // one window, reached by "Show 50 more" from the newest through to the oldest; the stats and the chart cover the whole
 // record. The list order is total (close time, then id, newest first), so windows never overlap or skip a row.
+import { wireDay, wireHold, wirePct } from './public-wire.ts'; // F-23
+
 export const CLOSES_PAGE = 50;
 
 // Rows are numbered from 0 in list order. `end` is the window's last row + 1 (a multiple of CLOSES_PAGE).
@@ -34,7 +36,10 @@ export function tradeHref(linkBase: string, id: string, index: number, current?:
 }
 
 // The chart's record, compact for the client (F-1 PR-3 fix round 4: the whole record was serialized as objects, most of
-// a heavy profile's HTML). One tuple per close, in list order: [id, symbol, return, close time ms, hold days, thesis].
+// a heavy profile's HTML). One tuple per close, in list order: [id, symbol, return, close day, hold days, thesis].
+// F-23: a public payload, so the printed precision only (lib/public-wire.ts): the return through wirePct, the close as
+// its UTC day (days since 1970-01-01), hold days at one decimal. unpackPoints spreads one day's closes across the day in
+// list order (newest latest), so a chart drawn from them keeps their order and gives each its own x.
 // FIXES-CYCLE4-PART2 (F4-16, C4-17): a published note's written and edited dates travel as two more fields, UTC day
 // numbers (noteDays), only when the close has a note and a recorded date, so the chart sheet's UserNote shows the
 // profile row's "Written ‹date›, after the trade closed · edited ‹date›" caption. Undated notes add nothing.
@@ -43,19 +48,29 @@ export type ChartPoint = { id: string; symbol: string; returnPct: number; closed
   writtenDay?: number | null; editedDay?: number | null }; // FIXES-CYCLE4-PART2 (F4-16): UTC day numbers
 // FIXES-CYCLE4-PART2 (F4-16): only a published note's dates, as times (profile, pane-chart route) or as UTC day numbers
 // already (the pane's rows, lib/feed.ts#records1).
-type PackInput = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null;
+export type PackInput = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null;
   writtenAt?: Date | string | null; editedAt?: Date | string | null; writtenDay?: number | null; editedDay?: number | null };
+// A published note's [written, edited] UTC days, or null (no note, or no recorded date).
+export const noteDaysOf = (t: PackInput): [number | null, number | null] | null =>
+  t.thesis === null ? null : t.writtenDay != null || t.editedDay != null ? [t.writtenDay ?? null, t.editedDay ?? null] : noteDays(t.writtenAt, t.editedAt);
 export function packPoints(trades: PackInput[]): PackedPoint[] {
-  return [...trades].sort(byListOrder).map((t) => {
-    const p: PackedPoint = [t.id, t.symbol, Math.round(t.returnPct * 1e8) / 1e8, t.closedAt.getTime(), Math.round(t.holdingDays * 100) / 100, t.thesis];
-    if (t.thesis === null) return p;
-    const days = t.writtenDay != null || t.editedDay != null ? [t.writtenDay ?? null, t.editedDay ?? null] as [number | null, number | null] : noteDays(t.writtenAt, t.editedAt);
-    return withNoteDays(p, 6, days); // FIXES-CYCLE4-PART2 (F4-16)
-  });
+  return [...trades].sort(byListOrder).map((t) =>
+    withNoteDays<PackedPoint>([t.id, t.symbol, wirePct(t.returnPct), wireDay(t.closedAt), wireHold(t.holdingDays), t.thesis], 6, noteDaysOf(t))); // FIXES-CYCLE4-PART2 (F4-16)
 }
+const DAY = 86_400_000;
 export function unpackPoints(p: PackedPoint[]): ChartPoint[] {
-  return p.map(([id, symbol, returnPct, at, holdingDays, thesis, w, e], index) => ({ id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index,
-    ...(thesis !== null && (w != null || e != null) ? { writtenDay: w ?? null, editedDay: e ?? null } : {}) })); // FIXES-CYCLE4-PART2 (F4-16)
+  const out: ChartPoint[] = [];
+  for (let i = 0; i < p.length;) {
+    let end = i; // list order is newest first, so one day's closes are adjacent
+    while (end < p.length && p[end][3] === p[i][3]) end++;
+    const m = end - i;
+    for (let k = 0; i < end; i++, k++) {
+      const [id, symbol, returnPct, day, holdingDays, thesis, w, e] = p[i];
+      out.push({ id, symbol, returnPct, closedAt: new Date(day * DAY + Math.round(((m - k) / (m + 1)) * DAY)), holdingDays, thesis, index: i,
+        ...(thesis !== null && (w != null || e != null) ? { writtenDay: w ?? null, editedDay: e ?? null } : {}) }); // FIXES-CYCLE4-PART2 (F4-16)
+    }
+  }
+  return out;
 }
 
 // FIXES-CYCLE4-PART2 (F4-16): note dates as UTC day numbers (days since 1970-01-01): the caption prints days only.

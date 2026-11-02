@@ -10,7 +10,7 @@ import { GEIST_ADVANCE, textWidth, unfurlHeadRows, whoMinWidth, HEAD_HEADROOM, H
 import { CARD_LAYOUT } from './record-card.ts';
 import { SHARE_CARD } from './copy.ts';
 import { fromNoteDay, noteDays, packPoints, toNoteDay, unpackPoints } from './paging.ts';
-import { packChart, paneChart, unpackChart } from './chart-series.ts';
+import { expand, packChart, paneChart, unpackChart } from './chart-series.ts';
 import { noteDateLine, UserNote } from './user-note.ts';
 
 const ROOT = new URL('..', import.meta.url);
@@ -184,7 +184,11 @@ test('F4-16: the pane chart (eager and fetched) carries the dates to the sheet',
   const a = trades.find((t) => t!.id === 'a')!, b = trades.find((t) => t!.id === 'b')!;
   assert.equal(noteDateLine(fromNoteDay(a.writtenDay), fromNoteDay(a.editedDay)), 'Written Oct 5, 2026, after the trade closed');
   assert.equal(b.writtenDay, undefined);
-  assert.equal(json.trades.find((t) => t[0] === 'b')!.length, 6, 'an undated note adds no fields to the wire');
+  // F-23: a chart with nothing downsampled goes out in the compact form (no row index: 5 fields, 7 with note days).
+  assert.equal(json.sfx, 1);
+  assert.equal(json.trades.find((t) => t[0] === 'b')!.length, 5, 'an undated note adds no fields to the wire');
+  assert.equal(json.trades.find((t) => t[0] === 'a')!.length, 7);
+  assert.equal(expand(json).trades.find((t) => t[0] === 'b')!.length, 6);
   // The lite stand-in ships no closes at all, so no dates either.
   assert.equal(packChart(unpackPoints(packPoints([{ id: 'a', ...base, thesis: 'n', writtenAt: W }])), now, 10, true).trades.length, 0);
 });

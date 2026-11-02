@@ -1,7 +1,6 @@
 # F-23 · Public payloads carry no more precision than the screens show
 
-Status: blocked
-Blocked: waits for fix F3-2 (cycle-3 fixes list, on `claude/fix-truthful-labels`, edits the pane and its route) and F-26 (`claude/f26-held-like-none`, edits the pane-chart route) to merge
+Status: built
 Start conditions: fix F3-2 merges. Shares one build slot (the pane and payload slot) with F-21.
 
 ## Why
@@ -52,27 +51,66 @@ second-vote mean 3.67, final vote 15/15, all with conditions).
   Q6). If they have not merged by the next approval council (cycle 5), this approval lapses to that council. F-21, its
   former slot partner, was not re-approved, so F-23 holds the pane and payload slot alone. Why: approved by the approval
   council (cycle 4); lapse rule; EN.
+- 2026-11-01: The wire helpers live in `lib/public-wire.ts` (`wirePct`, `wireHold`, `wireRate`, `wireDay`, `isoDay`,
+  `isoHour`, `numericDay`), not in `lib/format.ts`. Why: decided by the committee under the owner's instruction of 2026-11-01; F-19's shared file stays untouched and one import is the contract.
+- 2026-11-01: `wirePct` chooses the value from the prints alone: the 1-decimal percent; the fixed stand-in n.46% (n.54%
+  where float error misprints the literal) when the 1-decimal value would move the 0-decimal print of the chart's
+  accessible name; one fixed value for the "≈-100%" band; else the shortest decimal printing as stored (the extra digits
+  pct() prints near -100%). Why: decided by the committee under the owner's instruction of 2026-11-01; a value derived from the prints says nothing the screen does not.
+- 2026-11-01: Dates go out as UTC days and are printed in UTC (`numericDay`, `dateText`), not rebuilt at 12:00 UTC. A
+  viewer whose local day differs from the UTC day now sees the UTC day in the pane rows and the chart's scrub line and
+  sheet (a date, not a figure, tone or Flat label). Why: decided by the committee under the owner's instruction of 2026-11-01; the noon rebuild is wrong at UTC±12–14 and the server already
+  prints UTC days; listed for the owner.
+- 2026-11-01: Same-day closes keep an integer day on the wire; the browser spreads the k-th of m points of a day at
+  (k+1)/(m+1) of it, and range ends decode to the first day's start and the last day's end. Why: decided by the committee under the owner's instruction of 2026-11-01; a shared x let a drag
+  reach only one of the pair; the spread reveals only the order the list shows.
+- 2026-11-01: The payload format is `PAYLOAD_V = 2`, in the URL (`?v=2`) and the body (`v`); the bare `/pane` and
+  `/pane-chart` URLs answer 404 no-store, and a body of another version is a failed load. Why: decided by the committee under the owner's instruction of 2026-11-01; an open tab with
+  pre-change code shows "could not be loaded" instead of misreading the new body, and no cache key holds an old body.
+- 2026-11-01: Status-line `<time dateTime>` values carry a printed date's UTC day; a relative time ("2 hours ago", live
+  pages) carries its UTC hour. This is the one named exception to "no time finer than a UTC day": account and sync
+  instants, which carry no trade data, at the precision the line prints. Why: decided by the committee under the owner's instruction of 2026-11-01; the business lead required a named
+  carve-out, not a silent one.
+- 2026-11-01: The profile chart is packed on the server at full resolution (`profileChart`): every figure from stored
+  values, the browser compounds nothing. Measured: the 2,828-close profile is 269 KB against the 400 KB budget, so no
+  fallback; lazy range loading on the profile is out of scope. Why: decided by the committee under the owner's instruction of 2026-11-01; rounded points compounded in the browser would move
+  printed totals and scrub values.
+- 2026-11-01: The `/pane` body is `{ v, state, model, chart, status, options }`; `paneModel` (`lib/pane-model.ts`)
+  computes every printed pane figure from stored values, and the feed renders its pane from the same function. Why: decided by the committee under the owner's instruction of 2026-11-01;
+  only a server model keeps the pane headline equal to the profile's on a rounding edge.
+- 2026-11-01: Existing assertions that pinned the old precision are replaced by the F-23 contract, each at least as
+  strict, none deleted (list: `docs/features/logs/F-23/committee-2026-11-01.md`, decision 10). Why: decided by the committee under the owner's instruction of 2026-11-01; the council
+  decision itself changes what they pinned.
+- 2026-11-01: Closes at the same instant run in list order in the chart (the last key step is the list's top row), and
+  one UTC day's closes drawn under 2 CSS px apart are one pointer target, the newest. Why: decided by the committee under the owner's instruction of 2026-11-01; the user test found the chart
+  and the list disagreeing on two of three demo records (the council's scrub condition, DK).
+- 2026-11-01: When no range is downsampled, the chart goes out in a compact form (`sfx`: ALL as [day, value] pairs, row
+  indices from position, dated ranges as values only) that decodes to exactly the regular form. Why: decided by the committee under the owner's instruction of 2026-11-01; the tester measured
+  a dense 4,700-close profile at 445 KB against the 400 KB budget; this is the business lead's allowed fallback (a).
+- 2026-11-01: A drawdown goes out rounded as it prints (negated: `-wirePct(-dd)`); near -100% a wire return comes from
+  the printed digits plus at most one; a chart whose closes fall on one UTC day prints one end date. Why: decided by the committee under the owner's instruction of 2026-11-01; the
+  independent code review and the user test.
 
 ## Acceptance criteria
-- [ ] For a fixture with an odd return and a 14:31:07 close, `/pane`, `/pane-chart` and the feed HTML contain no return
+- [x] For a fixture with an odd return and a 14:31:07 close, `/pane`, `/pane-chart` and the feed HTML contain no return
       finer than the printed precision and no time finer than a UTC day (response test).
-- [ ] `unrealized_pct` and `openAsOf` are covered by the same test.
-- [ ] The pane headline equals the profile headline for the same record, including a value on the rounding edge
+- [x] `unrealized_pct` and `openAsOf` are covered by the same test.
+- [x] The pane headline equals the profile headline for the same record, including a value on the rounding edge
       (parity test).
-- [ ] Two closes on the same day keep their order in the chart and the scrub opens the right trade (e2e or unit).
-- [ ] A snapshot shows no displayed figure, tone or Flat label changes on profile, pane and feed.
-- [ ] Ranking and confidence-interval tests pass unchanged (computed on stored values).
-- [ ] The public cache key changes with the payload format, so a pre-change cached body is not served.
+- [x] Two closes on the same day keep their order in the chart and the scrub opens the right trade (e2e or unit).
+- [x] A snapshot shows no displayed figure, tone or Flat label changes on profile, pane and feed.
+- [x] Ranking and confidence-interval tests pass unchanged (computed on stored values).
+- [x] The public cache key changes with the payload format, so a pre-change cached body is not served.
 
-- [ ] One test scans every signed-out response on the profile, pane, pane-chart, feed, trade and month pages (HTML, RSC
+- [x] One test scans every signed-out response on the profile, pane, pane-chart, feed, trade and month pages (HTML, RSC
       flight including `?_rsc=`, JSON routes, OG alt, accessible names, `data-*` and `aria-*` values). It fails on any
       return finer than the printed precision or any time finer than a UTC day, checking the named return, date and
       stat fields plus any 13-digit epoch, so ids raise no false alarm.
-- [ ] `packPoints` output for a fixture with an odd return and a 14:31:07 close carries the rounded return and a UTC
+- [x] `packPoints` output for a fixture with an odd return and a 14:31:07 close carries the rounded return and a UTC
       day. The scrub still opens the right one of two same-day closes.
-- [ ] The average, interval bounds and headline sent to the client are rounded. Ranking and interval tests pass
+- [x] The average, interval bounds and headline sent to the client are rounded. Ranking and interval tests pass
       unchanged.
-- [ ] The PR's fee-recovery probe states the smallest position size still at risk.
+- [x] The PR's fee-recovery probe states the smallest position size still at risk.
 
 ## Out of scope
 - Private surfaces (Record tools, the trader's own views).
@@ -84,3 +122,8 @@ second-vote mean 3.67, final vote 15/15, all with conditions).
 ## Rework notes
 
 ## Build log
+- 2026-11-01: Built on `claude/f23-payload-precision` after F3-2 (#85), F-26 (#87), F-11 (#85) and F-20 (#77) merged.
+  Committee record: `docs/features/logs/F-23/committee-2026-11-01.md` (plan `plan.md`, inventory `inventory.md`, probe
+  `probe.md`). Tests: `lib/f23-public-wire.test.ts`, `lib/chart-series.f23.test.ts`, `lib/pane-model.test.ts`,
+  `e2e/f23-display.spec.ts`, `e2e/f23-payload-scan.spec.ts`. QA clean after one Medium (dense profile size) was fixed;
+  independent review findings fixed; business lead and UX lead user tests: compliance pass, usability demands fixed.
