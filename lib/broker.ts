@@ -54,7 +54,7 @@ function encrypt(plain: string) {
 
 function decrypt(enc: string) {
   const [iv, tag, body] = enc.split('.').map((s) => Buffer.from(s, 'base64'));
-  const d = createDecipheriv('aes-256-gcm', key(), iv);
+  const d = createDecipheriv('aes-256-gcm', key(), iv, { authTagLength: 16 }); // O3 (F30): a cut tag never verifies
   d.setAuthTag(tag);
   return Buffer.concat([d.update(body), d.final()]).toString('utf8');
 }
