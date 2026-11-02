@@ -89,6 +89,18 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
 - 2026-11-01: Share images send `public, max-age=300`, so a hide reaches a cached image within 300 s and cached JSON within 60 s; the owner accepts that window. Why: decided by the committee under the owner's instruction of 2026-11-01; `ImageResponse` otherwise caches for a year (engineer E2).
 - 2026-11-01: The anti-impersonation line mounts beside the profile pane at its two call sites, never inside `app/pane.tsx`. Why: decided by the committee under the owner's instruction of 2026-11-01; that file belongs to another session (F-11).
 - 2026-11-01: The "axe e2e" criterion is met by hand-built accessibility checks until the owner authorizes axe-core (MPL-2.0, not on the allowed licence list) or accepts the substitute; the box stays unchecked until then. Why: decided by the committee under the owner's instruction of 2026-11-01; no new dependency without the owner (POLICY C2, H).
+- 2026-11-02: Unblocked: F-9 merged in #65 (ff25ad5) and fix #4 in #59. Built in #100
+  (841d723d). Why: the stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02.
+- 2026-11-02: The owner accepted OD 2.18: the takedown page wording, the anti-impersonation line and a report action
+  on each thesis and profile are approved, and the copyright agent is registered before theses go live (an owner
+  action), not at Open. OD 2.19: one transactional-only email sender, isolated in one file and listed as a
+  sub-processor. OD 2.20: the owner takes the held-thesis release duty with `scripts/review-theses.ts`, daily during
+  Beta. Why: the owner's decisions of 2026-11-02 (accepted en bloc).
+- 2026-11-02: Under-18 reports (OD 2.22): a founded report is handled like a child-privacy notice: delete, log, review
+  the age gate. Deletion runs through an audited, owner-run account-deletion script: it deletes the whole profile and
+  all raw and derived data the way in-app deletion does, writes an audit record with no personal data (date, reason
+  code, counts), and runs only when the owner runs it. The F-16/F-17 session builds it. Why: the owner's decision of
+  2026-11-02 (OD 2.22); POLICY H (deleting data stays the owner's act), P6.
 
 ## Acceptance criteria
 - [x] A test fails on any `from closed_trades` read under `app/` or `lib/` that lacks the shared visible-user predicate
