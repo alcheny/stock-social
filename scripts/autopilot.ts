@@ -143,9 +143,12 @@ export type GateAction = 'off' | 'needs-human' | 'wait' | 'ready-to-choose' | 'r
 
 export function gateDecision(g: GateInput): { action: GateAction; reason: string } {
   if (!g.enabled) return { action: 'off', reason: 'AUTOPILOT is not on' };
-  if (g.doctor) { // loop fixes merge into main without a human, but only inside the loop and never its own constraints
+  if (g.doctor) { // loop fixes merge into main without a human only inside the loop, never its own constraints
     const bad = doctorViolations(g.files);
     if (bad.length) return { action: 'needs-human', reason: `doctor PR touches files it may not change: ${bad.join(', ')}` };
+    // Owner decision 2026-11-01 (item 2.58): no exception to the protected paths, the doctor's PRs included.
+    const prot = g.files.filter((f) => isProtected(f, g.patterns));
+    if (prot.length) return { action: 'needs-human', reason: `doctor PR touches protected paths (owner review): ${prot.join(', ')}` };
     if (g.ci !== 'success' || g.review !== 'success') return { action: 'wait', reason: `ci=${g.ci} review=${g.review}` };
     return { action: 'merge', reason: 'doctor fix: all gates green' };
   }
