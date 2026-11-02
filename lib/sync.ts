@@ -198,11 +198,19 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${published(tx)}) and ${storedFirst(tx)} and ${notDuplicate(tx)}
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
       and ${notShared(tx, userId)}`;
-    await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
+    // F-35 (code review 1): a sell the importer could not price (an unusable trade row, corporate_actions reason 'trade')
+    // dated ahead is left out of excluded_corporate until its date, so it waits on the future line instead (exclude and
+    // count, F3c): never counted nowhere. The stored-first rule (`storedFirst`'s mirror) keeps one vendor id counted once.
+    const [{ unusable }] = await tx`select count(*)::int as unusable from corporate_actions a where a.user_id = ${userId} and not (${published(tx)})
+      and a.kind = 'unpriceable' and a.detail->>'reason' = 'trade' and a.detail->>'side' = 'SELL'
+      and not exists (select 1 from activities x where x.source = a.source and x.external_id = a.external_id and x.created_at <= a.created_at)
+      and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+      and ${notShared(tx, userId)}`;
+    await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future + (unusable as number)}, last_synced_at = now() where id = ${userId}`;
     // F-24 RT-2: sells counted while a possible re-issue in their pair is held (owner-visible; shown nowhere yet).
     await tx`update users set excluded_held = ${excludedHeld} where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
-    return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate };
+    return { trades: written, excluded, future: (future as number) + (unusable as number), maxHeld, excludedCorporate };
   };
   return tx ? run(tx) : sql.begin(run);
 }

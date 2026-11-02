@@ -89,7 +89,7 @@ async function harness() {
     if (accounts.length) await sql`delete from broker_accounts where account_id in ${sql(accounts)}`;
     if (ofs.length) await sql`delete from sync_shards where of in ${sql(ofs)}`;
   };
-  return { sql, S, O, H, tag, now, at, mk, share, opt, age, closes, optionCloses, counts, mark, tick, rebuilds, freshOf, cleanup };
+  return { sql, S, O, H, tag, now, at, ofs, mk, share, opt, age, closes, optionCloses, counts, mark, tick, rebuilds, freshOf, cleanup };
 }
 
 dbTest('AC1–AC3, AC8: a sell dated 12 h ahead is absent and counted; the first tick after its date publishes it with no new activity; two ticks give one rebuild, a third none', async () => {
@@ -255,6 +255,22 @@ dbTest('a corporate action dated ahead is not applied until its date; the pass p
   } finally { await h.cleanup(); }
 });
 
+dbTest('a sell the importer could not price, dated ahead, waits on the future line (counted), then moves to its own count once its date passes', async () => {
+  const h = await harness();
+  try {
+    const u = await h.mk('u');
+    await h.S.insertActivities(u.id, 'snaptrade', [h.share(u, 'b', 'BUY', 100, -2 * DAY)]);
+    const { insertCorporateActions } = await import('./corporate-actions.ts');
+    await insertCorporateActions(h.sql, u.id, 'snaptrade', [{ externalId: `${h.tag}-us`, accountId: u.acc, symbol: 'FTF', kind: 'unpriceable', reason: 'trade', side: 'SELL', units: 1, executedAt: h.at(12 * HOUR), raw: { t: h.tag } } as never]);
+    await h.O.rebuildRecord(u.id);
+    const corp = async () => (await h.sql`select excluded_corporate as n from users where id = ${u.id}`)[0].n as number;
+    assert.deepEqual([(await h.counts(u)).future, await corp()], [1, 0], 'counted while it waits, never nowhere');
+    await h.age(u, 13 * HOUR);
+    assert.equal((await h.tick([u])).matured, 1);
+    assert.deepEqual([(await h.counts(u)).future, await corp()], [0, 1]);
+  } finally { await h.cleanup(); }
+});
+
 dbTest('deploy catch-up: a record with no watermark that shows an early close is rebuilt once (maturedInitial), shares or options only; its thesis is kept and returns; a null-watermark record with nothing ahead is never selected', async () => {
   const h = await harness();
   try {
@@ -334,16 +350,19 @@ dbTest('the watermark is the rebuild\'s own publish clock (the transaction\'s no
 dbTest('budget: the pass never starves the workers: with 50 matured records and a slow rebuild it stops at its time box and the workers still sync that tick', async () => {
   const h = await harness();
   try {
-    // Shard 0 of 2 is this test's own (no other test file runs of = 2): about 50 of 100 records fall in it.
+    // Shard 0 of 5 is this test's own (no other test file or e2e runs of = 5; e2e/sync-shards uses 2 and 4): about 52 of
+    // 260 records fall in it.
+    const of = 5;
+    h.ofs.push(of);
     const all = [];
-    for (let i = 0; i < 100; i++) all.push(await h.mk(`g${i}`));
-    const us = all.filter((u) => u.id % 2 === 0).slice(0, 50);
+    for (let i = 0; i < 260; i++) all.push(await h.mk(`g${i}`));
+    const us = all.filter((u) => u.id % of === 0).slice(0, 50);
     for (const [i, u] of us.entries()) await h.S.insertActivities(u.id, 'snaptrade', [h.share(u, `g${i}b`, 'BUY', 100, -2 * DAY), h.share(u, `g${i}s`, 'SELL', 101, HOUR)]);
     await h.sql`update users set published_through = now() where id in ${h.sql(us.map((u) => u.id))}`;
     for (const u of us) await h.age(u, 2 * HOUR);
     let synced = 0;
     const r = await h.H.runShard({
-      shard: { shard: 0, of: 2 }, ids: us.map((u) => u.id), jitterMs: 0, config: { concurrency: 2, rps: 1000, burst: 1000, page: 500 }, log: () => {},
+      shard: { shard: 0, of }, ids: us.map((u) => u.id), jitterMs: 0, config: { concurrency: 2, rps: 1000, burst: 1000, page: 500 }, log: () => {},
       sync: async () => { synced++; return 0; }, mature: true, maturedBoxMs: 300,
       matureRebuild: async (id, tx) => { await new Promise((res) => setTimeout(res, 40)); return h.O.rebuildWithoutRead(id, tx); },
     });
@@ -351,7 +370,6 @@ dbTest('budget: the pass never starves the workers: with 50 matured records and 
     assert.ok(us.length >= 30, `enough records in the shard (${us.length})`);
     assert.ok(r.matured >= 1 && r.matured < us.length, `the time box stopped the pass (matured ${r.matured} of ${us.length})`);
     assert.ok(synced > 0 && r.done > 0, 'the workers still synced traders');
-    await h.sql`delete from sync_shards where of = 2`;
   } finally { await h.cleanup(); }
 });
 

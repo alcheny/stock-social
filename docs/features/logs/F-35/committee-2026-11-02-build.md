@@ -20,3 +20,18 @@ Demands and answers:
   (pinned copy); a split needs the sells counter the business lead had removed in round 1. Ponytail recorded.
 - Same size as the "Record since" lines → declined: the line matches its sibling exclusion lines (plain `muted`), which
   is the group the business lead asked it to sit in.
+
+## Independent code review (no blocking findings)
+Verified clean: the publish predicate on every rebuild read agrees with the counters and the watermark clock; every
+insert path and lock-waiting rebuild takes USER_LOCK first, so a rebuild never waits behind an insert with a later
+clock; lowering never fills a null; the query's shard filter, scope, dedupe, order and limit; maturePass (try-lock,
+stops, counters, null last_synced_at restore); additive schema; log privacy.
+1. should-fix, taken: an unpriceable trade sell (corporate_actions reason 'trade') dated ahead was counted nowhere
+   while it waited (main's grace had counted it in excluded_corporate). It is now counted on the future line (same
+   stored-first and paper/shared rules as loadCorporateActions), and moves to excluded_corporate once its date passes.
+   Test added.
+2. nit, taken: lib/sync.test.ts's twin gets its own shard range (41..99).
+3. nit, taken: the budget test moves off of = 2 (driven by e2e/sync-shards.spec.ts) to of = 5, cleaned up with the
+   file's shard counts.
+Note (no change): a record with a matured row and a null watermark is counted as `matured`, not `maturedInitial` (the
+due branch wins the dedupe); the rebuild is the one it needed.

@@ -905,7 +905,7 @@ dbTest('F-35 twin of fix round 6: a sell dated 12 hours ahead waits (not publish
     listAccounts: async () => [{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }],
     fetchActivities: async (_u: unknown, since: Date) => { sinces.push(since); return acts; },
   });
-  const of = 100 + Math.floor(Math.random() * 400); // lib/f35-publish.test.ts's shard range
+  const of = 41 + Math.floor(Math.random() * 59); // this file's own shard range (41..99; lib/f35-publish.test.ts 100..499)
   try {
     await syncUser(user, broker([row('b3', 'BUY', 100, now - 24 * HR), row('s3', 'SELL', 90, now + 12 * HR)]) as never);
     assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${user.id}`)[0].n, 0, 'not published before its date');
