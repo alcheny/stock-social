@@ -4,6 +4,7 @@
 // written only by a completed rebuild), never from when syncs are planned, the render clock or a cache. `'live'` is for dynamic pages
 // (relative time beside the absolute date); `'static'` is for images and cached renders (absolute dates with the year).
 // The .tsx (app/status-line.tsx) renders `segments()` only, so every word is unit-tested here.
+import { isoDay, isoHour } from './public-wire.ts'; // F-23
 import type { PublicState } from './connections.ts';
 import { connectedLine, STATUS_LINE as S } from './copy.ts';
 import { dateText, relativeText } from './date-text.ts';
@@ -101,7 +102,9 @@ export function statusParts(f: StatusFacts, now: Date, mode: Mode, demoText: str
     const year = mode === 'static' || line.some((p) => 'd' in p && (p.year || yearOf(p.d) !== yearOf(now))) ? 'always' : 'auto';
     return line.map((p) => {
       if (!('d' in p)) return p;
-      const time: PartTime = { iso: p.d.toISOString(), abs: dateText(p.d, now, { year }),
+      // F-23: a <time dateTime> carries what the line prints: a date as its UTC day; a relative time ("2 hours ago", live
+      // pages only) to the hour (lib/public-wire.ts#isoHour).
+      const time: PartTime = { iso: p.rel && mode === 'live' ? isoHour(p.d) : isoDay(p.d), abs: dateText(p.d, now, { year }),
         ...(p.rel && mode === 'live' ? { rel: now.getTime() - p.d.getTime() < 60_000 ? S.justNow : relativeText(p.d, now) } : {}) };
       return { text: p.words(time.rel ?? time.abs), time };
     });

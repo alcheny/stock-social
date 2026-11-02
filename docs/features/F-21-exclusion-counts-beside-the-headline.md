@@ -1,10 +1,9 @@
 # F-21 · Exclusion counts beside the headline (pane and record strip)
 
-Status: draft
-Blocked: waits for fix F3-2 (cycle-3 fixes list: the pane's TR-9 range and "New record", same `app/pane.tsx` file) and F-22 if the owner says yes (the ledger slot, whose transferred-out count joins the shared sum)
-Start conditions: fix F3-2 merges (`docs/direction/cycle3-2026-11-01.md` §5). F-22 merges first where both are ready; if
-the owner declines F-22, this feature starts after F3-2 alone (Open questions). Shares one build slot with F-23 (same
-pane and payload files).
+Status: blocked
+Blocked: waits for F-23 (PR #97, edits the pane and its payload) and F-24 (PR #84, edits the future-count query in `lib/sync.ts` that the sells-only count needs, and adds `excludedHeld`) to merge
+Start conditions: fix F3-2 merged in #85. It starts once #97 and #84 merge. It rides the pane/strip build slot with
+F-29 and F-34 (one builder owns the pane's line order). F-22 (draft, OD 2.28) joins the shared sum if it lands later.
 
 ## Why
 Excluded trades are counted, but the counts render only on the profile (`app/u/[handle]/page.tsx:302-311` at
@@ -54,6 +53,27 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
   F3-2 alone if the owner declines F-22. Why: approval council cycle 4; lapse rule; DK, EN, PF (a third lapse while F3-2
   sits on a branch with no PR).
 
+- 2026-11-01: Returned to approval council cycle 5 (F3-2 merged in #85) and re-approved there
+  (`docs/ideas/approval-2026-11-01-cycle5.md`: second-vote mean 4.13, final vote 15/15, all approving, 14 of them with
+  conditions). Every decision above is kept word for word. Why: approval council cycle 5; bring-back condition met.
+- 2026-11-01: The shared sum counts sells and option closes only, in the headline's unit. `excluded_future` also
+  counts buys (`lib/sync.ts:181`), so its sell part comes from #84's future-count query. One number never mixes buys
+  and sells under the word "trades". The sum also covers `excluded_options_*` and `excluded_exercise_shares`
+  (`db/schema.sql:1030-1041`), #84's `excludedHeld` and F-32's "transfer" reason. It reads stored counters only, with no
+  per-request scan. Why: approval council cycle 5; RT round 4, TE, RE, VW, UX, CO (veto condition: CO, buys and sells
+  mixed under "trades").
+- 2026-11-01: The new-counter guard enumerates every `excluded*` key of `MatchResult`, the options result and the
+  public-filing result, as well as the schema columns. Why: approval council cycle 5; TE, RT round 4.
+- 2026-11-01: The line links to the profile's per-reason lines (focus lands there), including F-32's "transfer"
+  reason once it exists. The wording stays "excluded from these figures", never "hidden" or "removed". Why: approval
+  council cycle 5; RT, UX, LC.
+- 2026-11-01: The pane/strip slot's shared criterion: with the exclusions line, F-34's open line and F-29's options
+  qualifier all present, the headline and disclaimer stay in view at 360 px and reflow at 320 px. The order is
+  exclusions, then open, then options qualifier. Why: approval council cycle 5; UX, CO.
+- 2026-11-01: Recorded as a decided limit: the share card and the feed card keep the clean headline (cycle-3 owner
+  question Q4, D22). Owner flag: OD 2.7's consent version names the public exclusion counts before real users. Why:
+  approval council cycle 5; BL, LC, PR.
+
 ## Acceptance criteria
 - [ ] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);
       a record with every count at 0 shows no line.
@@ -70,6 +90,13 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 - [ ] The line has no warning colour, no icon, and none of the words "hidden", "removed" or a cause that blames the
       trader (copy test).
 - [ ] The line reflows without horizontal scroll at 320 px and passes the contrast test for muted text.
+- [ ] The equality fixture includes a future BUY, and the line's count does not move when it matures (sells and option
+      closes only).
+- [ ] The guard is mutation-checked in the PR: a dummy `excludedX` key added to `MatchResult`, to the options result
+      and to the public-filing result each fails the test.
+- [ ] The line links to the per-reason lines, and focus lands there; once F-32 lands, its "transfer" reason is among them.
+- [ ] With F-29's qualifier and F-34's open line present (once built), the headline and disclaimer stay in view at
+      360 px in the order exclusions, open, options qualifier (e2e).
 
 ## Out of scope
 - The share card's treatment (owner question Q4).

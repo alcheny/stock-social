@@ -81,6 +81,10 @@ export const PROFILE = {
   // F-24 (council cycle 5 RT-2; final review: POLICY F3c "excluded and counted" requires the line): sells counted, not
   // priced, while a broker row that may repeat an earlier one is checked (users.excluded_held). Neutral cause words, no
   // claim. ponytail: the committee's wording; the owner's final wording is an owner item.
+  // ponytail: shown on the public profile and in record tools only; the owner's /me/record line needs the session user row
+  // (lib/session.ts, protected) — fix: add excluded_held there with a line, as for excluded_corporate above.
+  // ponytail: rows a give-up left held (a busy account; failed or multi-page widened reads) are no longer being checked
+  // until a later pass, yet the line says "checks" — fix: a second line for given-up rows once the owner words it.
   excludedHeld: (n: number) => `${counted(n, 'sell')} excluded while the importer checks a broker row that may repeat an earlier one.`,
 } as const;
 
@@ -1062,6 +1066,12 @@ export const CHORES_3 = {
 } as const;
 // end CHORES-3
 
+// F-23 · Public payload precision (docs/features/F-23-public-payload-precision.md)
+export const F23_COPY = {
+  // The chart's end line when the first and last close fall on one UTC day (one date, not the same date twice).
+  chartEndsOne: (a: string) => `First and last close ${a}`,
+} as const;
+// end F-23
 // FIXES-CYCLE4-PART2 (F4-4, F4-8; docs/features/logs/fixes-cycle4/committee-part2-2026-11-01.md). Additive: no existing
 // constant changes.
 export const FIXES_CYCLE4_PART2 = {

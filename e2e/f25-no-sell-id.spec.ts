@@ -78,11 +78,11 @@ test('trade page metadata (title, canonical, og image, alt) uses the trade_key, 
 });
 
 test('/u/<handle>/pane and /pane-chart JSON carry no sell id; the pane carries at most 5 trade keys', async ({ request }) => {
-  const pane = await scan(request, 'pane', `/u/${A.handle}/pane`);
+  const pane = await scan(request, 'pane', `/u/${A.handle}/pane?v=2`); // F-23: the v2 model
   const keys = A.trades.filter((t) => pane.includes(t.key)).length;
   expect(keys).toBeGreaterThan(0);
   expect(keys).toBeLessThanOrEqual(5);
-  await scan(request, 'pane-chart', `/u/${A.handle}/pane-chart`);
+  await scan(request, 'pane-chart', `/u/${A.handle}/pane-chart?v=2`);
 });
 
 test('feed paging: the no-JS ?after= pages and the in-page next-page action carry no sell id', async ({ request, page }) => {

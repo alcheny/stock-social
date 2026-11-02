@@ -39,3 +39,9 @@ test('buildSitemapEntries: filters, encodes, sorts, caps', () => {
   const bad = buildSitemapEntries([{ ...sm('BAD'), lastClosedAt: new Date(NaN) }], 'http://l');
   assert.equal(bad[2].lastModified, undefined);
 });
+
+test('F-23: a ticker\'s lastmod is the newest close\'s UTC day (midnight), never its time', () => {
+  const at = new Date('2026-10-29T16:02:41.123Z');
+  const [, , e] = buildSitemapEntries([{ ...sm('AAPL'), lastClosedAt: at }], 'http://l');
+  assert.equal(e.lastModified!.toISOString(), '2026-10-29T00:00:00.000Z');
+});

@@ -179,11 +179,13 @@ dbTest('F-25: records() keys exactly the pane\'s 5 latest rows by id, a closed_a
     for (const r of keyed) assert.equal(r.tradeKey, keyOf.get(r.id));
     // The lazy pane's JSON: keys on at most 5 rows, and no sell id anywhere in it.
     const { GET } = await import('../app/u/[handle]/pane/route.ts');
-    const res = await GET(new Request(`http://x.invalid/u/${u.handle}/pane`), { params: Promise.resolve({ handle: u.handle }) });
+    // F-23: the pane JSON is the ?v=2 model; its 5 recent rows are the only rows it lists, each with its key.
+    const res = await GET(new Request(`http://x.invalid/u/${u.handle}/pane?v=2`), { params: Promise.resolve({ handle: u.handle }) });
     const text = await res.text();
-    const body = JSON.parse(text) as { trades: { tradeKey?: string }[] };
-    assert.equal(body.trades.length, 9);
-    assert.equal(body.trades.filter((t) => t.tradeKey).length, 5);
+    const body = JSON.parse(text) as { model: { recent: { id: string; tradeKey?: string }[] } };
+    assert.equal(body.model.recent.length, 5);
+    assert.deepEqual(body.model.recent.map((r) => r.tradeKey), body.model.recent.map((r) => keyOf.get(r.id)));
+    assert.equal((text.match(/[0-9a-f]{64}/g) ?? []).length, 5, 'keys for at most 5 rows');
     assert.ok(!text.includes(tag + '-p'), 'no sell id in the pane JSON');
   } finally { await sql`delete from users where id = ${u.id}`; }
 });

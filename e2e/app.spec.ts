@@ -1092,7 +1092,7 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
     // Swipe-open (the row scrolls to its pane): the pane fetches its trader's chart once and replaces the stand-in.
     await pane.scrollIntoViewIfNeeded();
     await expect(pane.locator('figure.chart')).toHaveAttribute('data-chart', 'full');
-    expect(fetched).toEqual([`/u/${first}/pane-chart`]);
+    expect(fetched).toEqual([`/u/${first}/pane-chart`]); // F-23: the path (the query carries ?v=2)
     await expect(pane.locator('.chart-hit a').first()).toBeAttached(); // drawn after hydration
     expect(await pane.locator('.chart-hit a').count()).toBeLessThanOrEqual(400);
     // The pane's scrubbable chart reaches the newest close and the range tabs work within the bound.
