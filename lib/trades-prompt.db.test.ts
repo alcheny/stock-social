@@ -7,13 +7,27 @@ import { readFileSync } from 'node:fs';
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
 before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
-after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
+// FIXES-CYCLE5 (F5-16): the suite deletes exactly what it created (its users, their cascade, then their sign-up attempts
+// and any funnel rows on them) before the pool closes, so two runs leave the same row counts.
+const made = { users: [] as number[], attempts: [] as number[] };
+after(async () => {
+  if (!hasDb) return;
+  const { sql } = await import('./db.ts');
+  if (made.users.length) await sql`delete from users where id in ${sql(made.users)}`;
+  if (made.attempts.length) {
+    await sql`delete from funnel_events where attempt_id in ${sql(made.attempts)}`;
+    await sql`delete from signup_attempts where id in ${sql(made.attempts)}`;
+  }
+  await sql.end({ timeout: 1 });
+});
 
 async function user(): Promise<number> {
   const { sql } = await import('./db.ts');
   const h = `tp${Math.random().toString(36).slice(2, 10)}`;
   const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+  made.attempts.push(a.id as number);
   const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${h}, ${h}, now(), ${a.id}) returning id`;
+  made.users.push(u.id as number);
   return u.id as number;
 }
 

@@ -210,6 +210,10 @@ create table if not exists signup_attempts (
 );
 select schema_add_column('users', 'signup_attempt_id', 'bigint references signup_attempts(id)');
 select schema_add_column('users', 'deleted_at', 'timestamptz');
+-- FIXES-CYCLE5 (F5-18): a pending deletion's retry backoff (lib/delete.ts#pendingDeletions): failed tries so far and the
+-- earliest next try. Counters and a time only; deleted with the row. Additive, never dropped.
+select schema_add_column('users', 'deletion_attempts', 'int not null default 0');
+select schema_add_column('users', 'deletion_next_at', 'timestamptz');
 -- Backfill, once: rows from before F-1 attested through the dev form at created_at; one attempt each, then the column is
 -- required. Runs only while the column is still nullable (the first apply); afterwards no row can lack an attempt and
 -- the block takes no lock at all.

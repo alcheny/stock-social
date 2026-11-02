@@ -8,6 +8,7 @@ import { sql } from './db.ts';
 import { MATCHER_VERSION } from './trades.ts';
 import { USER_LOCK } from './sync.ts';
 import { rebuildRecord } from './options-sync.ts';
+import { logSafe } from './privacy-log.ts'; // FIXES-CYCLE5 (F5-17)
 
 // ponytail: records left over at the time budget wait for the next deploy (frozen ones included) — fix: let the sync tick
 // pick up records with no matcher_rebuilt row for the current version, in shards (lib/sync-shard.ts).
@@ -15,7 +16,10 @@ import { rebuildRecord } from './options-sync.ts';
 // matcher after it is marked; its next sync on the new code fixes it — fix: key closed_trades rows by matcher version.
 // ponytail: a trader whose published closes the rebuild turns into counts is not told (their /me/record shows the count
 // only; lib/session.ts is protected) — fix: a one-time owner-facing notice listing records whose shown count dropped.
-export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: number[], budgetMs = Number(process.env.MATCHER_REBUILD_MS) || 600_000): Promise<{ rebuilt: number; failed: number; left: number } | null> {
+// FIXES-CYCLE5 (F5-17): `rebuild` is a test seam (default rebuildRecord). A failing record is counted by its error class
+// (lib/privacy-log.ts#logSafe: class, status and code only), so the log says why without naming a record.
+export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: number[], budgetMs = Number(process.env.MATCHER_REBUILD_MS) || 600_000,
+  rebuild: typeof rebuildRecord = rebuildRecord): Promise<{ rebuilt: number; failed: number; left: number } | null> {
   const [done] = await sql`select 1 from matcher_runs where version = ${version}`;
   if (done && !ids) return null;
   const users = await sql`select u.id from users u
@@ -25,20 +29,21 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
     order by u.id`;
   const start = Date.now();
   let rebuilt = 0, failed = 0;
+  const byClass: Record<string, number> = {}; // FIXES-CYCLE5 (F5-17): error classes only, never an id or handle
   for (const u of users) {
     if (Date.now() - start > budgetMs) break;
     try {
       await sql.begin(async (tx) => {
         await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${u.id as number})`;
-        await rebuildRecord(u.id as number, tx);
+        await rebuild(u.id as number, tx);
         await tx`insert into matcher_rebuilt (user_id, version) values (${u.id as number}, ${version})
           on conflict (user_id) do update set version = excluded.version`;
       });
       rebuilt++;
-    } catch { failed++; }
+    } catch (e) { failed++; const c = logSafe(e); byClass[c] = (byClass[c] ?? 0) + 1; } // FIXES-CYCLE5 (F5-17)
   }
   const left = users.length - rebuilt;
-  if (failed) console.error('matcher rebuild: records failed, the version stays open', JSON.stringify({ count: failed }));
+  if (failed) console.error('matcher rebuild: records failed, the version stays open', JSON.stringify({ count: failed, byClass }));
   if (!left && !ids) await sql`insert into matcher_runs (version) values (${version}) on conflict (version) do nothing`;
   return { rebuilt, failed, left };
 }
