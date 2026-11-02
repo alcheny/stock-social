@@ -93,17 +93,30 @@ that `.disclaimer`'s bounding box satisfies `top >= 0` and `bottom <= 740`. It r
 fall back: the label stays above the stats, the move is handed to the F-34 builder, and the fallback is logged in the
 feature's Build log.
 
-**D6. Feed card: the existing count line under the strip (round 2, B1: adopted; my first-round reading is
-withdrawn).** Decision (b) is applied as written: one qualifier and one count line per card. `TradeCard` gets the
-existing gated line, the same `PaneOptions` render (from `paneView`, so the same words, no new copy), placed directly
-under the record strip. It shows only when the strip carries `[data-role=options]`. It is rendered by the server in
-`feed-rows.tsx` and passed as a prop (additive), so the card adds no client import.
+**D6. Feed card: the existing count line under the strip (round 2 B1, round 3 engineer 1-3).** Decision (b) is applied
+as written: one qualifier and one count line per card. `TradeCard` (`app/ui.tsx:87`) gets one optional prop,
+`optionsLine?: string`. Only `feed-rows.tsx` sets it, from `page.options`, and only when
+`v.line && !isOptionsLine(v.line)`: the card carries the gated count text, never option figures. Once the gate opens,
+the card has no count line. Its words are `v.line`, the existing `OPTIONS.gated(...)` text (no new copy).
 
-**Stop condition:** the F-10 first-screen e2e (`e2e/record-strip.spec.ts`, the F3-in-view check) plus a new F-29 case
-on `yolo_yuki`'s card at 360x740. If the disclaimer's bounding box leaves the viewport, the build stops. Nothing ships.
-The builder adds an Open question to the feature file ("the card's count line pushes the F3 line out of the first
-screen at 360 px: drop the card's count line, or shorten it?") for the owner or council, and sets F-29 to waiting on it.
-No ship-then-sign.
+The line renders under the record strip as `<p className="muted small card-options-count" data-options="card-count">`,
+with its own class. It does not use `.options-gated` or the `.pane-options` wrapper, so the strict locators at
+`e2e/options.spec.ts:50-52` still match one element and no pane CSS reaches it. One additive CSS rule:
+`.card-options-count { margin: 4px 0 0; }`, using token colours through `.muted` only.
+
+**Stop condition.** The build re-runs these, unchanged:
+- `e2e/fixes-labels.spec.ts:119` (F3 line in plain view at 360x740 and 320x740)
+- `e2e/fixes-labels.spec.ts:167` (feed card and open pane F3 in view)
+- `e2e/record-strip.spec.ts:84` (F-10 AC8 reflow at 320 and 360)
+- `e2e/record-strip.spec.ts:125` (first card's return and whole strip on the first screen, 360x640)
+- `e2e/f13-first-visit.spec.ts:116` (F-13 hint in view on the card)
+- `e2e/f10-followups.spec.ts:148` (320 px containment)
+
+It also adds a new F-29 case on `yolo_yuki`'s card at 360x740 and 320x740. The card's `.disclaimer`,
+`[data-role=options]` and `.card-options-count` must each have a bounding box inside the viewport (top >= 0,
+bottom <= height), with no horizontal scroll. If any fails, the build stops, nothing ships, and the builder adds the
+Open question to the feature file for the owner or council ("the card's count line pushes the F3 line or the strip
+off the first screen: drop the card's count line, or shorten it?"). No ship-then-sign.
 
 **D7. No copy for "not asked" or "declined".** F-29 adds none. A source scan guards it (AC 5).
 
@@ -129,7 +142,7 @@ components the way `options.spec.ts` does, in light and dark, and runs real-app 
 | AC | Test | Assertion |
 |---|---|---|
 | 1 /how both states | e2e mount `HowOptionsParagraph` `{open:false}` and `{open:true}`; unit source check of `app/how/page.tsx` | closed: no `/consented/i`; open: text `=== OPTIONS.how`. The page renders `<HowOptionsParagraph open={optionsPublic()}` and no longer `{OPTIONS.how}`. Real app: the `/how` HTML has no "consented" |
-| 2 one qualifier per card/pane, position | e2e real feed (row of `yolo_yuki`) and profile; e2e mount of `ProfilePane` with and without open positions | Scope (E5): the card is the `.row`'s TradeCard subtree with `.pane` removed from the count; the pane is `.pane` with `figcaption` removed from the count. Per card: `/Excluding options/g` matches 1 and the match is the strip's `[data-role=options]`, inside the same strip element as `[data-role=average]` or `[data-role=early]`, after it in DOM order. Per pane (figcaption removed from the count): exactly 1, `.share-label` whose previous element is the headline `section.stats` (contains "win rate"), or `.open-stats`/`.open-combined` that follows it. Vertical gap from the figures to the label is ≤ 17 px. Exactly 1 `.options-gated` per pane and exactly 1 per card (B1), directly under the strip. Profile: `.share-label` next element is the headline stats. Never 0 where `section.stats` with "win rate" exists and `options.label` is true |
+| 2 one qualifier per card/pane, position | e2e real feed (row of `yolo_yuki`) and profile; e2e mount of `ProfilePane` with and without open positions | Scope (E5): the card is the `.row`'s TradeCard subtree with `.pane` removed from the count; the pane is `.pane` with `figcaption` removed from the count. Per card: `/Excluding options/g` matches 1 and the match is the strip's `[data-role=options]`, inside the same strip element as `[data-role=average]` or `[data-role=early]`, after it in DOM order. Per pane (figcaption removed from the count): exactly 1, `.share-label` whose previous element is the headline `section.stats` (contains "win rate"), or `.open-stats`/`.open-combined` that follows it. Vertical gap from the figures to the label is ≤ 17 px. Exactly 1 `.options-gated` per pane, and exactly 1 `.card-options-count` per card (none of the card's `.options-gated` or `.pane-options`), whose previous element is the card's record strip. Unit (`lib/f29-gated-wording.test.ts`): the feed-rows selector (a pure `cardOptionsLine(v)` helper) returns the gated text for `paneView({gate:'closed', counts})` and `undefined` for `paneView({gate:'open', ...})` (an options line), for a zero-count record and for `undefined`. A source check confirms `.pane-options`/`.pane` CSS selectors do not match `.card-options-count`. Profile: `.share-label` next element is the headline stats. Never 0 where `section.stats` with "win rate" exists and `options.label` is true |
 | 2 not in caption/foot/title | same e2e | The kept qualifier has no `figcaption`, `footer`, `[aria-hidden=true]` or `title` ancestor; computed color equals `--muted`; font-size is below body; it has no warn class |
 | 3 shares/alt/F4-4/F4-5 unchanged | existing `record-card.options.test.ts`, `fixes-cycle4-part2*.test.ts`, `f4-options-unfurl.spec.ts`, `options.spec.ts:378` stay green; new unit test | Unit: `recordStrip(..., 'figures')` with `monthExcludingOptions` still ends in `OPTIONS.shareLabel`, and `cardAlt` for an options record still contains `OPTIONS.altQualifier` (re-asserts, no edits to old tests) |
 | 4 announced with headline | e2e a11y in the real app (profile and swiped-open pane), with `locator.ariaSnapshot()` (Playwright 1.64.1; E4) | Profile: in `main`'s snapshot, the entry for "Excluding options" comes right before the headline stats entries ("win rate", average). Pane: the figures block is the headline `section.stats`, then `.open-stats`, then `.open-combined` when present. In the `.pane` snapshot, "Excluding options" is the first entry after the last entry of that block, with nothing between. Card: in the strip's snapshot it comes after the average |
@@ -139,6 +152,7 @@ components the way `options.spec.ts` does, in light and dark, and runs real-app 
 | 7 sign-off in PR | unit | `legal-signoff.md` exists and contains `F29.howInterim` verbatim; the feature file contains it after whitespace is normalised (its quote wraps lines). The test fails if the file has a `Pending re-sign:` line without a matching `Signed:` line (B2). The reviewer checks the PR body |
 | 8 words verbatim on /how (closed) | unit and e2e | `F29.howInterim ===` the signed string (literal in the test). Real app: `#options + p` text `=== F29.howInterim` |
 | 9 flip in one process, bodies differ | e2e mount (one process) | With the closed and open states from `optionsPublic(PUBLIC_FIELDS)` and `optionsPublic(OPEN_FIELDS)`: `HowOptionsParagraph` markup differs, and `ProfilePane` with `paneView({gate})` of one record differs (count line or options line, foot note). **Share part: not applicable by design (B3, E7).** The share image and its alt carry the qualifier in both states, because the headline excludes options either way, so a pre-flip and a post-flip share body are rightly identical. It is covered by the URL key only: the AC 6 tests show the URLs differ and are never cached across a flip. The PR leaves this box unticked, asks the business lead to accept it, and routes the AC wording back to the design session ("share URLs differ" instead of "share bodies differ") |
+| D6 stop: card first screen | re-run the six tests named in D6, plus a new e2e in `e2e/f29-gated-wording.spec.ts` (real feed, `yolo_yuki`, 360x740 and 320x740) | `.disclaimer`, `[data-role=options]` and `.card-options-count` of that card are each inside the viewport, with no horizontal scroll |
 | 10 360/320 with F-21/F-34 lines | e2e mount of `ProfilePane` (fictional record: open positions, combined line, options label and count line, demo off) at 360x740 and 320x740 | The headline stats and `.disclaimer` sit inside the viewport when the pane opens; at 320 there is no horizontal scroll and every line wraps (no clipped text). The F-21 and F-34 lines are added under the ponytail when they are built; the test title says "(F-21/F-34 lines pending)" |
 
 All existing tests stay unchanged and green (the test count only grows). No "‹"/"›" in titles.
@@ -197,3 +211,13 @@ No new dependency, vendor or token. Protected files are untouched.
 - **E5 adopted.** The card and pane scopes are set in the AC 2 row.
 - **E6 adopted.** The CDN window is stated in Risks, and a source check covers static /how.
 - **E7 adopted.** Merged with B3.
+
+## § Round 3 answers
+- **Engineer 1 adopted.** The card line renders only when `v.line && !isOptionsLine(v.line)`, through a pure
+  `cardOptionsLine(v)`. A unit test covers both gate states, zero counts and an absent view.
+- **Engineer 2 adopted.** The card line has its own class, `card-options-count`, with no `.options-gated` and no
+  `.pane-options` wrapper, so the strict locators at `e2e/options.spec.ts:50-52` stay single-match. A source check
+  confirms the pane CSS does not reach it.
+- **Engineer 3 adopted.** D6 names the first-screen tests it re-runs: `fixes-labels.spec.ts:119`, `:167`;
+  `record-strip.spec.ts:84`, `:125`; `f13-first-visit.spec.ts:116`; `f10-followups.spec.ts:148`. A new check keeps the
+  strip qualifier, the card count line and the disclaimer in view at 360x740 and 320x740.
