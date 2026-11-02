@@ -61,6 +61,7 @@ const SIZE_MAX = Math.log1p(Number.MAX_VALUE);
 
 export type FeedCandidate = {
   id: number; sell_id: string; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
+  trade_key?: string; // F-25: selected with the page's cards (same statement); the card's trade link and actions key on it
   thesis: string | null; thesis_status: string | null; handle: string; display_name: string; user_id: number; score: number;
   thesis_written_at?: Date | null; thesis_edited_at?: Date | null; // F-9: the shown card's note dates (UserNote)
   // F-26: set by the page-row statement only on the signed-in viewer's own close with a held note (else false/null).
@@ -301,7 +302,8 @@ export type PaneRow = { userId: number; id: string; symbol: string; returnPct: n
   openedAt: Date; // F-10: the entry time, so the strip's bets (K) are the profile's (lib/record-strip.db.test.ts)
   // FIXES-CYCLE4-PART2 (F4-16): a published note's written and edited UTC day numbers (lib/paging.ts#noteDays), for the
   // chart sheet. Day precision only (orchestrator review, F-23): the time of day never leaves the database.
-  writtenDay?: number | null; editedDay?: number | null };
+  writtenDay?: number | null; editedDay?: number | null;
+  tradeKey?: string }; // F-25: set on the trader's 5 latest rows only (the pane's "Last 5 trades" links), never the vendor id
 
 // Every page trader's full current record, for the pane's chart and stats.
 // Fix round 1 (load check, tester Medium 3): one JSON text per trader instead of one row per close. A page of heavy
@@ -332,7 +334,11 @@ async function records1(userIds: number[]): Promise<PaneRow[]> {
       -- FIXES-CYCLE4-PART2 (F4-16): a published note's written and edited UTC day numbers (null otherwise), the 9th and
       -- 10th fields; days only, so no time of day is ever read out
       coalesce((case when thesis_status = 'published' then floor(date_part('epoch', thesis_written_at) / 86400)::int end)::text, 'null'),
-      coalesce((case when thesis_status = 'published' then floor(date_part('epoch', thesis_edited_at) / 86400)::int end)::text, 'null')), ',' order by closed_at desc, id desc) || ']' as j
+      coalesce((case when thesis_status = 'published' then floor(date_part('epoch', thesis_edited_at) / 86400)::int end)::text, 'null')), ',' order by closed_at desc, id desc) || ']' as j,
+      -- F-25: the trade_keys of the trader's 5 latest closes, in the list order (closed_at desc, id desc), for the pane's
+      -- "Last 5 trades" links, as "id:key" pairs; a column of this statement, so the feed issues no new one (closed_trades_user index).
+      (select string_agg(k.id || ':' || k.trade_key, ',' order by k.closed_at desc, k.id desc) from (select c5.trade_key, c5.closed_at, c5.id
+        from closed_trades c5 where c5.user_id = closed_trades.user_id order by c5.closed_at desc, c5.id desc limit 5) k) as keys
     from closed_trades where user_id = any(${userIds}) group by user_id`;
   // F-10: opened_at is the 8th field, and the rows come in the profile's list order (closed_at desc, id desc), so the
   // strip's average and range are summed in the profile's order: the same floats, not just the same text.
@@ -342,7 +348,10 @@ async function records1(userIds: number[]): Promise<PaneRow[]> {
   const out: PaneRow[] = [];
   for (const r of rows) {
     const a = JSON.parse(r.j as string) as (string | number | null)[];
+    // F-25: "id:key" pairs (hex keys hold no ':' or ','), attached by row id, not by position.
+    const keys = new Map(((r.keys as string | null) ?? '').split(',').filter(Boolean).map((p) => p.split(':') as [string, string]));
     for (let k = 0; k < a.length; k += PANE_ROW_FIELDS) out.push({
+      ...(keys.has(String(a[k])) ? { tradeKey: keys.get(String(a[k]))! } : {}),
       userId: r.user_id as number, id: String(a[k]), symbol: a[k + 1] as string, returnPct: a[k + 2] as number, holdingDays: a[k + 3] as number,
       verified: a[k + 4] === 1, closedAt: new Date(a[k + 5] as number), thesis: a[k + 6] as string | null,
       openedAt: new Date(a[k + 7] as number), // F-10
@@ -539,7 +548,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const statusP = statusRowsOrEmpty(withSection ? [...new Set([...traders, ...candIds])] : traders);
   const [rows, states, panes, following, people, rejected, opens] = await Promise.all([
     page.items.length ? sql`
-      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, case when t.thesis_status = 'published' then t.thesis end as thesis, case when t.thesis_status = 'published' then t.thesis_status end as thesis_status, t.user_id, u.handle, u.display_name,
+      select t.id, t.sell_id, t.trade_key, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, case when t.thesis_status = 'published' then t.thesis end as thesis, case when t.thesis_status = 'published' then t.thesis_status end as thesis_status, t.user_id, u.handle, u.display_name,
         case when t.thesis_status = 'published' then t.thesis_written_at end as thesis_written_at, case when t.thesis_status = 'published' then t.thesis_edited_at end as thesis_edited_at,
         -- F-26: the hold (flag and rule) only on the signed-in viewer's own closes; one statement text for every viewer
         -- and every note state (0 matches no user when signed out).

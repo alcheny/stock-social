@@ -9,14 +9,16 @@ import { combined, openSummary, type OpenSummary } from './open-split.ts';
 import type { PublicState } from './connections.ts';
 import { isoDay, wireDay, wirePct, wireRate } from './public-wire.ts';
 
-export type PaneModelTrade = { id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean; openedAt?: Date };
+export type PaneModelTrade = { id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean; openedAt?: Date;
+  tradeKey?: string }; // F-25: set on the 5 latest rows (lib/feed.ts#records1), the "Last 5 trades" links
 export type PaneModel = {
   count: number;
   winRate: number; // the printed whole percent, as a fraction
   avgReturn: number;
   since: string | null; // 'YYYY-MM-DD' of the first close
   worst: { symbol: string; returnPct: number } | null;
-  recent: { id: string; symbol: string; day: number; returnPct: number }[]; // the last 5, newest first; `day`: UTC day
+  recent: { id: string; symbol: string; day: number; returnPct: number; tradeKey?: string }[]; // F-25: tradeKey, the row's trade-page key
+  // the last 5, newest first; `day`: UTC day (F-23)
   badge: TrustBadge | null;
   incomplete: boolean;
   rangeLine: string | null; // "‹range› · 95% range", as printed
@@ -39,7 +41,7 @@ export function paneModel(trades: PaneModelTrade[], state: PublicState, now: Dat
     avgReturn: wirePct(p.avgReturn),
     since: p.since && isoDay(p.since),
     worst: p.worst && { symbol: p.worst.symbol, returnPct: wirePct(p.worst.returnPct) },
-    recent: p.recent.map((t) => ({ id: t.id, symbol: t.symbol, day: wireDay(t.closedAt), returnPct: wirePct(t.returnPct) })),
+    recent: p.recent.map((t) => ({ id: t.id, symbol: t.symbol, day: wireDay(t.closedAt), returnPct: wirePct(t.returnPct), ...(t.tradeKey ? { tradeKey: t.tradeKey } : {}) /* F-25 */ })),
     badge: trust.badge,
     incomplete: trust.incomplete,
     rangeLine: ev.rangeLine,

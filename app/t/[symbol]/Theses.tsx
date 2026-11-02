@@ -6,6 +6,8 @@ import { toneClass } from '@/lib/open-split.ts'; // A11Y-FIXES #23
 import type { rowBadge } from '@/lib/pane.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
 import { UserNote } from '@/lib/user-note.ts';
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
+import { signWord, TRADE_LINK } from '@/lib/copy.ts'; // F-25
 
 const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
@@ -25,10 +27,11 @@ export default function Theses({ list, symbol, badgeFor = (v) => (v ? 'verified'
         <ul className="rows thesis-rows">
           {list.items.map((r) => (
             <li key={r.id}>
-              <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`} className="trow">{/* A11Y-FIXES #22 */}
+              <Link href={tradePageHref({ handle: r.handle, tradeKey: r.tradeKey! })} className="trow f25-row">{/* A11Y-FIXES #22; F-25 Shape R */}
                 <span className="who">@{r.handle} <RowBadge kind={badgeFor(r.verified, r.handle)} /></span>
-                <b className={toneClass(r.returnPct)}>{pct(r.returnPct)}</b>{/* A11Y-FIXES #23 */}
+                <b className={toneClass(r.returnPct)}><span className="sr-only">{`${signWord(r.returnPct)} `}</span>{pct(r.returnPct)}</b>{/* A11Y-FIXES #23 */}
                 <span className="muted">held {held(r.holdingDays)} · {date(r.closedAt)}</span>
+                <span className="sr-only">{TRADE_LINK.suffix(symbol)}</span>{/* F-25 */}
               </Link>
               {/* F-9: UserNote (no Report here yet). Fix round 2 (E): a sibling under the row link, not inside it, so the
                   link's name stays short (handle, badge, figure, held time, date). */}

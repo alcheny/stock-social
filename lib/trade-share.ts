@@ -39,7 +39,7 @@ export type TradeView = ReturnType<typeof tradeSharePayload> & {
   excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
   excluded?: number; // F-21: the record's exclusion sum (lib/exclusions.ts); the page's strip line only, never an image
   filings?: { sold: string; bought: string[] } | null; // F-7: a public record's filing links
-  sellId?: string; // F-15 second half: the stored sell id the row matched (the page's one spelling, lib/share.ts#tradePath)
+  tradeKey?: string; // F-25: the row's trade_key, the page's one address (lib/trade-href.ts#tradePageHref); never the sell id
 };
 
 export const tradeStripInput = (t: TradeView): StripInput => ({
