@@ -31,19 +31,24 @@ technology** — and the owner resolves. Dissent that was overruled is kept, on 
 
 ### 1.2 Who it is for
 **Supply (traders who publish) — the scarce side; win this first.**
-- ICP-S1: "Signals seller." Sells a paid chat group, 1k–50k followers on social and video platforms,
-  20–40 trades/mo in US equities/ETFs. Pain: buyers don't trust screenshots; churn is high. Job: *prove
-  I'm real so more people pay me.*
-- ICP-S2: "Proud hobbyist." 18–30, trades actively, already posts wins on short-video and photo apps.
-  Job: *status.*
+- ICP-S1: "Open hobbyist." 18–30, trades actively in US equities/ETFs, already posts results on
+  short-video and photo apps. Pain: nobody can check a screenshot. Job: *show a record people can check,
+  losses included.*
+- ICP-S2: "Educator." Explains trading to an audience on social and video platforms. Pain: viewers
+  can't tell whether the teacher's own trades match the lessons. Job: *show my own record, as it is.*
+- Paid signal sellers are not a launch segment: held for the AI legal committee, and the Terms ban selling
+  signals or paid access through a profile, thesis or card (POLICY F1). (Owner decision 2026-11-01,
+  item 2.41, with 2.62: supply leads with hobbyists and educators, replacing the "Signals seller" persona.)
 
 **Demand (people who watch) — abundant; capture through shared links.**
 - ICP-D: 18–27, mobile-only, discovers finance through short video, attention span of one swipe.
   Job: *learn what real traders actually do, and be entertained by the outcome.*
 
 ### 1.3 Positioning
-> **Verified trades, straight from the broker.**
+> **No per-trade hiding. Losses shown and ranked like gains.**
 > A trader's record is pulled read-only from their broker, can't be edited, and shows the losses too.
+
+(Owner decision 2026-11-01, item 2.41: this lead replaces "Verified trades, straight from the broker.")
 
 Against (by category): investor microblogs and social feeds (claims are unverified), charting-idea
 communities (ideas, not trades), single-broker social and copy-trading features (one platform only),
@@ -235,8 +240,9 @@ securities-counsel opinion** on the publisher's exclusion for each feature.
 
 ### 3.4 Never
 - Hiding, deleting or editing individual trades; opting single accounts out of a connected login; deleting history on disconnect (TR-1, TR-2, TR-5).
-- Confetti or celebration on real trades. Celebrate correct *predictions* and milestones of *skill*.
-- Rewards for trading **frequency**. Badges reward accuracy and risk-adjusted results only.
+- Confetti or celebration on real trades. Only correct *predictions* (Phase 2, paper only) may be celebrated.
+- Rewards for trading **frequency**: nothing in the product rewards trading more often.
+  (Owner decision 2026-11-01, item 2.41: "skill" and "badges" struck from these two lines.)
 - Points convertible to money; real-money predictions; loot boxes; paid streak saves.
 - Holding customer funds or placing trades.
 - Personalized recommendations ("you should buy X").
@@ -296,7 +302,8 @@ IDs (CH-, TR-, SW-) are cited in issues and PRs.
 - **Must:** the y-axis includes 0% and is never cropped to flatter the curve; drawdowns stay visible;
   the label states exactly what is plotted ("Return if every trade were the same size"); percent only,
   never dollars or position size; open positions are excluded and their unrealized result shown next
-  to it (TR-4).
+  to it (TR-4); once the final value is beyond ±100% it is printed at about 3 significant figures
+  ("+1,230%", not "+1,234.5%") (owner decision 2026-11-01, F-23 probe).
 - **Look:** full width, ~160px tall on mobile; line in the neutral text color; area above 0% tinted with
   the up color, below 0% with the down color; a dot per closed trade; final value labeled at the right.
 - **Accessible:** `role="img"` with a summary label ("312 trades, +41% total, max drawdown −18%");
@@ -324,10 +331,10 @@ cherry-picking route and the rule that closes it:
 | TR-1 | Hide or delete individual losing trades | No per-trade hide, delete or edit, ever. Every trade from a connected account is published. Only the thesis is editable. |
 | TR-2 | Connect only the "good" account under a broker login | Every account under a connected broker login is included. No per-account opt-out. |
 | TR-3 | Start the record after a hot streak | Import the full history the broker provides, not just from the connect date. The profile shows "Record since ‹first trade date›". |
-| TR-4 | Sell winners, hold losers forever, so realized stats look great | Show open positions next to realized stats, as prominent as the headline: "Open: 6 positions · −23% unrealized", in the down color when negative. Uses SnapTrade positions (average cost and current price), so no new vendor. |
+| TR-4 | Sell winners, hold losers forever, so realized stats look great | Show open positions next to realized stats, as prominent as the headline: "Open: 6 positions · −23% unrealized", in the down color when negative. Uses SnapTrade positions (average cost and current price), so no new vendor. Owner decision 2026-11-01 (item 2.25): unrealized values stay shown; no exception hides them. |
 | TR-5 | Disconnect after losses, or delete and start fresh | Disconnecting freezes the record: it stays public with "Disconnected ‹date›". Removing an account keeps its trades, marked "Account removed ‹date›". Only deleting the whole profile removes history, and that handle can't be reused for 1 year. |
 | TR-6 | Attach the same broker account to a new profile to reset | A broker account can belong to only one profile, ever (unique on the broker's account ID). |
-| TR-7 | Advertise a lucky short streak | Headline stats and the share card always show all-time numbers; 30d/90d views are secondary and labeled. Profiles under 30 days of history or 10 closed trades show a "New record" badge. |
+| TR-7 | Advertise a lucky short streak | Headline stats and the share card always show all-time numbers; 30d/90d views are secondary and labeled. Profiles under 30 days of history or 10 closed trades show an "Early record" badge (owner decision 2026-11-01, item 2.41; was "New record"). |
 | TR-8 | Trade elsewhere at an unconnected broker | Undetectable, so be explicit: the profile lists the connected brokers and number of accounts, and copy never claims "all of their trades". Phase 2 account-level returns remove within-account gaming entirely. |
 
 **TR-9 · Confidence interval on performance**
@@ -353,20 +360,26 @@ holding losers can't flatter the interval.
    day and one held for a year from counting as the same result.
 4. **Verdicts** (from the pace interval and the sample):
 
-| Evidence | Rule | Edge | Rule |
+| Evidence | Rule | Past results | Rule |
 |---|---|---|---|
-| Too early | K < 5, or the interval's half-width exceeds 10 points per trade: "The range is still too wide to say much" | Positive | pace interval entirely above 0 |
-| Thin | K < 30 or span < 90 days | Negative | pace interval entirely below 0 |
+| Too early | K < 5, or the interval's half-width exceeds 10 points per trade: "The range is still too wide to say much" | Above zero | pace interval entirely above 0 |
+| Thin | K < 30 or span < 90 days | Below zero | pace interval entirely below 0 |
 | Moderate | K ≥ 30 and span ≥ 90 days | Unclear | interval includes 0 |
 | Strong | K ≥ 100 and span ≥ 365 days | | |
 
 - **Display (Must):** the headline average return always carries its range once K ≥ 5, using Student's t with K − 1 degrees of freedom:
-  "+1.3% per trade (−0.1% to +2.7%)", plus one line "Edge: unclear · Evidence: thin (30 bets, 60 days)".
-  Pace and the method sit one tap deeper. Losses and negative edges are shown with the same prominence.
+  "+1.3% per trade (−0.1% to +2.7%)", plus one line "Evidence: thin (30 bets, 60 days)". No "Edge: …"
+  string is shown (owner decision 2026-11-01, item 2.41; POLICY F3b).
+  Pace and the method sit one tap deeper. Losses and below-zero results are shown with the same prominence.
 - **Copy (Must):** never "skill", "proven", "guaranteed" or similar; the label describes evidence, not
   the trader.
 - **Ranking (Must):** any ranking of traders (lists, "top traders", future leaderboards) sorts by the
-  pace interval's **lower bound**, never by raw averages, so small lucky samples can't top it.
+  pace interval's **near-end distance from 0**, never by raw averages: max(0, low) for an interval
+  wholly above 0, max(0, −high) for one wholly below, 0 when it spans 0. Losses rank like gains, and
+  small lucky samples can't top it. Ranking weight starts only at the Moderate evidence tier (K ≥ 30 and
+  span ≥ 90 days; this replaces the owner's 2026-11-01 floor of 10 bets); below it a record ranks by
+  recency alone. The spread used in the error term never falls below 1 percentage point per trade. The
+  one method is documented on /how. (Owner decisions 2026-11-01: item 2.33 option (c), and cycle-5 Q3.)
 - **Share card:** shows the evidence label next to the headline numbers.
 - **Tests (Must):** unit tests for clustering of overlapping same-symbol trades, K < 5 → too early, half-width > 10 points → too early,
   a hand-computed example, and zero spread (no division by zero).
@@ -374,8 +387,8 @@ holding losers can't flatter the interval.
   still count as separate bets, so intervals are somewhat optimistic for concentrated traders; fat-tailed
   returns make the t-interval optimistic too. Upgrade path: cluster by sector or week, or a cluster
   bootstrap. `t(K−1)` may use a standard approximation (accurate to ~0.01 for K ≥ 6).
-- **Example (demo data):** Dan +0.9% (+0.4% to +1.3%) per trade, edge positive, evidence thin
-  (30 bets, 61 days); Maya +1.3% (−0.1% to +2.7%), edge unclear; Yuki +0.4% (−3.4% to +4.3%), unclear.
+- **Example (demo data):** Dan +0.9% (+0.4% to +1.3%) per trade, past results above zero, evidence thin
+  (30 bets, 61 days); Maya +1.3% (−0.1% to +2.7%), unclear; Yuki +0.4% (−3.4% to +4.3%), unclear.
 
 ### 5.3 Swipe to open a profile
 
@@ -384,12 +397,14 @@ holding losers can't flatter the interval.
   pane], inside the existing vertical scroll-snap feed. Native scrolling provides the gesture,
   momentum and direction locking; no gesture library.
 - **Profile pane:** name, verified badge, headline stats, open positions (TR-4), the CH-1 chart, the
-  last 5 trades, and "See full profile →" linking to `/u/[handle]`.
+  last 5 trades, and "See profile →" linking to `/u/[handle]` (owner decision 2026-11-01, item 2.41; was
+  "See full profile →").
 - **Must:** vertical swipes still move between trades; a horizontal swipe never also scrolls
   vertically; returning lands on the same card; tapping the name still opens the full profile; with
   keyboard focus on a card, → opens and ← closes the pane; `prefers-reduced-motion` snaps instantly.
 - **First run:** the first card shows a subtle "Swipe ← for profile" hint once (remembered on the
-  device), gone after the first swipe.
+  device), gone after the first swipe. Where a fine pointer exists, the hint reads "Press → for profile"
+  (owner decision 2026-11-01, item 2.41).
 - **Reserved gesture:** left/right on the default feed means profile. A future "Call it" prediction
   mode (Phase 1.5 idea) must be a separate mode, not the default feed.
 
