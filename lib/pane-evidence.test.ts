@@ -45,9 +45,14 @@ test('a row without its entry time falls back to close minus holding days; an em
 });
 
 test('the pane renders the range under its average and New record in its header, the pane JSON ships the entry time', () => {
+  // F-23: the evidence is computed in the pane model (lib/pane-model.ts) from the stored closes, entry times included,
+  // for the feed and the /pane route alike; the pane renders the model and recomputes nothing.
   const src = readFileSync(new URL('../app/pane.tsx', import.meta.url), 'utf8');
-  assert.match(src, /paneEvidence\(trades, now\)/);
+  assert.match(readFileSync(new URL('../lib/pane-model.ts', import.meta.url), 'utf8'), /paneEvidence\(trades, now\)/);
+  assert.doesNotMatch(src, /paneEvidence\(|paneSummary\(/);
   assert.match(src, /ev\.rangeLine && <small className="range">\{ev\.rangeLine\}<\/small>/);
   assert.match(src, /ev\.newRecord && <span className="badge new">New record<\/span>/);
-  assert.match(readFileSync(new URL('../app/u/[handle]/pane/route.ts', import.meta.url), 'utf8'), /openedAt: r\.openedAt\.getTime\(\)/);
+  const route = readFileSync(new URL('../app/u/[handle]/pane/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /paneModel\(rows, state, now, open, openAsOf\)/);
+  assert.doesNotMatch(route, /getTime\(\) \/\*|closedAt: r\.closedAt/);
 });
