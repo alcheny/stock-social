@@ -30,3 +30,31 @@ Build session for F-34 (`docs/features/F-34-one-open-positions-line.md`), branch
   - Optional, adopted by the orchestrator: the pane JSON carries the server-built line.
 - Settled by both reviewers: Q2 lower-case up/down/flat; Q3 keep the count tile; Q5 the stock pages get the account
   filter only; Q6 a ponytail note; Q1 the feed card is in scope (business lead, over the plan's "droppable").
+
+## Round 2
+- The UX lead revised the plan to meet all 13 demands.
+- The full open line cannot fit the 1200×630 images (44 of 192 states fail), so those images draw an image form from
+  the same producer; the square and story print the full text.
+- Business lead: DEMANDS (3).
+  - BL-R2-1: one `imageRows` producer, with fact-coverage and round-trip tests.
+  - BL-R2-2: "record frozen" never dropped from an image with open values.
+  - BL-R2-3: the 320 px feed-card e2e (at most 3 lines, the trade return stays the largest text).
+- Engineer: DEMANDS (3).
+  - EN-R2-1: step 11 is a separate last pass.
+  - EN-R2-2: test the real `monthHero` / `monthBand`.
+  - EN-R2-3: name the record-row size change.
+- Q11 accepted by both reviewers, under the orchestrator's condition: the image form is one deterministic function of
+  the canonical line, and a test pins every fact.
+
+## Round 3: SIGN-OFF (business lead, engineer)
+- Fit matrix against the real `stripImageLines`, `tradeHero`, `recordStrip` and `monthHero` (`export` added):
+  `total=192 fit=192 violations=0`.
+  - Disclaimer: 35 px in 110 states, 32 px in 46, 28 px in 36.
+  - Step 11 (the last pass) runs in 14 month states and drops only the failed note and/or the "Disconnected ‹date›"
+    row.
+  - "record frozen" is kept in 96/96 frozen states.
+  - Script: `fit/f34-fit-matrix.ts.txt`.
+- Decisions recorded in the feature file (2026-11-02).
+- Build conditions:
+  - The source scan matches string literals only, not comments (avoids comment edits in files #100 touches).
+  - The month label may reach 26 px in 6 states, never below the record rows.

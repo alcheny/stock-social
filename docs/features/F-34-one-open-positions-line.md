@@ -53,6 +53,22 @@ all with conditions).
   closed trade") still applies where this file says so. The guard test "no unrealized value on the strips" is replaced
   by the render-equality test (first AC). Build starts before #100 and #102 merge; main is merged in as each lands.
   Why: the owner's decision of 2026-11-02 (OD 2.25).
+- 2026-11-02: One producer, `openLine` in lib/copy.ts (facts from lib/open-split.ts), prints F-4's card line, lowest
+  first, with a word after every value ("Still open: 3 positions · 2 up, 1 down · lowest -15.0% down, highest +4.0%
+  up"). The profile, pane, feed card, trade and month pages, and the link-preview descriptions print it byte for byte;
+  alts print it with commas (F-12 pins no "·" or parentheses in alts). The feed card is in scope (amends F-6's feed-card
+  wording; it stays one line, at body size, values never muted). Why: committee rounds 1–3 (BL1, EN2); plan.md §1–2.
+- 2026-11-02: The 1200×630 images (unfurl, trade, month) draw the line through `imageRows`, one deterministic function
+  of the canonical line ("Still open: 3 · 2 up, 1 down / lowest … / as of ‹Mon D, YYYY›"); a test pins every fact. With
+  an open block the image record rows step from 35 px to 30/28/26 px, never below the open values; the disclaimer stays
+  ≥ 28 px; "record frozen" is never dropped; a last pass (14 month states) may drop only the "Disconnected ‹date›" row
+  or the failed-note row, which the page and alt keep. Why: committee round 2–3 (EN1, BL-R2-2, EN-R2-1, Q11, Q12);
+  the full line fits in only 148 of 192 states.
+- 2026-11-02: One account filter (`positionInRecord`: no paper account, no account marked as another profile's) on every
+  open_positions reader, the stock pages included; the as-of date is min(fetched_at) from the read each surface already
+  makes (no new query, no vendor call). Why: committee round 1 (EN5, EN7); the record's account set (Decisions above).
+- 2026-11-02: The pane JSON carries the server-built line (PAYLOAD_V 3); an absent F-21/F-29 slot renders nothing. The
+  chart note drops its open-figure tail ("Not plotted: open positions."). Why: committee round 1 (BL2, BL6, EN optional).
 
 ## Acceptance criteria
 - [ ] Until OD 2.25 is answered, a guard test pins "no unrealized value on the strips or their images". After 2.25, a
@@ -74,8 +90,9 @@ all with conditions).
 - The "per closed trade" wording (fixes lane).
 
 ## Open questions
+- Owner note (Q8): the rare 3-row unfurl leaves the chart about 12.5% of the card.
 - Resolved 2026-11-02 (OD 2.25): no, unrealized values keep showing (Decisions).
-- Owner (OD 2.7): move the positions' as-of date from "freshness, internal" into the named record-state fields?
+- Owner (OD 2.7; committee recommends yes): move the positions' as-of date from "freshness, internal" into the named record-state fields?
 
 ## POLICY notes
 - F3a/TR-4: the open line is as prominent as the headline and never in the gain colour when negative.
