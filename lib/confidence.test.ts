@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { confidence, evidenceLine, evidenceWeight, isNewRecord, rangeText, rankTraders, tCrit95, type ConfidenceInput, type Confidence } from './trades.ts';
-import { evidenceLabel, halfWidth, MIN_BETS, RANK_MIN_BETS, TOO_WIDE_HALF_WIDTH, tooWide, TRUST_BANNED, trustLine, trustSign } from './confidence.ts';
+import { rankWeight } from './rank-weight.ts';
+import { confidence, evidenceLine, isNewRecord, rangeText, rankTraders, tCrit95, type ConfidenceInput, type Confidence } from './trades.ts';
+import { evidenceLabel, halfWidth, MIN_BETS, RANK_MIN_BETS, RANK_MIN_DAYS, TOO_WIDE_HALF_WIDTH, tooWide, TRUST_BANNED, trustLine, trustSign } from './confidence.ts';
 
 const DAY = 86_400_000;
 const t0 = Date.UTC(2026, 0, 1);
@@ -112,11 +113,14 @@ test('rankTraders: confident edge beats wide interval; zero weights keep score o
   assert.deepEqual(rankTraders([wide, confident]).map((x) => x.id), ['c', 'w']);
   const zeros = [{ id: 'a', weight: 0, score: 1 }, { id: 'b', weight: 0, score: 3 }, { id: 'c', weight: 0, score: 2 }];
   assert.deepEqual(rankTraders(zeros).map((x) => x.id), ['b', 'c', 'a']);
-  const mk = (r: number) => confidence(spaced(12, () => r), today);
-  const g = evidenceWeight(mk(0.05));
-  const l = evidenceWeight(mk(1 / 1.05 - 1));
-  assert.ok(g > 0 && Math.abs(g - l) < 1e-9);
-  assert.equal(evidenceWeight(confidence([], today)), 0);
+  // F-33: the weight is lib/rank-weight.ts#rankWeight on simple returns, so the mirror of +5% is −5% and the tie is exact
+  // (40 bets over 395 days: at the moderate tier).
+  const mk = (r: number) => spaced(40, () => r);
+  const g = rankWeight(mk(0.05));
+  const l = rankWeight(mk(-0.05));
+  assert.ok(g > 0);
+  assert.equal(g, l);
+  assert.equal(rankWeight([]), 0);
 });
 
 // F-1 PR-3 fix round 4 (UX lead note 3): "Too early to tell (9 of 10 bets)" beside 2,828 trades. The seeded heavy record
@@ -202,19 +206,27 @@ test('F-4 AC3: "too early" is K < 5 or a half-width over 10 points, never a coun
   // Too wide keeps the range (it is always shown from 5 bets), but no verdict and no ranking weight.
   assert.ok(wide.perTrade && wide.pace30);
   assert.equal(wide.edge, null);
-  assert.equal(evidenceWeight(wide), 0);
+  assert.equal(rankWeight(spaced(12, (i) => Math.expm1(i % 2 ? -0.25 : 0.25))), 0);
+  // F-33: the 200-bet record is at the strong tier by count and span, but its printed range is too wide: no weight.
+  assert.equal(rankWeight(spaced(200, (i) => Math.expm1(i % 2 ? -1 : 1))), 0);
   assert.equal(evidenceLine(wide), 'Too early to tell: the range is still too wide to say much (12 bets)');
   assert.equal(evidenceLabel(wide), 'Evidence: too early');
   assert.equal(evidenceLabel(narrow), 'Evidence: thin');
 });
 
-test('F-4: ranking keeps its floor of 10 bets (F-4 changes what a record shows, not the feed order)', () => {
-  assert.equal(RANK_MIN_BETS, 10);
-  const tight = (k: number) => confidence(spaced(k, (i) => 0.05 + (i % 2 ? 0.001 : -0.001)), today);
-  assert.notEqual(tight(6).tier, 'too-early'); // shown with its range and verdict from 5 bets
-  assert.equal(evidenceWeight(tight(6)), 0); // but not ranked ahead before 10
-  assert.equal(evidenceWeight(tight(9)), 0);
-  assert.ok(evidenceWeight(tight(10)) > 0);
+// Retargeted by F-33 (owner, cycle-5 Q3, 2026-11-02): the ranking floor moved from 10 bets to the moderate tier.
+test('F-33: ranking weight starts at the moderate tier (30 bets over 90 days); records still show a range from 5 bets', () => {
+  assert.equal(RANK_MIN_BETS, 30);
+  assert.equal(RANK_MIN_DAYS, 90);
+  const rs = (i: number) => 0.05 + (i % 2 ? 0.001 : -0.001);
+  const tight = (k: number) => spaced(k, rs);
+  assert.notEqual(confidence(tight(6), today).tier, 'too-early'); // shown with its range and verdict from 5 bets
+  assert.equal(rankWeight(tight(6)), 0); // but not ranked ahead below the tier
+  assert.equal(rankWeight(tight(9)), 0);
+  assert.equal(rankWeight(tight(29)), 0);
+  assert.ok(rankWeight(tight(30)) > 0); // 30 bets over 295 days
+  assert.equal(rankWeight(clusters(30, 89, rs as never)), 0); // 30 bets, 89 days
+  assert.ok(rankWeight(clusters(30, 90, rs as never)) > 0);
 });
 
 const conf = (tier: Confidence['tier'], edge: Confidence['edge'], perTrade: Confidence['perTrade'], k: number, n: number, spanDays: number): Confidence =>

@@ -2,7 +2,7 @@
 // so a bug is fixed by recomputing (see docs/DESIGN.md §2.5).
 
 import { count, counted, pct } from './format.ts';
-import { MIN_BETS, RANK_MIN_BETS, tooWide } from './confidence.ts';
+import { MIN_BETS, tooWide } from './confidence.ts';
 import { LATE_POSTING_DAYS, RATIO_TOLERANCE, renameRatio, resolveRatio, type CorporateAction, type Ratio } from './corporate-actions.ts';
 
 export type Activity = {
@@ -510,6 +510,16 @@ export const tCrit95 = (df: number) => (df <= 30 ? T95[Math.max(df, 1) - 1] : 1.
 // One independent bet: x = sum of log returns, d = sum of hold days (each at least 1), n = trades in it.
 export type Cluster = { x: number; d: number; n: number };
 
+// A record's length in days: latest close − earliest open (0 for none). F-33: one helper for confidence() and the
+// ranking weight (lib/rank-weight.ts), so the tier both read is measured from the same two instants. A loop, not
+// Math.max(...spread): a spread of a 100k-close record overflows the call stack.
+export function recordSpanDays(trades: readonly Pick<ConfidenceInput, 'openedAt' | 'closedAt'>[]): number {
+  if (!trades.length) return 0;
+  let first = Infinity, last = -Infinity;
+  for (const t of trades) { first = Math.min(first, t.openedAt.getTime()); last = Math.max(last, t.closedAt.getTime()); }
+  return (last - first) / DAY;
+}
+
 export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   void today; // reserved for open positions (TR-4, see above)
   const n = trades.length;
@@ -534,8 +544,7 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
       maxClose = Math.max(maxClose, t.closedAt.getTime());
     }
   }
-  const spanDays = n ? (Math.max(...trades.map((t) => t.closedAt.getTime())) - Math.min(...trades.map((t) => t.openedAt.getTime()))) / DAY : 0;
-  return confidenceFromClusters(clusters, n, spanDays);
+  return confidenceFromClusters(clusters, n, recordSpanDays(trades));
 }
 
 // The statistics on already-clustered bets. app/t/ticker-sql.ts clusters in SQL and calls this with one row per bet, so
@@ -608,13 +617,9 @@ export function isNewRecord(trades: { openedAt: Date }[], closedCount: number, t
   return (today.getTime() - first) / DAY < 30 || closedCount < 10;
 }
 
-// Feed order: traders with a confident edge first (weight > 0), by weight × score; the rest keep score order.
-// weight = log-distance of the pace interval from zero in either direction, so equal losses and gains tie.
-// F-4: a too-early record (a range wider than ±10 points) never ranks ahead on its pace interval, and ranking keeps
-// its pre-F-4 floor of RANK_MIN_BETS (10) bets: F-4 changes what a record shows, not the feed order.
-export const evidenceWeight = (c: Confidence): number =>
-  (c.pace30 && c.tier !== 'too-early' && c.k >= RANK_MIN_BETS ? Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high)) : 0);
-
+// Feed order: traders with ranking weight first (weight > 0), by weight × score; the rest keep score order (the SQL's
+// input order breaks ties: the sort is stable). F-33: the weight is lib/rank-weight.ts#rankWeight (near-edge distance
+// of the simple-return pace interval from zero, from the moderate tier up), so equal losses and gains tie exactly.
 export function rankTraders<T extends { weight: number; score: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
     if ((a.weight > 0) !== (b.weight > 0)) return a.weight > 0 ? -1 : 1;

@@ -5,11 +5,35 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { HOW, HOW_PERSONAL, PROFILE } from './copy.ts';
 import { MAX_DECAY, RECENCY_HOURS } from './feed.ts';
-import { RANK_MIN_BETS } from './confidence.ts';
+import { RANK_MIN_BETS, RANK_MIN_DAYS, SPREAD_FLOOR, TOO_WIDE_HALF_WIDTH } from './confidence.ts';
+import { RECORD_STRIP } from './copy.ts';
 import { matchTrades, type Activity } from './trades.ts';
 import { unusableTrade } from './corporate-actions.ts';
 
 // ---- Copy (F3-7, F3-15, F3-1) ----
+
+// F-33 (owner, 2026-11-02: cycle-5 Q3, OD 2.33, OD 2.32; business lead round 1 demands): /how states the tier, the
+// floor and the near-edge weight from the constants, in plain words, and never claims more than the code does.
+test('F-33: /how states the tier, the floor and near-edge from the constants, never "top/best/proven/skill/can\'t"', () => {
+  const t = HOW_PERSONAL.text;
+  assert.ok(t.includes(`at least ${RANK_MIN_BETS} independent bets over at least ${RANK_MIN_DAYS} days`));
+  assert.ok(t.includes(`no wider than ${Math.round(TOO_WIDE_HALF_WIDTH * 100)} points either side`));
+  assert.ok(t.includes(`at least ${Math.round(SPREAD_FLOOR * 100)} percentage point`));
+  assert.ok(t.includes(`can gain weight once it reaches ${RANK_MIN_BETS} bets over ${RANK_MIN_DAYS} days`));
+  // Independent bets are defined before the first sentence that uses them.
+  const def = t.indexOf('count as one independent bet');
+  assert.ok(def > 0 && def < t.indexOf(`at least ${RANK_MIN_BETS} independent bets`));
+  // Near-edge, both signs, and no weight across zero (OD 2.33).
+  assert.match(t, /measured from the end nearest zero; a range that crosses zero gives no weight/);
+  assert.match(t, /a clear loss as much as a clear gain/);
+  assert.match(t, /Only closed trades count toward the weight/);
+  assert.match(t, /that is not a penalty/);
+  for (const bad of [/\btop\b/i, /\bbest\b/i, /\bproven\b/i, /\bskill/i, /can't|cannot|can’t/i, /\byet\b/i, /weight times/i]) assert.doesNotMatch(t, bad);
+  // At most 6 sentences added to the 2026-11-01 text (it had 8; business lead demand).
+  assert.ok(t.split(/(?<=\.)\s+(?=[A-Z])/).length <= 8 + 6, 'sentence budget');
+  // OD 2.32 on the math list: the zero-width range, in the one producer's words.
+  assert.ok(HOW.math.some((l) => l.includes(`"${RECORD_STRIP.early}"`) && /no width/.test(l)));
+});
 
 test('F3-7: /how states the base feed order truthfully, tied to the ranking constants; no "size is not used" claim', () => {
   const t = HOW_PERSONAL.text;
@@ -20,6 +44,7 @@ test('F3-7: /how states the base feed order truthfully, tied to the ranking cons
   const score = (r: number, ageHours: number) => Math.log1p(Math.abs(r) * 100) * Math.exp(-Math.max(0, Math.min(ageHours / RECENCY_HOURS, MAX_DECAY)));
   for (const age of [0, 100, 1000]) assert.ok(Math.abs(score(0.1, age + RECENCY_HOURS) / score(0.1, age) - 1 / 3) < 0.04, '"about a third as much after each RECENCY_HOURS"');
   assert.ok(t.includes(`at least ${RANK_MIN_BETS} independent bets`), 'evidence floor constant');
+  assert.ok(t.includes(`over at least ${RANK_MIN_DAYS} days`), 'F-33: the tier\'s span constant');
   assert.match(t, /a clear loss as much as a clear gain/);
   assert.match(t, /Signed out, everyone gets the same order\./); // the personal-order text follows unchanged
 });

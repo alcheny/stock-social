@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 import { capped, chooseRows, holdBucket, median, reasonFor, SECTION_NEAR, SECTION_PER_BUCKET, SECTION_ROWS, SECTION_SPARES, sectionCandidates, sectionPool, type SectionTrader, type TraderFacts } from './section.ts';
 import { canArm, horizontal, REJECT_QUIET_MS, swipeOutcome } from './reject.ts';
 import { prng } from './explore.ts';
-import { confidence, evidenceWeight, type ConfidenceInput } from '../trades.ts';
+import type { ConfidenceInput } from '../trades.ts';
+import { rankWeight } from '../rank-weight.ts';
+import { readFileSync } from 'node:fs';
+import { byEvidence } from './section.ts';
+import { SECTION, SECTION_PERSONAL } from '../copy.ts';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 23);
@@ -16,38 +20,45 @@ test('holding buckets and the median', () => {
   assert.equal(median([4, 1, 3, 2]), 2.5);
 });
 
-// A record of n closes with log returns sign × (mean ± 0.01) (alternating spread), held d days each, no overlaps.
+// A record of n closes with simple returns sign × (mean ± 0.01) (alternating spread), held d days each, no overlaps,
+// one every 10 days. F-33: simple returns (was log returns), because the ranking weight is computed on simple returns
+// (OD 2.32), so the mirrored record is the exact negation and the tie stays exact.
 function record(n: number, mean: number, d = 3, sign: 1 | -1 = 1): ConfidenceInput[] {
   return Array.from({ length: n }, (_, i) => {
     const x = sign * (mean + (i % 2 ? 0.01 : -0.01));
     const openedAt = new Date(T0 - (n - i) * 10 * DAY);
-    return { symbol: `S${i}`, returnPct: Math.expm1(x), holdingDays: d, openedAt, closedAt: new Date(openedAt.getTime() + d * DAY) };
+    return { symbol: `S${i}`, returnPct: x, holdingDays: d, openedAt, closedAt: new Date(openedAt.getTime() + d * DAY) };
   });
 }
-const facts = (ts: ConfidenceInput[]): TraderFacts => ({ weight: ts.length ? evidenceWeight(confidence(ts, new Date(T0))) : 0, hold: median(ts.map((t) => t.holdingDays)), n: ts.length });
+const facts = (ts: ConfidenceInput[]): TraderFacts => ({ weight: rankWeight(ts), hold: median(ts.map((t) => t.holdingDays)), n: ts.length });
 
 // Fix round 1 (tester Medium 2, criterion 8): the pool was ordered by rankTraders (weight × the biggest recent move); it
 // is now ordered by the TR-9 weight alone, ties by closes counted then user id. Restated, not loosened: the expected
 // order is the stricter one.
-test('the pool is ordered by the TR-9 lower-bound weight alone (never a raw average or the size of a move), ties by closes counted then id; a losing record weighs exactly like the mirrored winning one', () => {
-  const recs = new Map<number, ConfidenceInput[]>([[1, record(40, 0.02)], [2, record(40, 0.02, 3, -1)], [3, record(6, 0.3)], [4, record(40, 0.002)], [5, record(12, 0.05)]]);
+// F-33 (orchestrator ruling R1): ties by id only (was closes counted, then id). Trader 4 now carries weight too, so the
+// fixture keeps three weighted traders (two of them the mirrored pair) and two at weight 0.
+test('the pool is ordered by the ranking weight alone (never a raw average or the size of a move), ties by id; a losing record weighs exactly like the mirrored winning one', () => {
+  const recs = new Map<number, ConfidenceInput[]>([[1, record(40, 0.02)], [2, record(40, 0.02, 3, -1)], [3, record(6, 0.3)], [4, record(40, 0.01)], [5, record(12, 0.05)]]);
   const f = new Map([...recs].map(([id, ts]) => [id, facts(ts)]));
-  // Mirrored in log space: the same weight.
+  // Mirrored: the same weight, exactly.
   assert.ok(f.get(1)!.weight > 0);
-  assert.ok(Math.abs(f.get(1)!.weight - f.get(2)!.weight) < 1e-12, `${f.get(1)!.weight} vs ${f.get(2)!.weight}`);
+  assert.equal(f.get(1)!.weight, f.get(2)!.weight);
+  assert.ok(f.get(4)!.weight > 0 && f.get(4)!.weight < f.get(1)!.weight);
+  assert.equal(f.get(5)!.weight, 0); // 12 bets: below the tier
   // Trader 3 has the highest raw average (+35% a trade) but too few bets: weight 0, so it ranks below every confident record.
   assert.equal(f.get(3)!.weight, 0);
   const cards = [1, 2, 3, 4, 5].flatMap((trader) => [{ trader, score: trader === 3 ? 9 : 1 + trader / 10 }, { trader, score: 0.5 }]);
   const pool = sectionPool(cards, f);
-  const expected = [1, 2, 3, 4, 5].map((trader) => ({ trader, ...f.get(trader)! })).sort((a, b) => b.weight - a.weight || b.n - a.n || a.trader - b.trader);
+  const expected = [1, 2, 3, 4, 5].map((trader) => ({ trader, ...f.get(trader)! })).sort((a, b) => b.weight - a.weight || a.trader - b.trader);
   assert.deepEqual(pool.map((t) => t.trader), expected.map((t) => t.trader));
+  assert.deepEqual(pool.map((t) => t.trader), [1, 2, 4, 3, 5]);
   for (let i = 1; i < pool.length; i++) assert.ok(pool[i - 1].weight >= pool[i].weight);
   assert.ok(pool.findIndex((t) => t.trader === 3) > pool.findIndex((t) => t.trader === 1));
   // A trader with no facts (not eligible at asOf) is not in the pool.
   assert.equal(sectionPool([{ trader: 9, score: 5 }], f).length, 0);
 });
 
-test('sign invariance: negating every return (in log space) leaves the section unchanged; a loss is suggested exactly as a gain of the same evidence', () => {
+test('sign invariance: negating every return leaves the section unchanged; a loss is suggested exactly as a gain of the same evidence', () => {
   for (let seed = 1; seed <= 200; seed++) {
     const r = prng(seed);
     const ids = Array.from({ length: 6 + Math.floor(r() * 30) }, (_, i) => i + 1);
@@ -113,10 +124,11 @@ test('TR-9 order: a lower raw average with a higher lower bound ranks first, wha
   assert.ok(f.get(2)!.weight > f.get(1)!.weight, `${f.get(2)!.weight} vs ${f.get(1)!.weight}`);
   const pool = sectionPool([{ trader: 1, score: 9 }, { trader: 2, score: 0.1 }], f);
   assert.deepEqual(pool.map((t) => t.trader), [2, 1]);
-  // Equal weights (two weight-0 records): more closes first, then the lower id, never the bigger move.
+  // Equal weights (weight-0 records): the lower id first, never more closes or the bigger move (F-33, ruling R1; was
+  // more closes first).
   const g = new Map([[3, facts(record(6, 0.3))], [4, facts(record(9, 0.01))], [5, facts(record(9, 0.02))]]);
   assert.ok([3, 4, 5].every((id) => g.get(id)!.weight === 0));
-  assert.deepEqual(sectionPool([{ trader: 3, score: 9 }, { trader: 5, score: 1 }, { trader: 4, score: 0.1 }], g).map((t) => t.trader), [4, 5, 3]);
+  assert.deepEqual(sectionPool([{ trader: 3, score: 9 }, { trader: 5, score: 1 }, { trader: 4, score: 0.1 }], g).map((t) => t.trader), [3, 4, 5]);
 });
 
 // Fix round 1 (tester Medium 1): the rows come from every candidate under the bucket cap, never from a fixed slice; the
@@ -188,7 +200,8 @@ test('PR-1b new-record slot: the third place goes to the weight-0 trader with no
   const list = Array.from({ length: 30 }, (_, i) => ({ trader: 100 + i }));
   const rows = chooseRows(sectionCandidates(pool, list, 0, new Set()))!;
   assert.deepEqual(rows.map((t) => t.trader), [1, 2, 6]);
-  for (let i = 1; i < rows.length; i++) assert.ok(rows[i].weight <= rows[i - 1].weight && (rows[i].weight < rows[i - 1].weight || rows[i].n <= rows[i - 1].n));
+  // F-33 (ruling R1): the rows read weight first, then id (was weight, then closes).
+  for (let i = 1; i < rows.length; i++) assert.ok(rows[i].weight < rows[i - 1].weight || (rows[i].weight === rows[i - 1].weight && rows[i].trader > rows[i - 1].trader));
   // Page 2: 6 was shown, so the slot goes to 5; page 3: both shown, the fewest closes again.
   const long = [...list, ...Array.from({ length: 60 }, (_, i) => ({ trader: 200 + i }))];
   assert.deepEqual(chooseRows(sectionCandidates(pool, long, 30, new Set()))!.map((t) => t.trader), [3, 4, 5]);
@@ -234,4 +247,56 @@ test('PR-1b fix 1: the new-record slot is chosen before the bucket cap (a newcom
   const list = Array.from({ length: 30 }, (_, i) => ({ trader: 100 + i }));
   const rows = chooseRows(sectionCandidates(pool, list, 0, new Set()))!.map((t) => t.trader);
   assert.deepEqual(rows, [1, 3, 9]); // 9 shares bucket 1 with 1 and 2: it keeps its row, 2 gives way
+});
+
+// ---- F-33 (orchestrator ruling R1; business lead round 2, D1 and D2) ----
+
+test('F-33 R1: two records equal in weight, one of 200 closes and one of 20, order only by id (both input orders, all weights 0)', () => {
+  const many = record(200, 0.01).map((t) => ({ ...t, openedAt: new Date(T0 - 60 * DAY + (+t.openedAt - T0) / 100), closedAt: new Date(T0 - 60 * DAY + (+t.closedAt - T0) / 100) }));
+  const few = record(20, 0.01);
+  const f = new Map([[7, facts(many)], [3, facts(few)]]);
+  assert.equal(f.get(7)!.n, 200);
+  assert.equal(f.get(3)!.n, 20);
+  assert.equal(f.get(7)!.weight, 0);
+  assert.equal(f.get(3)!.weight, 0);
+  for (const cards of [[{ trader: 7, score: 2 }, { trader: 3, score: 2 }], [{ trader: 3, score: 2 }, { trader: 7, score: 2 }]]) {
+    assert.deepEqual(sectionPool(cards, f).map((t) => t.trader), [3, 7]);
+  }
+  // Swap the ids: the order follows the id, not the count.
+  const g = new Map([[3, f.get(7)!], [7, f.get(3)!]]);
+  assert.deepEqual(sectionPool([{ trader: 7, score: 2 }, { trader: 3, score: 2 }], g).map((t) => t.trader), [3, 7]);
+  // The comparator itself reads no count.
+  assert.equal(byEvidence({ weight: 0, trader: 1, n: 200 } as never, { weight: 0, trader: 2, n: 20 } as never) < 0, true);
+  assert.equal(byEvidence({ weight: 0, trader: 1, n: 20 } as never, { weight: 0, trader: 2, n: 200 } as never) < 0, true);
+});
+
+test('F-33 R1: every row with ranking weight precedes every row at weight 0, in the pool and in the rows', () => {
+  for (let seed = 1; seed <= 100; seed++) {
+    const r = prng(seed);
+    const pool = Array.from({ length: 12 }, (_, i) => ({ ...T(i + 1, [0.5, 3, 20, 60, 300][Math.floor(r() * 5)], r() < 0.4 ? r() : 0), n: 5 + Math.floor(r() * 300) }))
+      .sort(() => r() - 0.5).sort(byEvidence);
+    const zero = pool.findIndex((t) => t.weight === 0);
+    if (zero >= 0) assert.ok(pool.slice(zero).every((t) => t.weight === 0), `seed ${seed}: pool`);
+    const rows = chooseRows(pool);
+    if (!rows) continue;
+    const z = rows.findIndex((t) => t.weight === 0);
+    if (z >= 0) assert.ok(rows.slice(z).every((t) => t.weight === 0), `seed ${seed}: rows`);
+  }
+});
+
+test('F-33 R1: the section line is true of the comparator and says "ranking weight"; the section links to /how', () => {
+  for (const line of [SECTION.explain, SECTION_PERSONAL.explain]) {
+    assert.match(line, /ranking weight come first, the rest in a fixed order\. Losses count the same as gains\.$/);
+    assert.doesNotMatch(line, /how much evidence/);
+  }
+  assert.equal(SECTION.explain, 'Records with ranking weight come first, the rest in a fixed order. Losses count the same as gains.');
+  // "come first": weight > 0 sorts before weight 0; "a fixed order": equal weights by id, whatever the closes or score.
+  assert.ok(byEvidence({ weight: 0.01, trader: 9 }, { weight: 0, trader: 1 }) < 0);
+  assert.ok(byEvidence({ weight: 0, trader: 1 }, { weight: 0, trader: 9 }) < 0);
+  assert.ok(byEvidence({ weight: 0, trader: 9 }, { weight: 0, trader: 1 }) > 0);
+  // "Losses count the same as gains": the comparator reads only weight (sign-blind, AC6) and id.
+  assert.deepEqual(byEvidence.length, 2);
+  const src = readFileSync(new URL('../../app/suggest-section.tsx', import.meta.url), 'utf8');
+  assert.match(src, /href="\/how"/);
+  assert.match(src, /SECTION\.howLink/);
 });

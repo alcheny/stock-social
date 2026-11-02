@@ -7,7 +7,8 @@ import { readFileSync } from 'node:fs';
 import {
   CARD_LAYOUT, cardAlt, cardDescription, cardEvidence, cardLink, cardOpen, cardSeries, recordCard, unfurlHeadlineSize, unfurlWide, type CardInput, type CardKind, type CardModel,
 } from './record-card.ts';
-import { confidence, evidenceLine, evidenceWeight, headline, pct, type ConfidenceInput } from './trades.ts';
+import { confidence, evidenceLine, headline, pct, type ConfidenceInput } from './trades.ts';
+import { rankWeight } from './rank-weight.ts';
 import { spanUnit, TRUST_BANNED, trustSign } from './confidence.ts';
 import { DISCLAIMER } from './share.ts';
 import type { RecordState } from './copy.ts';
@@ -126,13 +127,15 @@ test('F-4 2026-11-01 (preview text): matches the card (average with range, perio
   // The page's description is built from this (e2e/share-card.spec.ts checks the served text and its disclaimer).
 });
 
-test('F-4 2026-11-01 (ranking floor): records show a range from 5 bets but rank from 10', () => {
-  for (const k of [5, 7, 9]) {
-    const r = record(k, 60, wobble(0.03));
+// Retargeted by F-33 (owner, cycle-5 Q3, 2026-11-02): ranking now starts at the moderate tier (30 bets over 90 days).
+test('F-4 2026-11-01 (ranking floor), F-33: records show a range from 5 bets but rank from 30 bets over 90 days', () => {
+  for (const k of [5, 7, 9, 29]) {
+    const r = record(k, 120, wobble(0.03));
     assert.ok(card(r).range, `${k} bets: a range`);
-    assert.equal(evidenceWeight(confidence(r, now)), 0, `${k} bets: no ranking weight`);
+    assert.equal(rankWeight(r), 0, `${k} bets: no ranking weight`);
   }
-  assert.ok(evidenceWeight(confidence(record(10, 60, wobble(0.03)), now)) > 0);
+  assert.equal(rankWeight(record(30, 60, wobble(0.03))), 0, '30 bets over 60 days: no ranking weight');
+  assert.ok(rankWeight(record(30, 120, wobble(0.03))) > 0);
 });
 
 test('F-4 2026-11-01 (font): the cards keep the renderer\'s built-in font; no font file is loaded', () => {

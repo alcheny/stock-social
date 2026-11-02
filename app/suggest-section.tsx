@@ -27,7 +27,8 @@ export function SuggestSection({ page, pane }: { page: FeedPage; pane: (userId: 
       <div className="suggest-in">
         {/* F-2 PR-5: signed in with personalization On and at least one choice counted: the personal heading. */}
         <h2 id={id}>{page.personal ? SECTION_PERSONAL.heading : SECTION.heading}</h2>
-        <p className="muted small">{page.personal ? SECTION_PERSONAL.explain : SECTION.explain}</p>
+        {/* F-33 (business lead round 2, D2): the line says "ranking weight"; the method is documented on /how. */}
+        <p className="muted small">{page.personal ? SECTION_PERSONAL.explain : SECTION.explain} <a href="/how">{SECTION.howLink}</a></p>
         <ul>
           {page.section!.map((r) => {
             const trust = paneTrust(page.byUser.get(r.userId) ?? [], page.records.get(r.userId)?.state ?? 'connected');

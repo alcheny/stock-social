@@ -12,16 +12,24 @@ export const MIN_BETS = 5;
 // average, it is shown but said to be too wide to say much. Half-width of the simple-return interval; exactly 10 points
 // is not too wide.
 export const TOO_WIDE_HALF_WIDTH = 0.10;
-// Ranking (TR-9 Must: the pace interval's lower bound; F-2's feed and suggestions) keeps its pre-F-4 floor: F-4 decides
-// what the record shows, not how traders are ordered, so a record under 10 bets still weighs 0 there. Owner decision
-// 2026-11-01: records show a range from 5 bets but only rank from 10, so lucky short streaks can't climb the feed.
-export const RANK_MIN_BETS = 10;
 
 // Evidence tiers (DESIGN §5.2 TR-9): the thresholds confidence() in lib/trades.ts applies inline. The card recomputes its
 // tier from them (lib/record-card.ts) because its "too wide" check reads the arithmetic range it prints (F-4,
 // 2026-10-31); a test pins tierFor to confidence()'s tier. Hand-off: trades.ts can call tierFor itself.
 export const STRONG = { bets: 100, days: 365 } as const;
 export const MODERATE = { bets: 30, days: 90 } as const;
+// F-33 (owner, cycle-5 Q3, 2026-11-02): ranking weight (lib/rank-weight.ts) starts at the moderate tier, 30 independent
+// bets AND 90 days (both inclusive), replacing the owner's 10-bet ranking floor of 2026-11-01. Records still show a
+// range from MIN_BETS (5). The tier raises the cost of a lucky streak; it does not close the hold-losers-open path
+// (closed trades only: OD 2.34), so no copy may say a short record "can't" rank ahead.
+export const RANK_MIN_BETS = MODERATE.bets;
+export const RANK_MIN_DAYS = MODERATE.days;
+// F-33: inside the ranking weight's error term the spread never counts as less than 1 percentage point per trade, so a
+// run of identical returns does not look certain. Ranking only: no printed range reads it.
+export const SPREAD_FLOOR = 0.01;
+// F-33: the ranking formula's version. lib/feed.ts's weight cache keys on it, so no weight from an older formula is
+// served after a code change. Bump it whenever lib/rank-weight.ts's arithmetic changes.
+export const RANK_FORMULA = 'f33.1';
 export const tierFor = (k: number, spanDays: number): Confidence['tier'] =>
   k < MIN_BETS ? 'too-early' : k >= STRONG.bets && spanDays >= STRONG.days ? 'strong' : k >= MODERATE.bets && spanDays >= MODERATE.days ? 'moderate' : 'thin';
 

@@ -1,9 +1,9 @@
 // F-2 PR-3 (criteria 7, 8, 9, 10): the suggestions section, impersonal. One full-height card after the 5th card of every
 // 30-card page, 3 traders. Pure (lib/discovery/imports.test.ts): it orders and filters what it is given.
-// - The pool is the feed's eligible traders at asOf (lib/feed.ts#feedList), ordered by the TR-9 lower-bound evidence
-//   weight alone (criterion 8; fix round 1: no longer weight × the trader's biggest recent move), ties broken by the
-//   number of closes counted at asOf, then by user id: never a raw average or the size of a move, and a loss weighs
-//   exactly like a gain of the same size.
+// - The pool is the feed's eligible traders at asOf (lib/feed.ts#feedList), ordered by the ranking weight alone
+//   (lib/rank-weight.ts; criterion 8; fix round 1: no longer weight × the trader's biggest recent move), ties broken by
+//   user id (F-33, orchestrator ruling R1: never the number of closes, so no order uses trade count or frequency): never
+//   a raw average or the size of a move, and a loss weighs exactly like a gain of the same size.
 // - Candidates for a page: the pool minus the traders in the 10 feed cards around the section and minus `skip` (signed
 //   in: the viewer, their follows and every running exclusion, "Not interested" and unfollow alike; criterion 4).
 //   Traders shown in an earlier page's section of the same list go after the others, so each page shows new faces while
@@ -27,7 +27,8 @@ export function median(xs: readonly number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-// Per trader, read at asOf: the evidence weight, the median holding days and the number of closes counted.
+// Per trader, read at asOf: the ranking weight, the median holding days and the number of closes counted (n is read by
+// the new-record slot only, never by the order).
 export type TraderFacts = { weight: number; hold: number; n: number; verified?: boolean };
 export type SectionTrader = TraderFacts & { trader: number; score: number };
 
@@ -55,11 +56,13 @@ export function capped<T extends { trader: number; hold: number }>(cands: readon
 }
 // The section's rows: the first n under the cap, or null when fewer qualify. PR-1b fix round 1 (tester Medium 2): which
 // traders are chosen follows the candidates' order (no earlier card first, the new-record slot first of all); the rows
-// then read in evidence order (weight, closes, id: the pool's order), so "Ordered by how much evidence each record has"
-// is true of every section's verified rows (a Demo row, badged, fills a row only when fewer than 3 verified records
-// qualify, and reads last: business lead demand 1).
-export const byEvidence = (a: { weight: number; n: number; trader: number }, b: { weight: number; n: number; trader: number }) =>
-  b.weight - a.weight || b.n - a.n || a.trader - b.trader;
+// then read in the pool's order (weight, then id), so lib/copy.ts#SECTION.explain ("Records with ranking weight come
+// first, the rest in a fixed order") is true of every section's verified rows (a Demo row, badged, fills a row only
+// when fewer than 3 verified records qualify, and reads last: business lead demand 1).
+// F-33 (orchestrator ruling R1): weight desc, then trader id asc. The closes counted no longer break ties: after F-33
+// most records weigh 0, and their order must not lean on trade count.
+export const byEvidence = (a: { weight: number; trader: number }, b: { weight: number; trader: number }) =>
+  b.weight - a.weight || a.trader - b.trader;
 export function chooseRows<T extends { trader: number; hold: number; weight: number; n: number; verified?: boolean }>(cands: readonly T[], n = SECTION_ROWS): T[] | null {
   const out = capped(cands, n);
   return out.length === n ? out.sort((a, b) => +(a.verified === false) - +(b.verified === false) || byEvidence(a, b)) : null;
@@ -90,12 +93,14 @@ export function sectionCandidates(pool: readonly SectionTrader[], list: readonly
 // the lower bound alone, never reaches a row while records with evidence (or more closes) exist; a newcomer with 5 or 6
 // closes is such a record. The third place goes to the weight-0 trader with no card earlier in the list, not yet in an
 // earlier section while one is left, with the fewest closes counted (then the lower id): the newest record. The rows
-// still read in non-increasing evidence (row 3 has weight 0 and no more closes than rows 1 and 2), so the section's line
-// stays true; no raw average, size of a move or sign is read, and every viewer gets the same slot. Only a verified
+// still read in the pool's order (weight, then id; the slot has weight 0, so it reads after any weighted row), so the
+// section's line stays true; no raw average, size of a move or sign is read, and every viewer gets the same slot.
+// Open question for the owner (F-33, ruling R1): the slot still picks by fewest closes (alternative: the latest first
+// close). Only a verified
 // record (every close verified) takes the slot: Demo data is never promoted as a new record.
 // Fix round 1 (business lead demand 2): the slot is chosen before the bucket cap. It moves to the front of the
 // candidates, so the cap fills the other two rows around it (it no longer gives way when rows 1 and 2 share its
-// holding bucket); chooseRows then shows the three in evidence order, where it reads last or tied.
+// holding bucket); chooseRows then shows the three in the pool's order (weight, then id).
 function newRecordSlot(cands: SectionTrader[], carded: ReadonlySet<number>, earlier: ReadonlySet<number>) {
   if (cands.length < SECTION_ROWS) return;
   let at = -1;

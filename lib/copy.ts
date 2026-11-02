@@ -394,6 +394,8 @@ export const HOW = {
     'Each closed trade is one sell, matched to earlier buys of the same symbol in the same account, first in, first out.',
     'Return is the percent change between the matched buys and the sell, after the fees the broker reported. Nothing is weighted by size.',
     'Headline stats are the win rate and the average return per trade. Max drawdown is per-trade and equal-weight, not an account return.',
+    // F-33 (OD 2.32): the likely range, and what a range with no width prints.
+    `The likely range is a 95% range around the average return per trade, from independent bets. When it would print with no width, for example when every trade so far returned the same, the record shows "${RECORD_STRIP.early}" instead.`,
     'Only percentages are stored and shown: no amounts, quantities or prices.',
     // Corporate actions (F3c, PR #40).
     'When the broker reports a stock split, reverse split or stock dividend with an exact ratio, earlier buys are adjusted to match and the holding period still starts at the first buy. Fractional shares paid out as cash are not counted as trades.',
@@ -661,7 +663,10 @@ export const LIKES = {
 // one reason, the holding period (business lead demand 2); the tray says "Hide" so it is whole once revealed.
 export const SECTION = {
   heading: "Other traders' records",
-  explain: 'Ordered by how much evidence each record has. Losses count the same as gains.',
+  // F-33 (orchestrator ruling R1, business lead round 2 D1): true of lib/discovery/section.ts#byEvidence (weight, then
+  // id), including the many rows at weight 0; tested against the comparator in lib/discovery/section.test.ts.
+  explain: 'Records with ranking weight come first, the rest in a fixed order. Losses count the same as gains.',
+  howLink: 'How ranking works',
   holds: ['under a day', '1 to 7 days', '1 to 4 weeks', '1 to 6 months', 'over 6 months'].map((b) => `Typical holding period: ${b}`),
   skip: 'Skip to the disclaimer',
   tray: 'Hide',
@@ -740,10 +745,11 @@ export const PERSONALIZE = {
 // /how (Q12: the documented method, POLICY F1): how a signed-in viewer's feed is ordered.
 export const HOW_PERSONAL = {
   title: 'How your feed is ordered',
-  // Fixes cycle 3, F3-7 (POLICY F1): the base order first. 48 and 10 are lib/feed.ts#RECENCY_HOURS and
-  // lib/confidence.ts#RANK_MIN_BETS, written out so this client-safe file never imports the feed's database code; the test
-  // in lib/fixes-cycle3.test.ts ties them.
-  text: `Sign is never used, so a loss ranks like a gain of the same size. The base order uses how large each return is and how recent the close is (a close counts about a third as much after each 48 hours). Records with at least 10 independent bets whose likely range sits clearly above or below zero come first, a clear loss as much as a clear gain. Signed out, everyone gets the same order. Signed in, your own follows, likes and hides move traders up or down in your feed; with "Personalize with my activity" on, so do the records you look at, open or skip. Each choice counts for ${F2_DAYS} days, fading over that time. With "Personalize my feed" off you get the order everyone gets, minus what you hid. No security is ever suggested.`,
+  // Fixes cycle 3, F3-7 (POLICY F1): the base order first. F-33 (owner, 2026-11-02: cycle-5 Q3, OD 2.33): the tier, the
+  // floor and the near-edge weight in plain words. 48, 30, 90, 10 and 1 are lib/feed.ts#RECENCY_HOURS,
+  // lib/confidence.ts#RANK_MIN_BETS, RANK_MIN_DAYS, TOO_WIDE_HALF_WIDTH × 100 and SPREAD_FLOOR × 100, written out so this
+  // client-safe file never imports the feed's database code; lib/fixes-cycle3.test.ts ties each to its constant.
+  text: `Sign is never used, so a loss ranks like a gain of the same size. The base order uses how large each return is and how recent the close is (a close counts about a third as much after each 48 hours). Trades in one stock whose holds overlap count as one independent bet. A record gets ranking weight once it has at least 30 independent bets over at least 90 days and its likely range per trade is no wider than 10 points either side. Its weight is how far the likely range of its return per 30 days held sits from zero, measured from the end nearest zero; a range that crosses zero gives no weight. For this weight the spread between trades counts as at least 1 percentage point, so a run of nearly identical returns does not look more certain than it is. Records with weight come first, ordered by their weight and the base order together, a clear loss as much as a clear gain. Only closed trades count toward the weight; open positions are shown on the record but are not part of it. A record with fewer bets or a shorter history carries no ranking weight, and that is not a penalty: it keeps its place in the base order, stays visible, and can gain weight once it reaches 30 bets over 90 days. Signed out, everyone gets the same order. Signed in, your own follows, likes and hides move traders up or down in your feed; with "Personalize with my activity" on, so do the records you look at, open or skip. Each choice counts for ${F2_DAYS} days, fading over that time. With "Personalize my feed" off you get the order everyone gets, minus what you hid. No security is ever suggested.`,
 };
 // H4 (business lead demand 6): the facts the Privacy Policy must state about F-2's preference data, from the same
 // constants as the code. lib/discovery/f2-privacy.test.ts checks the policy page once it has text.
@@ -761,7 +767,7 @@ export const FEED_EMPTY = {
 };
 export const SECTION_PERSONAL = {
   heading: 'More like what you read',
-  explain: 'Traders like the ones you follow, like and read, ordered by how much evidence each record has. Losses count the same as gains.',
+  explain: 'Traders like the ones you follow, like and read. Those with ranking weight come first, the rest in a fixed order. Losses count the same as gains.',
   similarHold: (handle: string) => `Similar holding period to @${handle}`,
   symbolsRead: 'Trades symbols you read',
   newToYou: 'New to you',

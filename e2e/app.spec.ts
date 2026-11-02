@@ -987,7 +987,8 @@ test('fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): a 2,828-close profile 
 test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each weigh under 500 KB; a pane loads its chart on first open and reads like the profile\'s', async ({ page, request, browser }) => {
   test.setTimeout(600_000);
   const { seededActivities } = await import('./fakes/vendor.ts');
-  const { matchTrades, confidence, evidenceWeight } = await import('../lib/trades.ts');
+  const { matchTrades } = await import('../lib/trades.ts');
+  const { rankWeight } = await import('../lib/rank-weight.ts'); // F-33
   const { FEED_LITE_POINTS } = await import('../lib/downsample.ts');
   const { worstWindow } = await import('../lib/discovery/diversity.ts');
   const { gzipSync } = await import('node:zlib');
@@ -1002,25 +1003,40 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
   const L = (n: number) => String.fromCharCode(65 + (n % 26));
   try {
     for (let h = 0; h < HEAVY; h++) {
-      const acts = [];
-      // Fixes cycle 4 (C4-2): the fixture's 1% oversells now count most later sells of their stock, so they are left out:
-      // these traders only need to be heavy and confident (as lib/downsample.test.ts#heavyRecord).
-      const held = new Map<string, number>();
-      for (let a = 0; a < 4; a++) for (const r of seededActivities(`hf${h}-${a}`, 2_500, 1000 + 10 * h + a)) {
-        const k = `${a}|${r.symbol}`, have = held.get(k) ?? 0;
-        if (r.type === 'SELL' && r.units > have) continue;
-        held.set(k, r.type === 'SELL' ? have - r.units : have + r.units);
-        acts.push({ externalId: r.id, accountId: `hf${h}-${a}`, symbol: r.symbol, side: r.type, units: r.units, price: r.price, fee: r.fee ?? 0, executedAt: new Date(r.trade_date), verified: true });
+      // F-33: the ranking weight reads simple returns (OD 2.32), so a seeded record whose pace interval crosses 0 on
+      // simple returns weighs 0 (measured: only trader 12 of the 50, a clear loss on log returns). Each trader takes the
+      // first seed (offset 0, then 1, …) whose record, as makeTrader inserts it, carries weight; measured: 49 keep
+      // offset 0, trader 12 takes offset 1.
+      let closes: ReturnType<typeof matchTrades>['trades'] = [], shift = 0;
+      const fresh = (i: number) => ({ closedAt: new Date(now - (i + 1 + h * 0.05) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5, symbol: `Z${L(h)}${L(Math.floor(h / 26))}${L(i)}` });
+      for (let s = 0; s < 5; s++) {
+        const acts = [];
+        // Fixes cycle 4 (C4-2): the fixture's 1% oversells now count most later sells of their stock, so they are left out:
+        // these traders only need to be heavy and confident (as lib/downsample.test.ts#heavyRecord).
+        const held = new Map<string, number>();
+        for (let a = 0; a < 4; a++) for (const r of seededActivities(`hf${h}-${a}`, 2_500, 1000 + 10 * h + a + 100_000 * s)) {
+          const k = `${a}|${r.symbol}`, have = held.get(k) ?? 0;
+          if (r.type === 'SELL' && r.units > have) continue;
+          held.set(k, r.type === 'SELL' ? have - r.units : have + r.units);
+          acts.push({ externalId: r.id, accountId: `hf${h}-${a}`, symbol: r.symbol, side: r.type, units: r.units, price: r.price, fee: r.fee ?? 0, executedAt: new Date(r.trade_date), verified: true });
+        }
+        closes = matchTrades(acts).trades.sort((x, y) => y.closedAt.getTime() - x.closedAt.getTime());
+        shift = now - 30 * 86_400_000 - closes[0].closedAt.getTime();
+        // The rows as makeTrader builds them (its default symbols and holds for i >= 5).
+        const asInserted = closes.map((c, i) => {
+          const closedAt = i < 5 ? new Date(fresh(i).closedAt) : new Date(c.closedAt.getTime() + shift);
+          return { symbol: i < 5 ? fresh(i).symbol : ['AAA', 'BBB', 'CCC', 'DDD', 'EEE', 'FFF', 'GGG', 'HHH'][i % 8], openedAt: new Date(closedAt.getTime() - (1 + (i % 9)) * 86_400_000),
+            closedAt, returnPct: i < 5 ? fresh(i).r : c.returnPct, holdingDays: 1 + (i % 9) };
+        });
+        if (rankWeight(asInserted) > 0) break;
       }
-      const closes = matchTrades(acts).trades.sort((x, y) => y.closedAt.getTime() - x.closedAt.getTime());
-      const shift = now - 30 * 86_400_000 - closes[0].closedAt.getTime();
       const t = await makeTrader(`heavy_feed_${h}`, (i) => (i < 5
-        ? { closedAt: new Date(now - (i + 1 + h * 0.05) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5, symbol: `Z${L(h)}${L(Math.floor(h / 26))}${L(i)}` }
+        ? fresh(i)
         : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length, true);
       made.push(t);
       // Each ranks with a confident edge (TR-9), as the feed computes it, so its 5 fresh cards outrank every older close.
       const rows = await t.sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${t.id}`;
-      expect(evidenceWeight(confidence(rows.map((r) => ({ symbol: r.symbol, openedAt: r.opened_at, closedAt: r.closed_at, returnPct: r.return_pct, holdingDays: r.holding_days })), new Date()))).toBeGreaterThan(0);
+      expect(rankWeight(rows.map((r) => ({ symbol: r.symbol, openedAt: r.opened_at, closedAt: r.closed_at, returnPct: r.return_pct, holdingDays: r.holding_days })))).toBeGreaterThan(0);
     }
     const total = made.reduce((s, t) => s + t.ids.length, 0);
     expect(total).toBeGreaterThan(HEAVY * 4_500);

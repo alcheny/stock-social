@@ -5,7 +5,8 @@ import { statusRowsOrEmpty, withStates } from './record-status-load.ts'; // FIXE
 import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
 import { feedReadySql, filerVisibleSql } from './public-gate.ts';
 import { groupByUser } from './pane.ts';
-import { confidence, evidenceWeight, rankTraders, type ConfidenceInput } from './trades.ts';
+import { rankTraders, type ConfidenceInput } from './trades.ts';
+import { RANK_FORMULA, rankWeight } from './rank-weight.ts'; // F-33
 import { discounted, mixFeed } from './discovery/explore.ts';
 import { CURSOR_MAX_AGE_MS, encodeCursor, pageOf, readCursor, type Cursor } from './discovery/pager.ts';
 import { displayFilter, shapeList, splitExclusions } from './discovery/exclusions.ts';
@@ -356,19 +357,28 @@ async function records1(userIds: number[]): Promise<PaneRow[]> {
 // those rows counted at asOf. The counted rows are a subset that only grows with asOf, so the same row set and the same
 // count are the same rows: the same weight. Only a trader whose record changed reads its record again.
 // F-2 PR-3: with the weight, the facts the suggestions section reads at asOf (median holding days, closes counted).
+// F-33: the key starts with the ranking formula's version (lib/confidence.ts#RANK_FORMULA), so a process that keeps this
+// module across a code change never serves a weight from the old formula. A deploy starts a new process (an empty Map);
+// no weight is stored anywhere else.
 const weightCache = new Map<string, TraderFacts>();
 const WEIGHT_CACHE_MAX = 20_000;
 
 // Fix round 2: the fingerprints (n, m, k per trader) come with the candidates, from the same statement (candidateQuery).
-type Print = { n: number; m: string; k: number };
+export type Print = { n: number; m: string; k: number };
+export const weightKey = (id: number, p: Print, formula: string = RANK_FORMULA) => `${formula}|${id}:${p.n}:${p.m}:${p.k}`;
+export const weightCacheGet = (key: string): TraderFacts | undefined => weightCache.get(key);
+export function weightCacheSet(key: string, w: TraderFacts) {
+  if (weightCache.size >= WEIGHT_CACHE_MAX && !weightCache.has(key)) weightCache.delete(weightCache.keys().next().value!);
+  weightCache.set(key, w);
+}
 async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<number, TraderFacts>> {
   const out = new Map<number, TraderFacts>();
   const userIds = [...prints.keys()];
   if (!userIds.length) return out;
-  const keys = new Map([...prints].map(([id, p]) => [id, `${id}:${p.n}:${p.m}:${p.k}`]));
+  const keys = new Map([...prints].map(([id, p]) => [id, weightKey(id, p)]));
   const miss: number[] = [];
   for (const id of userIds) {
-    const w = weightCache.get(keys.get(id) ?? '');
+    const w = weightCacheGet(keys.get(id) ?? '');
     if (w === undefined) miss.push(id); else out.set(id, w);
   }
   if (miss.length) {
@@ -388,12 +398,10 @@ async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<numb
       });
     }
     for (const [id, ts] of byTrader) {
-      const w: TraderFacts = { weight: ts.length ? evidenceWeight(confidence(ts, asOf)) : 0, hold: median(ts.map((t) => t.holdingDays)), n: ts.length, verified: verified.get(id) ?? false };
+      const w: TraderFacts = { weight: rankWeight(ts), hold: median(ts.map((t) => t.holdingDays)), n: ts.length, verified: verified.get(id) ?? false };
       out.set(id, w);
       const key = keys.get(id);
-      if (!key) continue;
-      if (weightCache.size >= WEIGHT_CACHE_MAX) weightCache.delete(weightCache.keys().next().value!);
-      weightCache.set(key, w);
+      if (key) weightCacheSet(key, w);
     }
   }
   return out;
@@ -406,7 +414,8 @@ export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }
   const candidates = all.filter((t) => !t.x), extra = all.filter((t) => t.x);
   const prints = new Map<number, Print>();
   for (const t of candidates) prints.set(t.user_id, { n: t.pn!, m: t.pm!, k: t.pk! });
-  // Rank by the pace-interval lower bound (TR-9): small lucky samples can't top the feed. Losses weigh like gains.
+  // Rank by the pace interval's near-edge distance from 0 (TR-9, OD 2.33; F-33: from the moderate tier, with a 1-point
+  // spread floor), which raises the cost of a lucky short streak. Losses weigh like gains.
   // Read at asOf: a close after it, or imported after it, changes no weight.
   for (const t of extra) prints.set(t.user_id, { n: t.pn!, m: t.pm!, k: t.pk! });
   const weight = await weights(prints, opts.asOf);

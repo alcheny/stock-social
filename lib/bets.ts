@@ -7,8 +7,10 @@
 import { tCrit95, type ConfidenceInput } from './trades.ts';
 import { MIN_BETS } from './confidence.ts';
 
-type BetInput = Pick<ConfidenceInput, 'symbol' | 'openedAt' | 'closedAt' | 'returnPct'>;
-export type Bet = { sum: number; n: number }; // the bet's summed simple returns and its trade count
+// F-33: holdingDays is optional (the card's callers may not pass it); a bet's days are Σ max(holdingDays ?? 1, 1), the
+// same per-trade floor of 1 day as confidence()'s clusters. Only the ranking weight (lib/rank-weight.ts) reads `days`.
+type BetInput = Pick<ConfidenceInput, 'symbol' | 'openedAt' | 'closedAt' | 'returnPct'> & { holdingDays?: number };
+export type Bet = { sum: number; n: number; days: number }; // the bet's summed simple returns, its trade count, its days held
 
 // One bet = same-symbol trades whose holds overlap, the boundary instant included: exactly confidence()'s clusters
 // (lib/trades.ts), so K here equals confidence().k (tested on random records).
@@ -23,8 +25,9 @@ export function betClusters(trades: BetInput[]): Bet[] {
     let maxClose = -Infinity;
     let cur: Bet | null = null;
     for (const t of sorted) {
-      if (cur && t.openedAt.getTime() <= maxClose) { cur.sum += t.returnPct; cur.n++; }
-      else { cur = { sum: t.returnPct, n: 1 }; bets.push(cur); }
+      const d = Math.max(t.holdingDays ?? 1, 1);
+      if (cur && t.openedAt.getTime() <= maxClose) { cur.sum += t.returnPct; cur.n++; cur.days += d; }
+      else { cur = { sum: t.returnPct, n: 1, days: d }; bets.push(cur); }
       maxClose = Math.max(maxClose, t.closedAt.getTime());
     }
   }
@@ -40,8 +43,11 @@ export type ArithmeticRange = { low: number; mid: number; high: number; k: numbe
 // a 6-bet record with four -99% trades printed "likely between -211.2% and …"). null below MIN_BETS bets or when any
 // value is not finite.
 export function arithmeticRange(trades: BetInput[]): ArithmeticRange | null {
-  const bets = betClusters(trades);
-  const k = bets.length, n = trades.length;
+  return arithmeticFromBets(betClusters(trades), trades.length);
+}
+// F-33: the same range on already-clustered bets (n = trades), so the ranking weight clusters once.
+export function arithmeticFromBets(bets: readonly Bet[], n: number): ArithmeticRange | null {
+  const k = bets.length;
   if (k < MIN_BETS) return null;
   const mid = bets.reduce((a, b) => a + b.sum, 0) / n;
   const se = Math.sqrt((k / (k - 1)) * bets.reduce((a, b) => a + (b.sum - b.n * mid) ** 2, 0)) / n;
