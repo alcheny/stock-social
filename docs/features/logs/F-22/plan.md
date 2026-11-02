@@ -149,6 +149,13 @@ changes only corporate → shown / transfer / excluded. C5-1 end-to-end: comment
 4. Final wording of the line and `TRANSFER_OUT_HOW` (committee wording); POLICY F3 naming transfers out (protected-files
    session, approved); OD 2.7 consent version names this new public count; `/me/record` needs `lib/session.ts`.
 
+5. Deploy stop (business lead, round 2): before the MATCHER_VERSION 4 deploy, the owner runs a diagnostic over stored
+   transfer rows: replay each pair and flag every transfer whose |units| is a clean ratio of the units held at that
+   instant (1/2, 2, 1/3, 3, 1/10, 10 and the like). Any hit stops the v4 deploy until the vendor confirms (MRC2-10) that
+   row is a real transfer. It needs a ledger replay over real data, so it is an owner deploy step, not code in this PR.
+6. The remaining steer, named (PR body Known limits; `ponytail:` in `lib/trades.ts`): with buys at several prices, moving
+   even one share out leaves the rest counted. Expected effect after v4: the transfer count rises, and nothing else moves.
+
 ## 9. Rollout and the brief
 Merge order: #107 (C5-43(b)) → #108 (Part A, v3) deployed → this PR (`MATCHER_VERSION = 4`), never in the deploy carrying
 #108's or F-36's bump; if F-36 lands first, whichever merges later takes the next number; an undrained version rebuilds
