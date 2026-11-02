@@ -79,7 +79,8 @@ async function harness() {
         sync: async () => 0, mature: true, matureRebuild: count, ...o,
       });
       assert.equal(r.busy, false);
-      sum = sum ? { ...sum, matured: sum.matured + r.matured, maturedInitial: sum.maturedInitial + r.maturedInitial, maturedBusy: sum.maturedBusy + r.maturedBusy, maturedFailed: sum.maturedFailed + r.maturedFailed, done: sum.done + r.done } : r;
+      const s0 = sum as Report | null;
+      sum = s0 ? { ...s0, matured: s0.matured + r.matured, maturedInitial: s0.maturedInitial + r.maturedInitial, maturedBusy: s0.maturedBusy + r.maturedBusy, maturedFailed: s0.maturedFailed + r.maturedFailed, done: s0.done + r.done } : r;
     }
     return sum!;
   };
