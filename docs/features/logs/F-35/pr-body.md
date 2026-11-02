@@ -21,6 +21,11 @@ the 24-hour grace (amends #62's grace; approval council cycle 5, C5-30).
 - Docs: `docs/SYNC.md` "Publish once the date has passed (F-35)", log fields; F-21 hand-off note.
 - Merged with main's matcher catch-up (C5-43 b): it rebuilds under the trader's lock with `rebuildRecord`, so it advances
   the watermark like any rebuild; the route runs the matured pass in `runShard` and the catch-up after it.
+- Merged with F-21 (#118): the profile's future line is F-21's sells-only reason (`excluded_future_sells`, counted on the
+  publish rule) with F-35's second sentence added where it renders (`[data-excluded-future]`); waiting unusable sells join
+  the sells count; `excluded_future_options` is classified in F-21's guard as left out of the sum (a waiting option row is
+  not yet a close; ponytail). The month page and /me/record print the same sells-only line; the month page reads it from
+  F-21's own user query. Merged with F-32 Part A (#108): `excluded_transfer` beside F-35's columns.
 
 ## Decisions
 Recorded in the feature file (dated, with reasons) and the committee record. Highlights: corporate actions follow the
@@ -33,7 +38,8 @@ count; switching it is a follow-up chore (business lead).
 
 ## Testing
 - `npx tsc --noEmit` clean; `npm run build` ok; `node scripts/autopilot.ts guard origin/main` ok.
-- `npm test` on the branch with main merged (2675fa1, with the matcher catch-up): 2,393 pass, 0 failures; F-24 gate: all 11 `lib/sync-reconcile*.test.ts` green.
+- `npm test` on the branch with main merged (0933b9e, with F-21 and F-32 Part A): 2,534 pass, 0 failures; F-24 gate: all 11
+  `lib/sync-reconcile*.test.ts` green; F-21's guard and surface tests green; e2e F-35 + F-21 13/13.
 - New `lib/f35-publish.test.ts` (18): AC1 (absent from closed_trades/option_trades, the profile reads and the compare card;
   counted), AC2 (first tick after the date, no new activity), AC3 (two ticks, one rebuild, a third none; counted by real
   rebuild calls), AC4 (failed rebuild leaves the watermark; retried), busy lock, scope (frozen publishes a loss with status
@@ -80,7 +86,7 @@ count; switching it is a follow-up chore (business lead).
 - A matured close's feed import time predates its publication (one tick at most).
 - The box and stops are checked before each rebuild (one huge record can overrun them, as syncUser's rebuild can).
 - An import running 8+ days after a row's date leaves it to the import's own rebuild.
-- The line counts waiting buys and sells together; a matured buy shows no close.
+- Waiting option rows are counted (`excluded_future_options`) but shown only on the compare card's sum, not on the profile.
 - A vendor-corrected date (a new vendor id) arrives with the account's next activities read (F-14 cadence).
 
 ## Owner items
