@@ -110,7 +110,7 @@ export default async function RecapPage({ params }: Params) {
           {/* QA round 2 (N8): two rows like the profile (since · connection, then last close · updated). */}
           {(recordRows(r.status, new Date()) ?? []).map((row, i) => <StatusText key={i} segments={segments(row)} kind={i ? 'record2' : 'record'} />)}
           {/* F-12: the record strip, as on the trade page (TR-3: only the importing line while an import runs). */}
-          <RecordStrip strip={strip} />
+          <RecordStrip strip={strip} exclusions={{ n: r.excluded ?? 0, handle: r.handle }} /* F-21: the whole-record strip only */ />
         </section>
       </div>
       <div className="trade-grid">

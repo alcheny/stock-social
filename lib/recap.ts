@@ -75,6 +75,7 @@ export type RecapView = {
   months?: number; // FIXES-LABELS (D-24): distinct months on record (monthsOnRecord)
   status?: StatusFacts | null; // FIXES-LABELS: status (F-11): the status-line facts beside the state
   excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
+  excluded?: number; // F-21: the record's exclusion sum (lib/exclusions.ts); the page's whole-record strip line only
   // FIXES-CYCLE4-PART2 (F4-4): the trader's options gate and the month's shown option closes (counts only).
   optionsGate?: 'open' | 'closed'; monthOptionCloses?: number;
 };

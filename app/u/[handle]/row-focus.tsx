@@ -8,7 +8,7 @@ export function RowFocus({ window: w }: { window: number }) {
   useEffect(() => {
     const go = () => {
       const id = decodeURIComponent(location.hash.slice(1));
-      if (!/^trade-\d+$/.test(id)) return;
+      if (!/^(trade-\d+|excluded)$/.test(id)) return; // F-21: the exclusions line's target (#excluded) takes focus too
       const el = document.getElementById(id);
       if (el && document.activeElement !== el) el.focus();
     };

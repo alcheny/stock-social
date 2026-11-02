@@ -96,7 +96,7 @@ export default async function TradePage({ params }: Params) {
           {/* F-12: the record strip (F-10's one component): label, the incomplete line on a failed import (.record-failed),
               or only the importing line while an import runs (TR-3), the figures, the link to the profile and the
               disclaimer. The strip's link replaces the old footer link (one link per destination). */}
-          <RecordStrip strip={strip} />
+          <RecordStrip strip={strip} exclusions={{ n: t.excluded ?? 0, handle: t.handle }} /* F-21 */ />
         </section>
       </div>
       {/* QA round 2 (Q4, as B1 for the pane): F-7's not-joined line and the filing links follow the record's figures and their

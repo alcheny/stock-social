@@ -15,6 +15,7 @@ import { rejectedAmong } from './likes.ts';
 import { feedStrips, type StripFigures } from './record-strip.ts';
 import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
 import { optionHeadline, paneView, type PaneOptionsView } from './options-load.ts'; // OPTIONS
+import { exclusionLines, storedExclusions } from './exclusions-load.ts'; // F-21
 
 // F-2 PR-5: personal ordering (pure) and the loader type; the loader itself is passed in by the page (lib/discovery/personal-load.ts).
 import { personalList, personalPool, personalReason, relevanceOf, type PersonalReason, type TraderShape, type Uses } from './discovery/personal.ts';
@@ -446,6 +447,9 @@ export type FeedPage = {
   // OPTIONS (docs/features/logs/options/plan.md AC 24): each page trader's option headline (the pane's label and line),
   // from the one reader, gated per trader.
   options?: Map<number, PaneOptionsView>;
+  // F-21: each page trader's exclusion sum for the pane's line (lib/exclusions.ts), from one query per page plus the
+  // option headline above. The pane only: feed cards keep D22's single record line.
+  exclusions?: Map<number, number>;
   // F-10: each card trader's record strip figures (average per trade + the profile's evidence), from byUser.
   strips?: Map<number, StripFigures>;
 };
@@ -572,6 +576,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const onPage = new Set([...cards.map((t) => t.user_id), ...(picked ?? []).map((t) => t.trader)]);
   const byUser = groupByUser(panes.filter((r) => onPage.has(r.userId)));
   const status = withStates(new Map([...(await statusP)].filter(([id]) => onPage.has(id))), states); // FIXES-LABELS: status
+  const [heads, stored] = await Promise.all([optionHeadline([...onPage]), storedExclusions([...onPage])]); // OPTIONS, F-21
   return {
     cards, offset: c.offset, asOf: new Date(c.asOf), next: page.next && encodeCursor(page.next),
     from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
@@ -579,7 +584,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     ...(profile ? { personal: { signals: profile.signals, uses: profile.uses } } : {}),
     ...openOf(opens, onPage, states),
     status, // FIXES-LABELS: status
-    options: new Map([...await optionHeadline([...onPage])].map(([id, h]) => [id, paneView(h)])), // OPTIONS: flag and line only
+    options: new Map([...heads].map(([id, h]) => [id, paneView(h)])), // OPTIONS: flag and line only
+    exclusions: exclusionLines(stored, heads, states), // F-21
     strips: feedStrips(new Map([...byUser].filter(([id]) => cards.some((t) => t.user_id === id))), new Date(now)), // F-10
   };
 }

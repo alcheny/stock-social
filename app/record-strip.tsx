@@ -4,6 +4,7 @@
 // the text, so nothing is said by colour alone.
 import Link from 'next/link';
 import { WarnNotice } from './warn-notice.tsx'; // F-27
+import { ExclusionsLine } from './exclusions-line.tsx'; // F-21
 import { BRAND_BOX, IMAGE, IMAGE_COLOURS, STRIP_BAND, type ImageLine, type Strip, type StripPart } from '@/lib/record-strip.ts';
 
 function Figures({ parts }: { parts: StripPart[] }) {
@@ -19,7 +20,9 @@ function Figures({ parts }: { parts: StripPart[] }) {
 }
 
 // `lead` (feed only, additive, DS-22): what leads the line, the card's trust badge, then a space and the figures.
-export function RecordStrip({ strip, lead }: { strip: Strip; lead?: React.ReactNode }) {
+// `exclusions` (F-21, page surface only): the record's exclusion sum, its own line between the figures and the F3 line;
+// never in the strip's figures, text or alt, so feed cards and images are unchanged by construction.
+export function RecordStrip({ strip, lead, exclusions }: { strip: Strip; lead?: React.ReactNode; exclusions?: { n: number; handle: string } }) {
   if (strip.surface === 'feed') {
     return <p className="record-strip" data-strip>{lead && <>{lead}{' '}</>}<Figures parts={strip.figures} /></p>;
   }
@@ -33,6 +36,7 @@ export function RecordStrip({ strip, lead }: { strip: Strip; lead?: React.ReactN
       {strip.importing
         ? <p role="status" className="muted importing">{strip.importing}</p>
         : <p className="record-strip" data-strip><Figures parts={strip.figures} /></p>}
+      {!strip.importing && exclusions && <ExclusionsLine n={exclusions.n} handle={exclusions.handle} />}
       {/* FIXES-LABELS (D-09): the F3 line directly after the figures it qualifies, then the link. */}
       {strip.disclaimer && <p className="muted small" data-disclaimer>{strip.disclaimer}</p>}
       {strip.link && <p><Link href={strip.link.href}>{strip.link.text}</Link></p>}
