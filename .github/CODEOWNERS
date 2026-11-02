@@ -1,6 +1,6 @@
 # Protected paths. The Gate (scripts/autopilot.ts) never auto-merges a PR touching these; it labels
 # them needs-human. With GitHub Pro, also enable "Require review from Code Owners" on main.
-# Supported shapes: /dir/ (prefix) and /file (exact).
+# Supported shapes: /dir/ (prefix) and /file (exact). One `*` line exists for GitHub only (the share card, below).
 
 # The loop's own guardrails: an agent must never be able to loosen the rules it is judged by
 /.github/ @alcheny
@@ -67,7 +67,8 @@
 /lib/claims.ts @alcheny
 /app/disclaimer.tsx @alcheny
 /app/how/ @alcheny
-# The share card. The Gate matches this exact path literally; GitHub reads brackets as a character class, so the
-# wildcard line below is the one GitHub's code-owner review uses (the Gate never matches it).
+# The share card. The Gate matches this exact path literally; GitHub's CODEOWNERS does not support brackets (its error
+# view may flag that line), so the wildcard line below is the one GitHub's code-owner review uses (the Gate's matcher
+# never matches it).
 /app/u/[handle]/opengraph-image.tsx @alcheny
 /app/u/*/opengraph-image.tsx @alcheny
