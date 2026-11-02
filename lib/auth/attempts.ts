@@ -4,8 +4,9 @@ import { randomBytes } from 'node:crypto';
 import { sql } from '../db.ts';
 import { recordFunnel } from '../funnel.ts';
 import { legacyVia, normalizeHandle, type ReferredSurface } from '../referral.ts';
-import { SignUpClosedError } from '../launch-gate.ts';
-import { checkDisplayName, checkHandle, HANDLE_RESERVED_DAYS, lockHandleSkeleton, type HandleVerdict, type NameReasonCode } from '../handles.ts';
+import { handleReserved, SignUpClosedError } from '../launch-gate.ts';
+import type { Env } from '../vendor-env.ts';
+import { checkDisplayName, checkHandle, HANDLE_RESERVED_DAYS, lockHandleSkeleton, nextRenameAt, type HandleVerdict, type NameReasonCode } from '../handles.ts';
 import { sanitizeUserText } from '../text-safety.ts';
 import { isFilerHandle } from '../public-gate.ts';
 
@@ -14,7 +15,7 @@ export type Method = (typeof METHODS)[number];
 export const isMethod = (m: unknown): m is Method => typeof m === 'string' && (METHODS as readonly string[]).includes(m);
 
 export class NotAttestedError extends Error { constructor() { super('Stock Social is 18+ only'); } }
-// Carries the verdict, so the profile can name the rule (C9): ?handle=taken|reserved|lookalike|format.
+// Carries the verdict, so the profile can name the rule (C9): ?handle=taken|reserved|lookalike|format|soon (F-17).
 export class HandleTakenError extends Error {
   verdict: Exclude<HandleVerdict, 'ok'>;
   constructor(verdict: Exclude<HandleVerdict, 'ok'> = 'taken') { super(`That handle is not available (${verdict})`); this.verdict = verdict; }
@@ -82,8 +83,10 @@ export async function createUserForAttempt(attemptId: number, i: { handle?: stri
       if (i.handle) await lockHandleSkeleton(tx, handle);
       const verdict = await checkHandle(handle, null, { provisional: !i.handle, db: tx });
       if (verdict !== 'ok') return { verdict };
-      const [u] = await tx`insert into users (handle, display_name, adult_attested_at, signup_attempt_id, referred_by_user_id, referred_via, referred_surface)
-        select ${handle}, ${typed ?? handle}, adult_attested_at, id, ${a.referred_by_user_id}, ${legacyVia(surface)}, ${surface} from signup_attempts where id = ${attemptId}
+      // F-17 (orchestrator review item 4): the handle the system assigned is stored, so only it leaves without starting
+      // the rename clock (changeHandle); a chosen handle stores none.
+      const [u] = await tx`insert into users (handle, provisional_handle, display_name, adult_attested_at, signup_attempt_id, referred_by_user_id, referred_via, referred_surface)
+        select ${handle}, ${i.handle ? null : handle}, ${typed ?? handle}, adult_attested_at, id, ${a.referred_by_user_id}, ${legacyVia(surface)}, ${surface} from signup_attempts where id = ${attemptId}
         on conflict (handle) do nothing returning id, handle`;
       return { u };
     });
@@ -151,35 +154,51 @@ export async function signInWithIdentity(attemptId: number, id: Identity, opts: 
 // One transaction (fix committee decision 8): the verdict, the update, and the old handle reserved for
 // HANDLE_RESERVED_DAYS with this account's id, so only this trader can take it back (on account deletion the id goes
 // null and the bare reservation stays). A lost race on the unique handle is a HandleTakenError, never a 500.
-// ponytail: no 301 from /u/<old>/** yet (decision 10; old links 404) — look up handle_reservations.user_id in the
-// profile, trade and month routes and redirect to that account's current handle.
-// ponytail: no rename-frequency limit (OD-12 b/c are the owner's call) — add a last-renamed check here once decided.
-// Fix round 5 (item 7): one account holds at most RENAME_HOLD_CAP old handles at once (a fourth rename releases its oldest
-// reservation), so repeated renames can't park handles; permanent retirement and a rename limit stay the owner's call.
-export const RENAME_HOLD_CAP = 3;
-export async function changeHandle(userId: number, raw: unknown): Promise<string> {
+// Old links show the neutral retired page by design (F-17); that is a decision, not a limit, so no ponytail note.
+// F-17 (plan §6.1, Q8, v2 B3): at most one rename per RENAME_DAYS (users.handle_renamed_at, clock from opts.now) and
+// at most RENAME_HOLD_CAP = 1 held old handle per account: a new rename ends the older hold (until = now(); the purge,
+// lib/privacy-purge.ts, removes the row later). Nothing here deletes a row. Leaving the untouched provisional handle (the
+// one the system assigned, users.provisional_handle)
+// and renaming back to one's own active hold don't start the clock. While the launch gate is closed nobody renames onto
+// a listed handle (D22, lib/launch-gate.ts#handleReserved). Holds use the database clock (now()), as checkHandle does.
+export const RENAME_HOLD_CAP = 1;
+export type ChangeHandleOpts = { env?: Env; now?: Date };
+export async function changeHandle(userId: number, raw: unknown, opts: ChangeHandleOpts = {}): Promise<string> {
+  const now = opts.now ?? new Date();
   const handle = normalizeHandle(raw);
   if (!handle) throw new HandleTakenError('format');
   if (isFilerHandle(handle)) throw new HandleTakenError('reserved'); // F-7: nobody renames into a filer handle
   try {
     return await sql.begin(async (tx) => {
-      const [me] = await tx`select handle from users where id = ${userId} for update`;
+      const [me] = await tx`select handle, handle_renamed_at, provisional_handle from users where id = ${userId} for update`;
       if (!me) throw new Error('unknown user');
       if (me.handle === handle) return handle;
+      if (handleReserved(handle, opts.env ?? process.env)) throw new HandleTakenError('reserved'); // D22, on every path
+      const renamedAt = (me.handle_renamed_at as Date | null) ?? null;
+      // Rename-back: the target is this account's own active hold. Allowed at any time; the clock doesn't move.
+      const [back] = await tx`select 1 from handle_reservations where handle = ${handle} and user_id = ${userId} and until > now()`;
+      const next = nextRenameAt(renamedAt);
+      if (!back && next && next > now) throw new HandleTakenError('soon');
       // Fix round 1: look-alike renames take turns (two can't both pass the check before either commits).
       await lockHandleSkeleton(tx, handle);
       const verdict = await checkHandle(handle, userId, { db: tx });
       if (verdict !== 'ok') throw new HandleTakenError(verdict);
+      // Orchestrator review item 4: only the handle the system assigned at sign-up (users.provisional_handle) is exempt,
+      // never one merely shaped like it, so renames between trader_xxxxxxxx handles count. After the free exit the
+      // exemption is used up: every rename clears provisional_handle, so renaming back to it and leaving again counts.
+      const leavesProvisional = renamedAt === null && me.provisional_handle !== null && me.handle === me.provisional_handle;
+      const clock = back || leavesProvisional ? renamedAt : now;
       const [u] = await tx`update users
         set handle = ${handle},
-            display_name = case when display_name = handle or btrim(display_name) = '' then ${handle} else display_name end
+            display_name = case when display_name = handle or btrim(display_name) = '' then ${handle} else display_name end,
+            handle_renamed_at = ${clock},
+            provisional_handle = null
         where id = ${userId} returning handle`;
       await tx`insert into handle_reservations (handle, until, user_id) values (${me.handle as string}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day', ${userId})
         on conflict (handle) do update set until = excluded.until, user_id = excluded.user_id`;
-      // Taking back an own reserved handle: that reservation has done its job.
-      await tx`delete from handle_reservations where handle = ${handle} and user_id = ${userId}`;
-      // Fix round 5 (item 7): at most RENAME_HOLD_CAP active reservations per account: past it, the account's oldest
-      // ones are released (their hold ends now; the purge removes the row later, lib/privacy-purge.ts).
+      // Taking back an own held handle: that hold has done its job and ends now (v2 B3: ended, never deleted).
+      await tx`update handle_reservations set until = now() where handle = ${handle} and user_id = ${userId} and until > now()`;
+      // At most RENAME_HOLD_CAP active holds per account: past it, the account's older ones end now.
       await tx`update handle_reservations set until = now() where handle in (
         select handle from handle_reservations where user_id = ${userId} and until > now() order by until desc, handle offset ${RENAME_HOLD_CAP})`;
       return u.handle as string;

@@ -30,6 +30,8 @@ second-vote mean 3.80, final vote 15/15).
   interface condition.
 - 2026-11-01: CLAUDE.md and DESIGN §2.7 describe an hourly sync. After this feature the cron is still hourly, but each
   account is read within the caps above. Those doc edits go to the owner (protected paths). Why: legal; CODEOWNERS.
+- 2026-11-02: An account whose sync rolls back after its activities read can be read again after the 6 h floor, up to
+  4 times a day (G2). Why: the owner accepted OD 2.60 (brief 3.21, from logs/F-14/pr-body.md) on 2026-11-02.
 
 ## Acceptance criteria
 - [ ] A test with the vendor fake counts at most 1 activities call and at most 4 positions calls per account per

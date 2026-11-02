@@ -5,8 +5,8 @@ Feature: `docs/features/F-36-fees-in-the-return-denominator.md` (now `Status: bu
 fixture audit: `docs/features/logs/F-36/audit.txt`.
 
 **Merge order:** chore C5-43(b) (#107, the matcher catch-up in the sync tick) is on main and merged into this branch.
-This PR must never ship in the same deploy as F-32 Part A (#108). Both PRs set `MATCHER_VERSION = 3` today: whichever is
-merged second takes **4**, after the first has deployed (a one-line change in `lib/trades.ts` plus its comment).
+F-32 Part A (#108) merged first with `MATCHER_VERSION = 3`, so this PR takes **4**. It merges only after #108 has
+deployed, never in the same deploy (the orchestrator orders the merge).
 
 ## What changes
 - **The return formula** (`lib/trades.ts#replay`): `return_pct = (exit − entry − fees) / (entry cost + entry fees)`.
@@ -16,7 +16,7 @@ merged second takes **4**, after the first has deployed (a one-line change in `l
 - **No-basis guard:** a sell drawing a lot with no price (≤ 0), or with no positive denominator, is counted in
   `excludedCorporate` ("rows the importer can't price"). It is never priced from fees alone. Every unheld sell is still
   shown or counted exactly once, and the result does not depend on input order.
-- **`MATCHER_VERSION` 2 → 3:** the deploy rebuilds every record once (`lib/matcher-rebuild.ts`).
+- **`MATCHER_VERSION` 3 → 4:** the deploy rebuilds every record once (`lib/matcher-rebuild.ts`).
   - The rebuild logs one counts-only line: `matcher rebuild {version, rebuilt, failed, left, returnsChanged, signChanged}`.
   - It logs an error line if `signChanged > 0` (expected never). The return shape `{rebuilt, failed, left}` is unchanged.
   - The counting lives in `rebuildEach`, which C5-43(b) shares between the deploy and the sync tick's `catchUpMatcher`.
@@ -138,7 +138,7 @@ Each is marked `ponytail:` in code:
 - **The /how date:** `F36_RECALC_DATE = '2026-11-02'` must be the day the version-3 rebuild runs in production. If the
   deploy slips, the orchestrator moves the constant (one line in `lib/copy.ts`) in the PR that orders the merge.
 - **DESIGN §2.5 amendment:** lands through the protected-files session.
-- **Merge order:** after C5-43(b); not in the same deploy as F-32 Part A; the second of the two takes the next version.
+- **Merge order:** after #108's deploy (C5-43(b) is merged); version 4.
 - **Fixes lane (from the user test, not F-36):**
   - On the trade page, the h2 "This trade" comes before the h1.
   - The profile's "What's this?" toggle is 21 px tall.

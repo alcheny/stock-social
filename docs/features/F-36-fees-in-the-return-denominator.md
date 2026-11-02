@@ -1,9 +1,10 @@
 # F-36 · Fees in the return's denominator
 
-Status: building
-Building: branch `claude/f36-fees-denominator` (2026-11-02). The owner answered cycle-5 Q1 yes on 2026-11-02; F-24 (#84)
-is on main. The PR merges only after chore C5-43(b) (matcher catch-up in the sync tick) is on main, and never in the
-same deploy as F-32 Part A's bump (the orchestrator orders the merges).
+Status: built
+Built: branch `claude/f36-fees-denominator` (2026-11-02). The owner answered Q1 yes on 2026-11-02; F-24 merged as #84,
+chore C5-43(b) as #107 and F-32 Part A as #108, so F-36 takes MATCHER_VERSION 4. It merges only after #108 has deployed
+(never the same deploy). Development is otherwise paused by the owner (2026-11-02); this build was finished on the
+orchestrator's instruction.
 Start conditions: the owner answers cycle-5 Q1 yes (`docs/direction/cycle5-2026-11-01.md` §8), and #84 merges. It is
 the matcher build slot, shared with F-32: one builder, separate version bumps that never ship in the same deploy.
 
@@ -31,11 +32,13 @@ conditions).
   worked example: paid 100 plus a fee of 10, sold for 165, +50%. A dated note says returns with entry fees were
   recalculated on that date, and it is kept as history (COMPLIANCE §12). Why: approved by the approval council (cycle
   5); UX, CO, VW, A11Y, LC.
-- 2026-11-02: Owner answered cycle-5 Q1 yes: a return divides by entry cost plus entry fees. The DESIGN §2.5 text
-  is amended by the protected-files session (DESIGN is protected); this build references that amendment. Why: owner
-  decision (cycle-5 Q1).
 - 2026-11-01: Changed figures arrive only through the normal rebuild. The trader gets no alert or "your return
   dropped" message. Why: approved by the approval council (cycle 5); TR.
+- 2026-11-02: The owner answered cycle-5 Q1 yes: a return divides by entry cost plus entry fees, with a
+  MATCHER_VERSION bump and a dated /how note. The DESIGN §2.5 text edit goes to the protected-files session, never in
+  the build PR. Only the merge-order condition on chore C5-43(b) remained; it merged as #107, and the feature now
+  waits only for the owner to resume development. Why: the owner's decision of 2026-11-02 (cycle-5 Q1, accepted en
+  bloc).
 
 ## Acceptance criteria
 - [x] The probe (fictional: buy 2 @5, fee 10, sell @15) prints +50%.
@@ -54,7 +57,7 @@ conditions).
 - Changing how options compute their basis (already includes fees).
 
 ## Open questions
-- (Answered 2026-11-02, yes) Owner (cycle-5 Q1): may the return divide by entry cost plus entry fees?
+- Resolved 2026-11-02 (cycle-5 Q1): yes (Decisions).
 
 ## POLICY notes
 - F3a: one documented formula on /how, with dated history (COMPLIANCE §12).
@@ -70,4 +73,4 @@ conditions).
 ## Build log
 - 2026-11-02: built on `claude/f36-fees-denominator` through the committee cycle (`docs/features/logs/F-36/committee-2026-11-01.md`):
   plan signed in round 2; tests first; tester QA pass; 360/320 px user test pass; independent review with no blocking
-  finding. MATCHER_VERSION 3 (provisional against F-32 Part A). Fixture audit: `docs/features/logs/F-36/audit.txt`.
+  finding. MATCHER_VERSION 4 (F-32 Part A took 3 in #108). Fixture audit: `docs/features/logs/F-36/audit.txt`.

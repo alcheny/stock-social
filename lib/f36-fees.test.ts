@@ -97,8 +97,8 @@ test('F-36 AC5: a gapped sell that draws a no-basis lot is counted in excludedCo
   assert.deepEqual([p.trades.length, p.excluded, p.excludedCorporate], [0, 2, 0]);
 });
 
-test('F-36: MATCHER_VERSION is bumped to 3 so the deploy rebuilds every record once', () => {
-  assert.equal(MATCHER_VERSION, 3);
+test('F-36: MATCHER_VERSION is bumped to 4 (after F-32 Part A took 3) so the deploy rebuilds every record once', () => {
+  assert.equal(MATCHER_VERSION, 4);
 });
 
 test('F-36 AC6: signChanges counts changed returns and sign changes among closes in both maps only', () => {

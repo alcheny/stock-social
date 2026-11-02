@@ -1769,17 +1769,19 @@ test('corporate actions (F3c): an import reads the vendor\'s split, reverse spli
   for (let i = 0; i < 8 && r.state === 'importing'; i++) r = await step(page.request);
   expect(r.state).toBe('connected');
   const sql = await db();
-  const [u] = await sql`select id, excluded_positions, excluded_corporate from users where handle = ${handle}`;
+  // F-32 Part A: the transfer in is counted under its own reason (excluded_transfer), no longer excluded_corporate.
+  const [u] = await sql`select id, excluded_positions, excluded_corporate, excluded_transfer from users where handle = ${handle}`;
   const rows = await sql`select symbol, return_pct from closed_trades where user_id = ${u.id} order by symbol`;
   expect(rows.map((x) => [x.symbol, Math.round(x.return_pct * 1e6) / 1e6])).toEqual([['DIVCO', 0.1], ['REICO', 0.1], ['REVCO', 0.1], ['SPLITCO', 0.1]]);
-  expect([u.excluded_positions, u.excluded_corporate]).toEqual([0, 1]);
+  expect([u.excluded_positions, u.excluded_corporate, u.excluded_transfer]).toEqual([0, 0, 1]);
   await page.context().clearCookies();
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.setViewportSize({ width: 375, height: 740 });
     await page.goto(`/u/${handle}`);
     await expect(page.locator('.rows:not(.positions) li')).toHaveCount(4);
-    await expect(page.getByText('1 trade excluded: a share move, corporate action or broker row the importer can\'t price.', { exact: true })).toBeVisible();
+    // F-32 Part A: the transfer in is named under its own reason (was the generic corporate line), as a link to /how.
+    await expect(page.getByRole('link', { name: '1 sell excluded: a share transfer in the same stock. How share transfers are counted', exact: true })).toBeVisible();
     const main = await page.locator('main').innerText();
     expect(main).not.toMatch(/-45(\.0)?%|−45|\+1,?000(\.0)?%|\+900(\.0)?%/);
     expect(main).toContain('+10.0%');

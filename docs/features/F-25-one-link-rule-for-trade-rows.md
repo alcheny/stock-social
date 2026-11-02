@@ -135,6 +135,9 @@ the signed-out feed would widen the mismatch, so the URL changes in the same fea
 - 2026-11-01: Chromium joins a visually hidden span's text with a space ("This trade : TSLA Gain +5.0%"); the e2e name checks ignore spacing before punctuation, and the markup stays as decided. Why: decided by the committee under the owner's instruction of 2026-11-01; screen readers read the same words, and the visible words still begin the name (WCAG 2.5.3).
 - 2026-11-01: The pane's "Last 5 trades" links and the card's footer links render through small client components (`app/f25-links.tsx`) with compact props, not server element trees; the HTML and names are unchanged. Why: decided by the committee under the owner's instruction of 2026-11-01; as element trees they were serialised twice per card (HTML and the page payload) and pushed the F-2 heavy feed page past its 500 KB budget (547 KB); with compact props (the key, symbol and printed date, figure and tone; no raw return) the pages weigh 447, 421 and 459 KB (main: 432, 402, 446), threshold unchanged.
 - 2026-11-02: The swipe hint's words paint above the first footer link's overhang (as the disclaimer does) instead of keeping a 14 px gap; the hint line stays static (F-13). Why: decided by the committee under the owner's instruction of 2026-11-01; with a 280-character note and the open-positions line, page 1's first card needed 645 of 639 px at 320 with the gap; without it the F-10 budget holds unchanged, and a tap on the hint's words follows no link.
+- 2026-11-02: Unblocked: F-9 (#65), F-11 (#85) and F-26 (#87) have merged. Built in #102 (9c3aed94). Under OD 2.63
+  (accepted by the owner), the "never shown" wording for `sell_id` stays only once this feature makes it true. Why:
+  the stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02; OD 2.63.
 
 ## Acceptance criteria
 - [x] On the feed, the pane, the profile, the month page, the stock page (trades and notes lists), similar trades,

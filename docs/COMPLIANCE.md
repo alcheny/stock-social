@@ -182,7 +182,7 @@ privacy-policy diff for every new field or vendor; deletion tested end to end, i
   2026-11-02: /how states the return formula once in plain text, (sale proceeds − purchase cost − purchase fees − sale
   fees) ÷ (purchase cost + purchase fees), with one fictional example (paid 100 plus a fee of 10, sold for 165: +50%),
   and a dated "Changes to the math" note: returns of trades with a purchase fee were recalculated that day (matcher
-  version 3) and kept as history. Shares and options now use one formula (options already divided by premium plus
+  version 4) and kept as history. Shares and options now use one formula (options already divided by premium plus
   entry fees). No fee amount is shown anywhere (F-36).
 - Counsel opinions: adviser status, each Phase 2/3 feature, state coverage.
 

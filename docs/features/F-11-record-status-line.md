@@ -1,6 +1,6 @@
 # F-11 · Record status line: freshness, accounts and removed accounts
 
-Status: ready
+Status: built
 
 ## Why
 Nothing tells a viewer how fresh a record is or which accounts it covers. A removed account is never named, although
@@ -29,6 +29,8 @@ the approval council (`docs/ideas/approval-2026-11-01.md`, C7: second-vote mean 
   (OD-9) stay with the owner. Why: the decisions keeper's condition.
 - 2026-11-01: Applies to broker-connected records only. F-7 public profiles state freshness by filing date under
   F-7's own rules. Why: approved by the approval council (F-7 interface condition).
+- 2026-11-02: Status set to `built`: the record status line merged in #85 (8e3e9a5). The owner tries it next (brief
+  §4.4). Why: the owner accepted OD 2.60 (brief 3.21) on 2026-11-02.
 
 ## Acceptance criteria
 - [ ] The profile shows "Last close ‹date› · updated ‹relative time›" under "Record since", in D29's words or the design

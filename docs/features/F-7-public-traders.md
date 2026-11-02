@@ -41,6 +41,11 @@ Standing rules that apply unchanged (not owner choices for this feature; listed 
   footer's profile link reads "Record, wins and losses →" on connected and public-record cards alike, from one copy
   constant. AC20 below is left as written. Why: decided by the committee under the owner's instruction of 2026-11-01
   (design council cycle 3); both footer links fit on one line at 360 px only with the shorter text.
+- 2026-11-02: The owner accepted OD 2.49: adopt the switch-on checklist and the counts-only dry run (threshold 100
+  filers with 5 or more priced closes, stated in advance); P3 covers only traders who connect; remove any filer who is
+  not an elected official on request; map the importer to the real filing index before switch-on; keep it built
+  closed; amend POLICY T2 (brief 3.16, protected-files session). The switch stays closed until the owner turns it on.
+  Why: the owner's decision of 2026-11-02 (OD 2.49).
 
 ## Acceptance criteria
 Written by the committee in the build's plan debate (`docs/features/logs/F-7/plan.md`, rounds 3-5, on
