@@ -146,8 +146,12 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
         onFocus={() => { if (selfFocus.current) return; engaged.current = true; pause(); }}
         onBlur={(e) => { if (e.relatedTarget instanceof Node && barEl.current?.contains(e.relatedTarget)) return; engaged.current = false; setTimeout(resume); }}
         onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } }}>
-        {bar && <p>{bar.text}{bar.undo && <> <button type="button" ref={undoBtn} onClick={() => void undo(bar.handle, bar.trade, bar.key)}>{FOLLOW.undo}</button></>}
-          {' '}<button type="button" className="secondary bar-dismiss" style={{ minHeight: 44, minWidth: 44 }} onClick={() => { clearTimeout(timer.current); setBar(null); toCard(); }}>{FC5.dismiss}</button></p>}
+        {/* FIXES-CYCLE5 (F5-21): Dismiss is a 44 × 44 px "✕" named FC5.dismiss, so the bar keeps its height at 360 px and
+            the cards' 94 px room under it (app/globals.css) still holds; the word would add a text line.
+            ponytail: at 320 px the longest message ("Trade hidden. You won’t see it again.") wraps to a third line with
+            both buttons, so the bar is 23 px taller than the room — fix: a 112 px room at max-width 340px in globals.css. */}
+        {bar && <p style={{ gap: 8 }}>{bar.text}{bar.undo && <> <button type="button" ref={undoBtn} onClick={() => void undo(bar.handle, bar.trade, bar.key)}>{FOLLOW.undo}</button></>}
+          {' '}<button type="button" className="secondary bar-dismiss" aria-label={FC5.dismiss} style={{ minHeight: 44, minWidth: 44, padding: 0 }} onClick={() => { clearTimeout(timer.current); setBar(null); toCard(); }}><span aria-hidden="true">✕</span></button></p>}
       </div>
     </>
   );

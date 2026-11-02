@@ -13,9 +13,16 @@ export function proxy(request: NextRequest) {
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('Content-Security-Policy', csp);
   // FIXES-CYCLE5 (F5-7; legal committee 2026-11-02 A5): the kept 18+ tick is read only by the render the sign-in
-  // action's own bounce makes (a POST to /login). Any other /login request (a reload, a link, a back navigation) never
-  // sees it: it is removed from the request and cleared in the response, so the box is ticked at most once.
-  const dropTick = request.method !== 'POST' && request.nextUrl.pathname === ATTEST_KEEP_PATH && request.cookies.has(ATTEST_KEEP_COOKIE);
+  // action's own bounce makes. Next serves that render in the action's response by fetching the redirect target from
+  // this server, with the action's response headers merged in (x-action-redirect) and its new cookie. Any other
+  // /login request (a reload, a typed or shared link, a back navigation) never sees it: it is removed from the request
+  // and cleared in the response, so the box is ticked at most once. A cross-site page cannot add that header (it is
+  // not CORS-safelisted) and cannot set the httpOnly cookie; the page also needs error=email (lib/auth/attest-keep.ts).
+  // ponytail: without JavaScript the bounce is a 303 and a plain GET, indistinguishable from a reload, so the box comes
+  // back unticked and the error asks for the tick again (the committee's compliant fallback) — fix: a one-use nonce in
+  // the cookie matched against a server-side table, if no-JS users ever need the kept tick.
+  const bounce = request.method === 'POST' || request.headers.has('x-action-redirect');
+  const dropTick = !bounce && request.nextUrl.pathname === ATTEST_KEEP_PATH && request.cookies.has(ATTEST_KEEP_COOKIE);
   if (dropTick) {
     request.cookies.delete(ATTEST_KEEP_COOKIE);
     requestHeaders.set('cookie', request.cookies.toString());

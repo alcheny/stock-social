@@ -49,7 +49,7 @@ test('F5-21: pause on pointer over or pressed, or a focusin the bar did not make
   assert.match(h, /const paused = \(\) => hover\.current \|\| pressed\.current \|\| engaged\.current;/);
   assert.match(h, /onFocus=\{\(\) => \{ if \(selfFocus\.current\) return; engaged\.current = true; pause\(\); \}\}/);
   assert.match(h, /selfFocus\.current = true;[^\n]*\n\s*undoBtn\.current\.focus\(\{ preventScroll: true \}\);\n\s*selfFocus\.current = false;/);
-  assert.match(h, /style=\{\{ minHeight: 44, minWidth: 44 \}\} onClick=\{\(\) => \{ clearTimeout\(timer\.current\); setBar\(null\); toCard\(\); \}\}>\{FC5\.dismiss\}<\/button>/);
+  assert.match(h, /aria-label=\{FC5\.dismiss\} style=\{\{ minHeight: 44, minWidth: 44, padding: 0 \}\} onClick=\{\(\) => \{ clearTimeout\(timer\.current\); setBar\(null\); toCard\(\); \}\}><span aria-hidden="true">✕<\/span><\/button>/);
   assert.doesNotMatch(h, /e\.key === 'Tab'/, 'Tab moves through the bar and out; it no longer closes it');
   assert.doesNotMatch(h, /:focus-visible/);
 });

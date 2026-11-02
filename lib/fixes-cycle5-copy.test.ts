@@ -68,9 +68,10 @@ test('F5-7 (A1, A3, A5, A6): set only on the error=email redirect, short-lived, 
   const start = a.slice(a.indexOf('export async function startSignIn'));
   assert.ok(start.indexOf("form.get('adult') !== 'on'") < start.indexOf("error: 'email'"));
   assert.doesNotMatch(a, /\.get\(ATTEST_KEEP_COOKIE\)\?\.value|keepsTick/);
-  // A5: the proxy drops it from every non-POST /login request and clears it in the response.
+  // A5: the proxy drops it from every /login request but the action's own bounce render, and clears it in the response.
   const p = code('proxy.ts');
-  assert.match(p, /request\.method !== 'POST' && request\.nextUrl\.pathname === ATTEST_KEEP_PATH && request\.cookies\.has\(ATTEST_KEEP_COOKIE\)/);
+  assert.match(p, /const bounce = request\.method === 'POST' \|\| request\.headers\.has\('x-action-redirect'\);/);
+  assert.match(p, /const dropTick = !bounce && request\.nextUrl\.pathname === ATTEST_KEEP_PATH && request\.cookies\.has\(ATTEST_KEEP_COOKIE\);/);
   assert.match(p, /request\.cookies\.delete\(ATTEST_KEEP_COOKIE\)/);
   assert.match(p, /response\.cookies\.set\(ATTEST_KEEP_COOKIE, '', \{ httpOnly: true, sameSite: 'lax', path: ATTEST_KEEP_PATH, maxAge: 0, secure: https \}\)/);
   assert.doesNotMatch(src('lib/auth/attest-keep.ts'), /\bsql\b|console\./);
