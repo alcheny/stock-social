@@ -2,6 +2,7 @@
 
 Status: blocked
 Blocked: builds after fixes-list item F6-2 (the new consent version, which edits the consent step) and F-43 (its export
+Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
 AC), and rebases on F-25 (#102), which edits `lib/privacy-fields.ts` (merge order)
 
 ## Why

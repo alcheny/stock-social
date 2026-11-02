@@ -2,6 +2,7 @@
 
 Status: blocked
 Blocked: builds after F-44 (same consent page) and F-38 (its fictional handles and symbols) merge (merge order)
+Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
 
 ## Why
 The connect step lists in words what becomes public (`app/connect/page.tsx`, `app/connect/consent/page.tsx`). OD 2.11

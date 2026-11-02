@@ -1,6 +1,7 @@
 # F-47 · Preference data deleted after 90 days
 
 Status: ready
+Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
 Start conditions: rebases on F-16/F-17 (#100), which edits `lib/privacy-retention.ts`, `lib/discovery/activity.ts` and
 `lib/likes.ts`. The copy and retention-table lines land with the Privacy Policy draft (L-1).
 

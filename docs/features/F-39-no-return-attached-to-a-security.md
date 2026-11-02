@@ -2,6 +2,7 @@
 
 Status: blocked
 Blocked: builds after F-25 (#102) and F-16/F-17 (#100) merge, since both edit `app/t/**` (merge order)
+Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
 
 ## Why
 Stock pages print returns per security: the compare page's average per trade (`app/t/compare/page.tsx:84`), Baseline's

@@ -2,6 +2,7 @@
 
 Status: blocked
 Blocked: builds after F-33 (same ranking slot) merges; its MATCHER_VERSION bump ships only once chore C5-43(b) is on main and never in the same deploy as F-22's, F-32's or F-36's (merge order)
+Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
 
 ## Why
 DESIGN TR-9 includes open positions in the range (`docs/DESIGN.md:340-341`), but the range is closed-only

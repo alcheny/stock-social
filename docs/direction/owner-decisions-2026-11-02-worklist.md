@@ -155,6 +155,9 @@ protected-files session, merged by the orchestrator once green and independently
 
 ## Fixes list (cycle-5 format; no vote)
 
+**Queued:** development paused by the owner 2026-11-02 (relayed by the orchestrator). Every F6 item below, and every new
+feature F-37 to F-48, is ready, queued: none is built until the owner resumes development.
+
 Ordered: record trust, launch gates, then copy. "Home" names the in-flight branch that already touches the files.
 Every test is added, never weakened; a pinned copy test changes only its expected value. Fictional data only.
 
@@ -314,6 +317,9 @@ Every test is added, never weakened; a pinned copy test changes only its expecte
 - **C-4:** record the 2.57 delegations and answers in `docs/IMPLEMENTATION.md` and the unprotected docs/process files.
 
 ## New features (approved by the committee check; numbers follow the business lead's build order)
+
+**Queued:** development paused by the owner 2026-11-02 (relayed by the orchestrator). Every F6 item below, and every new
+feature F-37 to F-48, is ready, queued: none is built until the owner resumes development.
 
 | Feature | Covers | Status | Order and slot |
 |---|---|---|---|

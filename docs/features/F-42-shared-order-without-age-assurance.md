@@ -1,6 +1,7 @@
 # F-42 · One shared feed order without age assurance
 
 Status: ready
+Queued: development paused by the owner 2026-11-02 (relayed by the orchestrator); not built until the owner resumes development.
 Start conditions: rebases on F-16/F-17 (#100), which edits `lib/feed.ts`. Must be deployed to production before
 2027-01-01.
 
