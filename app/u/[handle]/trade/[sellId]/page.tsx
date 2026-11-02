@@ -22,6 +22,7 @@ import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: statu
 import { UserNote } from '../../../../user-note.tsx';
 import { HeldNote } from '@/lib/user-note.ts';
 import { loadOwnNote } from '@/lib/own-note.ts';
+import { tradeKey } from '@/lib/likes.ts'; // FIXES-CYCLE5 (F5-2): Report names the close by its key, which survives a rebuild
 
 const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 
@@ -113,7 +114,7 @@ export default async function TradePage({ params }: Params) {
         <section className="trade-card trade-thesis" aria-labelledby="trade-thesis">
           <h2 id="trade-thesis">{FL_THESIS}</h2>
           {/* F-9: UserNote. t.thesis is published-only (nulled in SQL, lib/trade-share-load.ts); Report for a signed-in non-author. */}
-          {t.thesis && <UserNote text={t.thesis} handle={t.handle} writtenAt={t.note?.writtenAt ?? null} editedAt={t.note?.editedAt ?? null} reportId={me && me.handle !== t.handle ? t.note?.tradeId : undefined} symbol={t.symbol} />}
+          {t.thesis && <UserNote text={t.thesis} handle={t.handle} writtenAt={t.note?.writtenAt ?? null} editedAt={t.note?.editedAt ?? null} reportId={me && me.handle !== t.handle && t.sellId ? tradeKey(t.sellId) : undefined} symbol={t.symbol} />}
           {/* F-26: only the author sees their held note's line, in the note's place, with the link to its profile row. */}
           {own && <HeldNote rule={own.rule} edit={own.edit} />}
         </section>

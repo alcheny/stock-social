@@ -104,7 +104,8 @@ function assertNotice(html: string, where: string, text: string) {
   const ns = notices(html);
   assert.equal(ns.length, 1, `${where}: exactly one .warn-notice`);
   const n = ns[0];
-  assert.match(n, /^<p role="(status|alert)" class="warn-notice record-failed">/, `${where}: one class list, the record-failed hook kept`);
+  // FIXES-CYCLE5 (F5-25, F3-16): a static notice carries no live-region role; the class list and the hook are unchanged.
+  assert.match(n, /^<p class="warn-notice record-failed">/, `${where}: one class list, the record-failed hook kept, no live role`);
   assert.match(n, /<svg data-warn-icon="true" aria-hidden="true" focusable="false"/, `${where}: an aria-hidden icon`);
   assert.equal(words(n), text, `${where}: the words unchanged`);
   assert.equal(count(html.replace(n, ''), 'record-failed'), 0, `${where}: no second failed line`);
@@ -133,7 +134,7 @@ test('F-27 AC3: the profile renders the failed line through WarnNotice (its retr
   const s = noComments(read('app/u/[handle]/page.tsx'));
   const m = s.match(/\{state === 'failed' && \(\s*(<WarnNotice[\s\S]*?<\/WarnNotice>)\s*\)\}/);
   assert.ok(m, 'the profile\'s failed line is a WarnNotice');
-  assert.match(m[1], /^<WarnNotice role=\{isMe \? 'alert' : 'status'\}>/);
+  assert.match(m[1], /^<WarnNotice>/); // FIXES-CYCLE5 (F5-25, F3-16): a static record note, no live role
   assert.match(m[1], /\{RECORD_BODY\.failed\}/);
   assert.match(m[1], /\{isMe && <>[\s\S]*<Link [^>]*href="\/connect"[^>]*>\{RECORD_BODY\.retry\}<\/Link>[\s\S]*<\/>\}\s*<\/WarnNotice>$/);
   // The retry link renders inside the words span.
@@ -145,7 +146,12 @@ const tsxUnder = (dir: string): string[] => require('node:fs').readdirSync(new U
   d.isDirectory() ? tsxUnder(`${dir}${d.name}/`) : d.name.endsWith('.tsx') ? [`${dir}${d.name}`] : []);
 
 test('F-27 AC3: every failed-import site uses WarnNotice; no hand-made failed line anywhere in app/', () => {
-  for (const f of ['app/ui.tsx', 'app/pane.tsx', 'app/record-strip.tsx', 'app/u/[handle]/page.tsx']) assert.match(noComments(read(f)), /<WarnNotice role=/, `${f} uses WarnNotice`);
+  // FIXES-CYCLE5 (F5-25, F3-16): each static site uses WarnNotice with no live role; a live use still renders its role.
+  for (const f of ['app/ui.tsx', 'app/pane.tsx', 'app/record-strip.tsx', 'app/u/[handle]/page.tsx']) {
+    assert.match(noComments(read(f)), /<WarnNotice>/, `${f} uses WarnNotice`);
+    assert.doesNotMatch(noComments(read(f)), /<WarnNotice role=/, `${f}: a static notice has no live role`);
+  }
+  assert.match(renderToStaticMarkup(createElement(WarnNotice, { role: 'status', children: 'Words.' })), /^<p role="status" class="warn-notice record-failed">/);
   for (const f of tsxUnder('app/')) {
     if (f === 'app/warn-notice.tsx') continue;
     assert.doesNotMatch(noComments(read(f)), /className="[^"]*\brecord-failed\b[^"]*"/, `${f}: no hand-made failed line`);

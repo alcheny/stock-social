@@ -26,13 +26,28 @@ export const THESIS_MAX = 280;
  * releases it. Fix round 5 (item 3): a saved note records the rules version it was checked at (thesis_checked_version),
  * so the start-up re-check only applies rules added after it.
  */
-export async function saveThesisFor(userId: number, tradeId: string, input: string) {
-  if (!/^[0-9]{1,18}$/.test(tradeId)) return;
+// FIXES-CYCLE5 (F5-2, C5-3): the profile form names its trade by trade_key (64 hex: sha256 of the closing sell's id,
+// lib/likes.ts#tradeKey, a generated column), which survives rebuildTrades. A row id changes on every rebuild, so a note
+// typed on a page loaded before a sync used to be dropped without a word. A row id (what a page rendered before this
+// change posts, and the tests' fixtures) is still accepted, with the same rules. A save that finds no trade writes nothing
+// and answers 'changed', which the form says out loud (app/actions.ts#saveThesis); never a silent drop (POLICY U1).
+export type SaveOutcome = 'saved' | 'changed' | 'invalid';
+const TRADE_KEY = /^[0-9a-f]{64}$/;
+
+export async function saveThesisFor(userId: number, tradeId: string, input: string): Promise<SaveOutcome> {
+  const byKey = TRADE_KEY.test(tradeId);
+  if (!byKey && !/^[0-9]{1,18}$/.test(tradeId)) return 'invalid';
   const text = sanitizeUserText(input, THESIS_MAX);
   const { status, rule } = moderateDetail(text);
-  await sql.begin(async (tx) => {
-    const [prev] = await tx`select thesis, thesis_status, thesis_hold_rule, sell_id, thesis_reports_from from closed_trades where id = ${tradeId} and user_id = ${userId} for update`;
-    if (!prev) return;
+  return sql.begin(async (tx): Promise<SaveOutcome> => {
+    const byTradeKey = () => tx`select id, thesis, thesis_status, thesis_hold_rule, sell_id, thesis_reports_from from closed_trades where user_id = ${userId} and trade_key = ${tradeId} for update`;
+    let [prev] = byKey ? await byTradeKey() : await tx`select thesis, thesis_status, thesis_hold_rule, sell_id, thesis_reports_from from closed_trades where id = ${tradeId} and user_id = ${userId} for update`;
+    // A rebuild holding this trader's rows (lib/sync.ts#rebuildTrades locks them all) deletes the row this select waited
+    // for, so in READ COMMITTED it comes back empty once the rebuild commits; the next statement's snapshot sees the
+    // rebuilt row, which keeps its trade_key. Once is enough: a second rebuild waits on this transaction's lock.
+    if (!prev && byKey) [prev] = await byTradeKey();
+    if (!prev) return 'changed';
+    if (byKey) tradeId = String(prev.id); // the writes below name the locked row
     if (!text) {
       await tx`
         update closed_trades set thesis = null, thesis_status = null, thesis_written_at = null, thesis_edited_at = null,
@@ -60,7 +75,8 @@ export async function saveThesisFor(userId: number, tradeId: string, input: stri
           thesis_edited_at = ${first ? tx`null` : tx`now()`}
         where id = ${tradeId} and user_id = ${userId}`;
     }
-    await tx`delete from kept_theses where user_id = ${userId}
-      and sell_id = (select sell_id from closed_trades where id = ${tradeId} and user_id = ${userId})`;
+    // FIXES-CYCLE5 (F5-2): keyed on the locked row's sell_id (the same close), not on a second read by id.
+    await tx`delete from kept_theses where user_id = ${userId} and sell_id = ${prev.sell_id}`;
+    return 'saved';
   });
 }

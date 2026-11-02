@@ -64,11 +64,26 @@ import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' da
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
+// FIXES-CYCLE5 (F5-2, F5-24, F5-11): the note field, its counter and the alert when a save finds its trade gone.
+import { FC5 } from '@/lib/copy.ts';
+import { cut2 } from '@/lib/format.ts';
+import { FocusHeading } from '../../connect/result/focus-heading.tsx';
+import { NoteField } from './note-field.tsx';
+import { NoteRecovery } from './note-recovery.tsx';
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
 
-type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
+// FIXES-CYCLE5 (F5-24): the note form's layout at 360 px: the label and the three-row field across the row, then the
+// count and Save on one line. Layout only (no colour); the form keeps form.inline's gap.
+// ponytail: inline layout styles because app/globals.css belongs to another work package this cycle — move them to a
+// `.note-form` block there in the next cycle's CSS pass.
+const NOTE_FORM = { flexWrap: 'wrap', alignItems: 'center' } as const;
+const NOTE_WIDE = { flexBasis: '100%' } as const;
+const NOTE_FIELD = { flexBasis: '100%', minWidth: 0, minHeight: 44, resize: 'vertical' } as const;
+const NOTE_COUNT = { flex: 1 } as const;
+
+type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string; note?: string; n?: string }> };
 
 // One read per request: generateMetadata and the page share it (React cache), and its rows are the record card's (load.ts).
 const load = cache(async (handle: string) => {
@@ -232,6 +247,10 @@ export default async function Profile({ params, searchParams }: Params) {
   const win = closesWindow((await searchParams)?.closes, trades.length);
   const handleError = isMe ? profileHandleError((await searchParams)?.handle) : undefined;
   const listed = trades.slice(win.start, win.start + win.shown);
+  // FIXES-CYCLE5 (F5-2): a save whose trade was gone (app/actions.ts#saveThesis) lands here; only the author sees it.
+  const noteChanged = isMe && (await searchParams)?.note === 'changed';
+  const noteKey = (await searchParams)?.n;
+  const changedKey = noteChanged && typeof noteKey === 'string' && /^[0-9a-f]{64}$/.test(noteKey) ? noteKey : null;
   const firstNew = win.next !== null ? trades[win.end] : null;
 
   // A provisional profile (no display name set yet) shows the handle once, as the heading.
@@ -278,7 +297,7 @@ export default async function Profile({ params, searchParams }: Params) {
           line survives the refresh that follows the end of the import. */}
       {!pub && <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />}
       {state === 'failed' && (
-        <WarnNotice role={isMe ? 'alert' : 'status'}>{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</WarnNotice>
+        <WarnNotice>{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</WarnNotice>
       )}
       {/* FIXES-LABELS: status. Two rows (design system StatusLine): row 1 (since · connected, partial or frozen), row 2
           (last close · updated, or the idle fact), then the accounts when there are two or more. A record the
@@ -315,7 +334,7 @@ export default async function Profile({ params, searchParams }: Params) {
           <summary className="button secondary">{PROFILE.changeHandle}</summary>
           <form action={setHandle} className="inline">
             <label htmlFor="new-handle" className="sr-only">New handle</label>
-            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" title={HANDLE_RULE} defaultValue={user.handle} autoFocus={!!handleError} aria-describedby={handleError ? 'handle-hint handle-err' : 'handle-hint'} />
+            <input id="new-handle" name="handle" type="text" autoComplete="username" required pattern="[a-z0-9_]{3,20}" title={HANDLE_RULE} defaultValue={user.handle} autoFocus={!!handleError} aria-describedby={handleError ? 'handle-hint handle-err' : 'handle-hint'} />
             <button>Save</button>
           </form>
           <p id="handle-hint" className="muted small">{HANDLE_RULE}</p>
@@ -363,7 +382,7 @@ export default async function Profile({ params, searchParams }: Params) {
       <OptionsLines m={opt} long={long} />
       <section className="stats">
         <div className="stat"><b>{count(s.trades)}</b><small>closed trades</small></div>
-        <div className="stat"><b>{s.profitFactor === null ? '—' : s.profitFactor.toFixed(2)}</b><small>profit factor</small></div>
+        <div className="stat"><b>{s.profitFactor === null ? '—' : cut2(s.profitFactor)}</b><small>profit factor</small></div>
         <div className="stat"><b>{s.medianHoldingDays.toFixed(1)}d</b><small>median hold</small></div>
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
@@ -411,6 +430,14 @@ export default async function Profile({ params, searchParams }: Params) {
       {recordBodyCopy(state, trades.length) && <p className="muted record-body">{recordBodyCopy(state, trades.length)}</p>}
       {trades.length > CLOSES_PAGING.size && <p className="muted small closes-showing">{CLOSES_PAGING.showing(win.start, win.shown, trades.length)}</p>}
       <RowFocus window={win.end} />
+      {noteChanged && (
+        <div id="note-changed" role="alert" tabIndex={-1} className="note-changed">
+          <p>{FC5.noteChanged}</p>
+          <NoteRecovery shownKey={changedKey} />
+          <FocusHeading id="note-changed" />
+        </div>
+      )}
+      {isMe && !noteChanged && <NoteRecovery shownKey={null} />}
       <ul className="rows closes">
         {listed.map((t) => (
           <li key={t.id} id={`trade-${t.id}`} tabIndex={-1}>
@@ -422,12 +449,18 @@ export default async function Profile({ params, searchParams }: Params) {
             </div>
             {t.filing_url && <a className="filing-link" href={t.filing_url} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.filingName(t.symbol, day(t.closed_at))}>{PUBLIC.filing}</a>}
             {/* F-9: UserNote (Report only for a signed-in reader who is not the author); the author sees the hold and its reason in plain words, muted (fix round 2: lib/report-copy.ts#heldLine). */}
-            {t.thesis_status === 'published' && <UserNote text={t.thesis} handle={user.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={me && !isMe ? String(t.id) : undefined} symbol={t.symbol} />}
-            {isMe && t.thesis_status === 'held' && !!t.thesis && <HeldNote rule={t.thesis_hold_rule} />}{/* F-26: the one held-line markup (lib/user-note.ts); an empty note is never held */}
+            {t.thesis_status === 'published' && <UserNote text={t.thesis} handle={user.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={me && !isMe ? t.trade_key : undefined} symbol={t.symbol} />}
+            {isMe && t.thesis_status === 'held' && !!t.thesis && <HeldNote rule={t.thesis_hold_rule} id={`held-${t.id}`} />}{/* F-26: the one held-line markup (lib/user-note.ts); an empty note is never held */}
             {isMe && (
-              <form action={saveThesis} className="inline">
+              <form action={saveThesis} className="inline note-form" style={NOTE_FORM}>
+                {/* FIXES-CYCLE5 (F5-2): the trade's key, which survives a rebuild; the row id stays as the fallback. */}
+                <input type="hidden" name="tradeKey" value={t.trade_key} />
                 <input type="hidden" name="tradeId" value={t.id} />
-                <input type="text" name="thesis" maxLength={280} defaultValue={t.thesis ?? ''} placeholder="Why did you take this trade?" aria-label={`Thesis for ${t.symbol}`} />
+                <input type="hidden" name="closes" value={win.end} />
+                {/* FIXES-CYCLE5 (F5-24): a visible label, three rows, the count of 280 (note-field.tsx keeps it current). */}
+                <label htmlFor={`note-${t.trade_key}`} className="note-label" style={NOTE_WIDE}>{FC5.noteLabel}</label>
+                <textarea id={`note-${t.trade_key}`} name="thesis" rows={3} style={NOTE_FIELD} maxLength={280} defaultValue={t.thesis ?? ''} placeholder="Why did you take this trade?" aria-label={FC5.noteName(t.symbol)} aria-describedby={`count-${t.trade_key}`} {...(t.thesis_status === 'held' && !!t.thesis ? { 'aria-describedby': `held-${t.id}`, 'aria-invalid': true } : {})} />{/* F4-17: the held reason describes its field */}
+                <NoteField id={`note-${t.trade_key}`} countId={`count-${t.trade_key}`} initial={(t.thesis ?? '').length} style={NOTE_COUNT} />
                 <button>Save</button>
               </form>
             )}

@@ -50,7 +50,8 @@ export function UserNote({ text, handle, writtenAt, editedAt, report, byline = t
 // page). F-9's neutral tone (.thesis-held, small, muted), never the loss or warn colour. `edit`: the trade page's link to
 // the profile row (lib/own-note.ts), on its own line below, a 44 px target (business lead, F-26 committee Q-A). Viewers
 // never get this: callers pass it only for the signed-in author.
-export function HeldNote({ rule, edit }: { rule: string | null | undefined; edit?: string }) {
-  const line = h('p', { className: 'muted thesis-held', 'data-own-held': '' }, heldLine(rule));
+// `id` (F4-17): the profile row names the line in its edit field's aria-describedby (WCAG 1.3.1).
+export function HeldNote({ rule, edit, id }: { rule: string | null | undefined; edit?: string; id?: string }) {
+  const line = h('p', { id, className: 'muted thesis-held', 'data-own-held': '' }, heldLine(rule));
   return edit ? h(Fragment, null, line, h('p', { className: 'held-edit' }, h('a', { className: 'tap44', href: edit }, HELD_EDIT_LINK))) : line;
 }

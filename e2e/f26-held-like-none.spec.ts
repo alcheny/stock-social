@@ -25,8 +25,8 @@ const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 
 test.describe.configure({ mode: 'serial' });
 let release: (() => Promise<void>) | null = null;
-let target = { id: '', sell: '', symbol: '' };
-let deep = { id: '', sell: '' }; // the author's close beyond the first 50
+let target = { id: '', sell: '', symbol: '', key: '' }; // key: trade_key (FIXES-CYCLE5 F5-24: the note field's anchor)
+let deep = { id: '', sell: '', key: '' }; // the author's close beyond the first 50
 
 async function makeUser(handle: string, closes: { r: number; hoursAgo: number; note?: string }[], symbol: (i: number) => string) {
   const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
@@ -52,10 +52,10 @@ test.beforeAll(async () => {
   // Fillers with small moves, so the feed has a second page (the paging action) under the exclusive lock.
   for (const h of FILL) await makeUser(h, Array.from({ length: 5 }, (_, i) => ({ r: (i % 2 ? 1 : -1) * 0.003, hoursAgo: 5 + i })), (i) => `FZF${i}`);
   await makeUser(READER, [], () => '');
-  const [t] = await sql`select t.id::text as id, t.sell_id, t.symbol from closed_trades t join users u on u.id = t.user_id where u.handle = ${AUTHOR} order by t.closed_at desc limit 1`;
-  target = { id: t.id, sell: t.sell_id, symbol: t.symbol };
-  const [d] = await sql`select t.id::text as id, t.sell_id from closed_trades t join users u on u.id = t.user_id where u.handle = ${AUTHOR} order by t.closed_at desc, t.id desc offset 55 limit 1`;
-  deep = { id: d.id, sell: d.sell_id };
+  const [t] = await sql`select t.id::text as id, t.sell_id, t.symbol, t.trade_key from closed_trades t join users u on u.id = t.user_id where u.handle = ${AUTHOR} order by t.closed_at desc limit 1`;
+  target = { id: t.id, sell: t.sell_id, symbol: t.symbol, key: t.trade_key };
+  const [d] = await sql`select t.id::text as id, t.sell_id, t.trade_key from closed_trades t join users u on u.id = t.user_id where u.handle = ${AUTHOR} order by t.closed_at desc, t.id desc offset 55 limit 1`;
+  deep = { id: d.id, sell: d.sell_id, key: d.trade_key };
 });
 test.afterAll(async () => {
   await sql`delete from users where handle in ${sql([AUTHOR, LONG, READER, ...FILL])}`;
@@ -303,17 +303,20 @@ test('F-26 author: the held line on their own card and on the trade page (privat
     const link = page.getByRole('link', { name: 'Edit it on your profile' });
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await link.click();
-    await expect(page).toHaveURL(new RegExp(`/u/${AUTHOR}\\?closes=50#trade-${target.id}$`));
-    await expect(page.locator(`#trade-${target.id} input[name="thesis"]`)).toBeVisible();
+    // FIXES-CYCLE5 (F5-24): the link names the row's note field by the trade key, and the field takes focus.
+    await expect(page).toHaveURL(new RegExp(`/u/${AUTHOR}\\?closes=50#note-${target.key}$`));
+    await expect(page.locator(`#trade-${target.id} [name="thesis"]`)).toBeVisible();
+    await expect(page.locator(`#trade-${target.id} [name="thesis"]`)).toBeFocused();
     await expect(page.locator(`#trade-${target.id} p.thesis-held`)).toBeVisible();
 
     // The close beyond the first 50 (row 56): window 100.
     await page.goto(`/u/${AUTHOR}/trade/${encodeURIComponent(deep.sell)}`);
     await expect(page.locator('.trade-card p.thesis-held')).toContainText('Readers reported it');
     await page.getByRole('link', { name: 'Edit it on your profile' }).click();
-    await expect(page).toHaveURL(new RegExp(`/u/${AUTHOR}\\?closes=100#trade-${deep.id}$`));
-    await expect(page.locator(`#trade-${deep.id} input[name="thesis"]`)).toBeVisible();
-    await expect(page.locator(`#trade-${deep.id} input[name="thesis"]`)).toBeInViewport();
+    await expect(page).toHaveURL(new RegExp(`/u/${AUTHOR}\\?closes=100#note-${deep.key}$`));
+    await expect(page.locator(`#trade-${deep.id} [name="thesis"]`)).toBeVisible();
+    await expect(page.locator(`#trade-${deep.id} [name="thesis"]`)).toBeInViewport();
+    await expect(page.locator(`#trade-${deep.id} [name="thesis"]`)).toBeFocused();
 
     // The profile carries the line for its author: private, no-store too.
     const prof = await page.request.get(`/u/${AUTHOR}`);

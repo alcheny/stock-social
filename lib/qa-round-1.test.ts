@@ -32,7 +32,8 @@ test('finding 7: a failed import is a warning (icon and words), not a loss colou
   for (const f of ['app/ui.tsx', 'app/pane.tsx', 'app/u/[handle]/page.tsx', 'app/record-strip.tsx']) {
     const s = src(f);
     // F-27: the failed line is the one warn notice (icon, box and words; app/warn-notice.tsx keeps .record-failed).
-    assert.match(s, /<WarnNotice role=/, f);
+    assert.match(s, /<WarnNotice>/, f); // FIXES-CYCLE5 (F5-25, F3-16): static, so no live role
+    assert.doesNotMatch(s, /<WarnNotice role=/, f);
     assert.doesNotMatch(s, /"down record-failed"/, f);
     assert.doesNotMatch(s, /"warn record-failed"/, f);
   }

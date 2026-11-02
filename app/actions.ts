@@ -85,9 +85,21 @@ export async function login(form: FormData) {
 export async function saveThesis(form: FormData) {
   const user = await currentUser();
   if (!user) redirect('/login');
+  // FIXES-CYCLE5 (F5-2): the trade's stable key first (it survives a rebuild); the row id is the fallback a page rendered
+  // before this change posts.
+  const key = form.get('tradeKey');
+  const tradeKey = typeof key === 'string' && /^[0-9a-f]{64}$/.test(key) ? key : null;
   const tradeId = tradeIdParam(form.get('tradeId')); // F19: a non-numeric id is a no-op, not a bigint error and a 500
-  if (!tradeId) return;
-  await saveThesisFor(user.id, tradeId, String(form.get('thesis') ?? ''));
+  if (!tradeKey && !tradeId) return;
+  const saved = await saveThesisFor(user.id, (tradeKey ?? tradeId)!, String(form.get('thesis') ?? ''));
+  if (saved === 'changed') {
+    // The trade is not on the record now: nothing was written, and the profile says so at the top of its closed trades
+    // (role=alert, focused), on the same closes window. `n` lets the author's own tab show its unsaved text there
+    // (note-recovery.tsx); the text itself never travels in a URL.
+    const closes = form.get('closes');
+    const w = typeof closes === 'string' && /^[1-9][0-9]{0,6}$/.test(closes) ? `&closes=${closes}` : '';
+    redirect(`/u/${user.handle}?note=changed${tradeKey ? `&n=${tradeKey}` : ''}${w}#note-changed`);
+  }
   revalidatePath(`/u/${user.handle}`);
 }
 

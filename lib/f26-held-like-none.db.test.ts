@@ -140,7 +140,9 @@ dbTest('F-26 AC12: the author loader gives the held rule and the profile link to
     const { loadOwnNote } = await import('./own-note.ts');
     const { sql } = await import('./db.ts');
     // List order: closed_at desc, id desc. The fixture's sells are an hour apart, so the oldest is the last row.
-    const order = await sql`select id::text as id from closed_trades where user_id = ${f.trader} order by closed_at desc, id desc`;
+    const order = await sql`select id::text as id, trade_key from closed_trades where user_id = ${f.trader} order by closed_at desc, id desc`;
+    // FIXES-CYCLE5 (F5-24): the link names the row's note field by its trade key (it survives a rebuild).
+    const key = (id: string) => order.find((r) => r.id === id)!.trade_key as string;
     // Business lead demand 3: the rows at positions 50 and 51 (indexes 49 and 50), the window edge, and the oldest.
     const last = order[order.length - 1].id as string, first = order[0].id as string, p50 = order[49].id as string, p51 = order[50].id as string;
     for (const id of [last, first, p50, p51]) await setNote(id, 'held');
@@ -148,10 +150,10 @@ dbTest('F-26 AC12: the author loader gives the held rule and the profile link to
     const own = await loadOwnNote(f.trader, last, f.handle);
     assert.equal(log.length, 1, 'one statement');
     assert.match(log[0], /count\(\*\)/);
-    assert.deepEqual(own, { rule: 'link', edit: `/u/${f.handle}?closes=100#trade-${last}` });
-    assert.deepEqual(await loadOwnNote(f.trader, first, f.handle), { rule: 'link', edit: `/u/${f.handle}?closes=50#trade-${first}` });
-    assert.deepEqual(await loadOwnNote(f.trader, p50, f.handle), { rule: 'link', edit: `/u/${f.handle}?closes=50#trade-${p50}` });
-    assert.deepEqual(await loadOwnNote(f.trader, p51, f.handle), { rule: 'link', edit: `/u/${f.handle}?closes=100#trade-${p51}` });
+    assert.deepEqual(own, { rule: 'link', edit: `/u/${f.handle}?closes=100#note-${key(last)}` });
+    assert.deepEqual(await loadOwnNote(f.trader, first, f.handle), { rule: 'link', edit: `/u/${f.handle}?closes=50#note-${key(first)}` });
+    assert.deepEqual(await loadOwnNote(f.trader, p50, f.handle), { rule: 'link', edit: `/u/${f.handle}?closes=50#note-${key(p50)}` });
+    assert.deepEqual(await loadOwnNote(f.trader, p51, f.handle), { rule: 'link', edit: `/u/${f.handle}?closes=100#note-${key(p51)}` });
     // The profile's own window for those rows (lib/paging.ts#closesWindow over the same list order) holds them.
     const { closesWindow } = await import('./paging.ts');
     for (const [id, w] of [[p50, '50'], [p51, '100'], [last, '100']] as const) {
@@ -169,7 +171,7 @@ dbTest('F-26 AC12: the author loader gives the held rule and the profile link to
     for (const id of [a, b]) {
       const w = windowOf(tied.findIndex((r) => r.id === id));
       ws.push(w);
-      assert.equal((await loadOwnNote(f.trader, id, f.handle))!.edit, `/u/${f.handle}?closes=${w}#trade-${id}`);
+      assert.equal((await loadOwnNote(f.trader, id, f.handle))!.edit, `/u/${f.handle}?closes=${w}#note-${key(id)}`);
     }
     assert.deepEqual(ws.sort(), [100, 50], 'one on each side of the edge');
     assert.equal(await loadOwnNote(f.reader, last, f.handle), null, 'another user');
