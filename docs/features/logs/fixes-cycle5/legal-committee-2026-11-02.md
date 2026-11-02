@@ -309,3 +309,42 @@ wording (`SHARE_CARD.perClosedTrade`).
    yours.
 
 Not legal advice; committee findings the owner accepts in place of counsel.
+
+---
+
+## Addendum 2026-11-02: C5-5 shorter visible form on the strips (re-sign for part 2, plan D1)
+
+Asked by the orchestrator (`docs/features/logs/fixes-cycle5/plan-part2-round1.md`, §0 D1 and §1.5). "‹avg› average per
+closed trade" (up to 30 glyphs) overflows the 582 px image band at F-12's pinned 35 px. Shrinking it breaks F-12 AC3, and a
+second line breaks the band height (AC16). Proposed: the visible strip prints "‹avg› per closed trade" (the council's
+literal words), and the image alt keeps "average per closed trade ‹avg›".
+
+**Finding: CONFIRM WITH CONDITIONS (C17-C20).**
+
+Reasons:
+- What C5-5 protects is "closed". It stops a realized average being read as covering open positions (TR-4, F3a).
+  The shorter form keeps that word, so the protection is intact.
+- "‹figure› per closed trade" is the ordinary way to state an average rate, and it matches "the average return per
+  trade" on /how. The risk is that it is read as "every trade returned ‹figure›", which would suggest consistency the
+  record does not have (F2, COMPLIANCE §11). That risk is low because the same band prints the closed-trade count before
+  the figure and the 95% range (or "Too early to tell") after it. C17 makes that dependency a rule.
+- Layout pins (F-12 AC3, AC16) are accessibility and legibility requirements in their own right (POLICY A1). Keeping
+  35 px is better than a smaller full phrase.
+- Width-free text (alt, accessible names, link-preview descriptions) has no reason to drop "average" and keeps it.
+
+Conditions:
+- **C17.** The short form prints only inside a strip that also shows the closed-trade count before it and, after it,
+  either the 95% range or "Too early to tell" (never neither). *Test:* for every strip output (HTML strips and the
+  trade/month images), when the average part exists, the count part precedes it and a range or early part follows it.
+- **C18.** Every text output without a width limit uses "average per closed trade": the image `alt`, the HTML strip's
+  accessible name or alt text, and the link-preview/OG description built from the strip. *Test:* those strings contain
+  "average per closed trade" and none contains a bare "average per trade".
+- **C19.** The visible form is exactly "‹signed figure› per closed trade", with nothing else between the figure and the
+  words (no "each", "every", "on every", "a"). One producer (`lib/record-strip.ts`) builds both forms from one constant,
+  so the two cannot drift. *Test:* the visible average part matches `/^[+−]?[\d.,]+% per closed trade$/` (or the
+  `pct()` "Flat"/"≈" forms followed by " per closed trade").
+- **C20.** C14-C16 otherwise stand. "per closed trade" appears on every strip output, no output says "average per
+  trade", and the change stays wording only (no unrealized value added; OD 2.25 is still the owner's). The PR's
+  `## Compliance` section cites this addendum.
+
+Not legal advice; committee findings the owner accepts in place of counsel.
