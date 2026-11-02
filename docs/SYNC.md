@@ -52,7 +52,10 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
   steps, deletions) are outside the shards' request budgets. Chores cycle 5 (C5-43 (c)): it also rebuilds the stored
   sitemap (`lib/sitemaps.ts#rebuildSitemapIfDue`, at most once per `REBUILD_MS` = 10 min fleet-wide, skipped while
   another call rebuilds it), reported as `sitemap: { rebuilt, n }`; no request aggregates `closed_trades`, so a new
-  close appears in the sitemap at the next rebuild.
+  close appears in the sitemap at the next rebuild. Deploy step (owner): after the deploy that adds `sitemap_traders`, run the
+  housekeeping call once (`POST /api/sync?task=housekeeping` with the cron bearer); until it runs, an existing
+  `sitemap_chunks` row still lists further sitemap ids whose chunks answer empty (200), and crawlers see symbols drop
+  out for up to one cron interval.
 - **Transient streak.** A trader that fails transiently 5 rounds in a row (`TRANSIENT_LIMIT`: a record that always
   times out, or whose own data always throws) is quarantined and backed off, never retried every round forever.
 

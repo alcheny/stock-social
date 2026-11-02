@@ -790,6 +790,10 @@ test('compare page: two seeded symbols in URL order, noindex, honest empty state
 });
 
 test('sitemap lists /t but no demo-only ticker pages; robots points at it', async ({ request }) => {
+  // C5-43(c): only the cron builds the stored sitemap, and no cron runs under e2e: run its rebuild first, so the rule
+  // below is checked against a real listing (independent review of chores PR 2, finding 1).
+  const { rebuildSitemapIndex, indexableCount } = await import('../lib/sitemaps.ts');
+  await rebuildSitemapIndex();
   const sm = await request.get('/sitemap.xml');
   expect(sm.status()).toBe(200);
   expect(sm.headers()['content-type']).toContain('xml');
@@ -802,6 +806,8 @@ test('sitemap lists /t but no demo-only ticker pages; robots points at it', asyn
   const listed = [...body.matchAll(/\/t\/([A-Z0-9.%-]+)<\/loc>/g)].map((m) => decodeURIComponent(m[1]));
   for (const r of rows.filter((x) => !x.real)) expect(listed).not.toContain(r.symbol);
   for (const sym of listed) expect(rows.find((x) => x.symbol === sym)?.real).toBe(true);
+  // Never vacuous: when the rebuild counted indexable stocks, the listing has some.
+  if ((await indexableCount()) > 0) expect(listed.length).toBeGreaterThan(0);
   const rb = await request.get('/robots.txt');
   expect(rb.status()).toBe(200);
   const txt = await rb.text();

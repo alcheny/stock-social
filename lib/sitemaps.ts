@@ -102,6 +102,10 @@ const readRow = (q: typeof sql | TransactionSql, scope: string) => q`
 // fails) for a concurrent builder and always rebuilds; 'try' (the cron) skips while another builder runs and while the
 // stored sitemap is younger than REBUILD_MS (judged under the lock, on the database's clock).
 export const sitemapRebuilds = { count: 0 }; // builds run by this process (tests)
+// ponytail: a rebuild is one transaction; an account's hard delete that commits during it makes the insert fail on the
+// foreign key (the rebuild rolls back, logs "sitemap rebuild failed" and runs again on the next tick), and a delete that
+// starts during it waits for it — no data shows either way (reads filter on visibility) — fix: insert only user ids
+// that still exist (`where exists (select 1 from users …)`) under a share lock, or rebuild per symbol range.
 async function build(opts: SitemapOpts, mode: 'force' | 'try'): Promise<{ ix: SitemapIndex | null; rebuilt: boolean }> {
   const scope = scopeOf(opts), limit = opts.limit ?? SITEMAP_LIMIT;
   return sql.begin(async (tx) => {

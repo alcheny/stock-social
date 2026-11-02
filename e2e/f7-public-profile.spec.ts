@@ -129,6 +129,8 @@ test('AC 28, 30, 34: no Follow, thesis, share prompt or join CTA; noindex; unfur
   const img = await request.get(`/u/${P}/opengraph-image`);
   expect(img.status()).toBe(200);
   expect(img.headers()['content-type']).toContain('image/png');
+  // C5-43(c): the stored sitemap is the cron's; run its rebuild so the not-contains checks read a real listing.
+  await (await import('../lib/sitemaps.ts')).rebuildSitemapIndex();
   const map = await (await request.get('/sitemap.xml')).text();
   expect(map).not.toContain('pf_');
   expect(map).not.toMatch(/ZQX/);
