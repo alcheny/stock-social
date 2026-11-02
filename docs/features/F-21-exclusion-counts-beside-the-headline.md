@@ -73,6 +73,22 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
   question Q4, D22). Owner flag: OD 2.7's consent version names the public exclusion counts before real users. Why:
   approval council cycle 5; BL, LC, PR.
 
+- 2026-11-02: Option exclusions are summed in both gate states, and their re-signed count lines move word for word into
+  the profile's `#excluded` section. The AI legal committee's sign-off on showing them while the gate is closed blocks the
+  PR. Why: decided by the committee under the owner's instruction of 2026-11-01; it follows the cycle-5 sum decision (engineer E5, business lead).
+- 2026-11-02: The shared-account reason reads "‹n› trades excluded: the account is part of another profile's record."
+  The line links with "· reasons on the profile". Why: decided by the committee under the owner's instruction of 2026-11-01; the count includes option closes, and the wording blames no one
+  (business lead, engineer).
+- 2026-11-02: Two new stored counters, written in the rebuild's own transaction: `excluded_future_sells` (sells only, from
+  the future-count query) and `excluded_shared` (written once in `rebuildRecord`: shares and option closes in marked
+  accounts, an OCC row counted once). Why: decided by the committee under the owner's instruction of 2026-11-01; the line counts sells and option closes only and reads stored counters (E1).
+- 2026-11-02: The guard reads runtime sources wherever they exist: `PUBLIC_REASONS`, the options `CAUSES`, an anchored
+  `MatchResult` scan that must find the known keys, and the schema parser plus `information_schema`. It is
+  mutation-checked in the test. Why: decided by the committee under the owner's instruction of 2026-11-01; engineer E3.
+- 2026-11-02: One PR with layered commits (counters and guard, then surfaces); no `PAYLOAD_V` bump; the owner runs
+  `scripts/rebuild-records.ts` once after deploy. Why: decided by the committee under the owner's instruction of 2026-11-01; the owner's instruction of 2026-11-02 is to finish to one open,
+  green PR; the layers meet the council's size concern (D5, E9).
+
 ## Acceptance criteria
 - [ ] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);
       a record with every count at 0 shows no line.
