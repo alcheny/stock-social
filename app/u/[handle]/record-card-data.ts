@@ -34,6 +34,8 @@ export function recordCardLoader(r: ProfileReads) {
       link: kind === 'unfurl' ? null : cardLink(process.env, handle),
       verified: asc.length > 0 && asc.every((t) => t.verified),
       open: open.map((p) => Number(p.unrealized_pct)).filter(Number.isFinite),
+      // F-34: the positions' as-of, the MIN(fetched_at) of the rows already read (no extra query).
+      ...(open.length ? { openAsOf: new Date(Math.min(...open.map((p) => (p.fetched_at as Date).getTime()))) } : {}),
       options: { shareLabel: opt.label, line: opt.line }, // OPTIONS
       trades: asc.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: Number(t.return_pct), holdingDays: Number(t.holding_days) })),
     });

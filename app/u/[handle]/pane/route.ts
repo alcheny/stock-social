@@ -8,6 +8,7 @@ import { optionHeadline, paneView } from '@/lib/options-load.ts'; // OPTIONS (AC
 import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 import { paneModel } from '@/lib/pane-model.ts'; // F-23
 import { feedPaneChart, PAYLOAD_V } from '@/lib/chart-series.ts'; // F-23
+import { positionInRecord } from '@/lib/shared-accounts.ts'; // F-34
 
 // F-2 PR-3b fix round 1 (business lead D2): a Similar trades row's pane, fetched when its sheet first opens
 // (app/lazy-pane.tsx), so the profile no longer renders three other traders' records. Public like the profile (signed
@@ -27,7 +28,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
   if (!user) return no();
   // F-6: the trader's open positions (unrealized percent only), served for a connected or failed record only, as on the feed.
   const [rows, states, positions, options] = await Promise.all([records([user.id as number]), recordStates([user.id as number]),
-    sql`select unrealized_pct, fetched_at from open_positions where user_id = ${user.id as number}`, optionHeadline([user.id as number])]);
+    sql`select unrealized_pct, fetched_at from open_positions p where p.user_id = ${user.id as number} and ${positionInRecord(sql)}`, optionHeadline([user.id as number])]);
   const state = states.get(user.id as number)?.state ?? 'connected';
   if (state === 'importing') return no();
   const shown = state === 'connected' || state === 'failed' ? positions : [];

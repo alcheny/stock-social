@@ -13,6 +13,12 @@ type Db = TransactionSql | typeof sql;
 export const notShared = (db: Db, userId: number) =>
   db`not exists (select 1 from shared_account_marks m where m.user_id = ${userId} and m.account_id = a.account_id)`;
 
+// F-34: the record's account set for open positions `p`: never a simulated account, never one marked as another
+// profile's (the set lib/sync.ts#rebuildTrades uses for closed trades). Correlated on p.user_id, so it works over many
+// users. Every open_positions reader aliases the table `p` and adds this condition.
+export const positionInRecord = (db: Db) => db`not exists (select 1 from broker_accounts b where b.account_id = p.account_id and b.user_id = p.user_id and b.is_paper)
+  and not exists (select 1 from shared_account_marks m where m.user_id = p.user_id and m.account_id = p.account_id)`;
+
 // Every shared case: (account, profile) pairs where the profile holds verified activities of an account claimed by
 // another profile. `scope` (tests only) limits it to those profiles; the script passes none.
 // What it can find (reliability review, 2026-11-01): two profiles under one vendor account id. Vendor ids are per

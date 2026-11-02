@@ -7,6 +7,7 @@
 // UTC day, which may be later than midnight. Wherever a past display is shown, it says "as of <asOf> (UTC)", never "all
 // day"; a later change the same day appears in the next day's row (code review 9, orchestrator review 3).
 import { sql } from './db.ts';
+import { positionInRecord } from './shared-accounts.ts'; // F-34: the record's account set for open positions
 import { logSafe } from './privacy-log.ts';
 import { evidenceLine, pct, stats } from './trades.ts';
 import { cardEvidence, evidenceRangeText } from './record-card.ts';
@@ -79,7 +80,7 @@ export async function snapshotsFor(userIds: number[], now: Date): Promise<Map<nu
   // in input order, so an unordered read could print a different last digit for the same record (see the tests).
   const trades = await sql`select user_id, symbol, opened_at, closed_at, return_pct, holding_days from closed_trades
     where user_id = any(${readable}) order by user_id, closed_at desc, id desc`;
-  const positions = shown.length ? await sql`select user_id, account_id, symbol, unrealized_pct from open_positions where user_id = any(${shown})` : [];
+  const positions = shown.length ? await sql`select p.user_id, p.account_id, p.symbol, p.unrealized_pct from open_positions p where p.user_id = any(${shown}) and ${positionInRecord(sql)}` : [];
   const demo = new Set((await sql`select distinct user_id from activities where user_id = any(${readable}) and source = 'demo'`).map((r) => Number(r.user_id)));
   const closes = new Map<number, Close[]>(), open = new Map<number, Position[]>();
   for (const t of trades) {
@@ -137,7 +138,7 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
       ${opts.ids ? sql`and u.id in ${sql(opts.ids.length ? opts.ids : [0])}` : sql``}
       and not exists (select 1 from display_log l where l.user_id = u.id and l.day = ${day}::date)
       -- An empty record writes no row; filtering it here keeps it from using the box every tick (business lead re-sit 1).
-      and (exists (select 1 from closed_trades c where c.user_id = u.id) or exists (select 1 from open_positions p where p.user_id = u.id))
+      and (exists (select 1 from closed_trades c where c.user_id = u.id) or exists (select 1 from open_positions p where p.user_id = u.id and ${positionInRecord(sql)}))
       order by u.id limit ${batch}`;
     for (const ids of chunkByRows(users.map((u) => ({ id: u.id as number, n: u.n as number })), opts.rowCap)) {
       if (clock() >= end) return report(false);

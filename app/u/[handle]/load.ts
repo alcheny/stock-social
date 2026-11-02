@@ -9,6 +9,7 @@ import { sql } from '../../../lib/db.ts';
 import { applyClocks, publicRecordDetail } from '../../../lib/connections.ts';
 import { isDemoUser as readDemo } from '../../../lib/demo.ts';
 import { filerInfo } from '../../../lib/public-gate.ts';
+import { positionInRecord } from '../../../lib/shared-accounts.ts'; // F-34
 
 export type PerRequest = <F extends (...args: never[]) => unknown>(fn: F) => F;
 
@@ -19,7 +20,7 @@ export function profileReads(perRequest: PerRequest) {
       select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
         thesis_written_at, thesis_edited_at, thesis_hold_rule
       from closed_trades where user_id = ${userId} order by closed_at desc, id desc`), // list order (lib/paging.ts)
-    positions: perRequest((userId: number) => sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions where user_id = ${userId} order by symbol, account_id`),
+    positions: perRequest((userId: number) => sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions p where p.user_id = ${userId} and ${positionInRecord(sql)} order by symbol, account_id`),
     // F-1 clocks (marking only), once per request with one `now`. Idempotent: both UPDATEs match only rows still in
     // their old state, and a funnel event is recorded only for the rows an UPDATE returned, so a second run (or a
     // concurrent one: READ COMMITTED re-checks the WHERE after the row lock) marks and records nothing.

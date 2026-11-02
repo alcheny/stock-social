@@ -1,5 +1,6 @@
 import type { PendingQuery, Row, TransactionSql } from 'postgres';
 import { sql } from './db.ts';
+import { positionInRecord } from './shared-accounts.ts'; // F-34: the record's account set for open positions
 import { recordStates, type RecordStatus } from './connections.ts';
 import { statusRowsOrEmpty, withStates } from './record-status-load.ts'; // FIXES-LABELS: status
 import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
@@ -603,9 +604,9 @@ function traderShapes(kept: Kept): Map<number, TraderShape> {
 
 // F-6: open positions (unrealized percent only) per trader, kept for page traders whose record is connected or failed.
 type OpenRow = { user_id: number; unrealized_pct: number; fetched_at: Date };
-async function openPositions(userIds: number[]): Promise<OpenRow[]> {
+export async function openPositions(userIds: number[]): Promise<OpenRow[]> {
   if (!userIds.length) return [];
-  return (await sql`select user_id, unrealized_pct, fetched_at from open_positions where user_id = any(${userIds})`) as unknown as OpenRow[];
+  return (await sql`select p.user_id, p.unrealized_pct, p.fetched_at from open_positions p where p.user_id = any(${userIds}) and ${positionInRecord(sql)}`) as unknown as OpenRow[];
 }
 function openOf(rows: OpenRow[], onPage: Set<number>, states: Map<number, RecordStatus>): { open: Map<number, number[]>; openAsOf: Map<number, Date> } {
   const open = new Map<number, number[]>(), openAsOf = new Map<number, Date>();

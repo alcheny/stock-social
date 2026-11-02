@@ -6,6 +6,7 @@ import { sql } from '@/lib/db.ts';
 import { visibleUser } from '@/lib/visible-users.ts';
 import { recordStates } from '@/lib/connections.ts';
 import { openSummary, type OpenSummary } from '@/lib/open-split.ts';
+import { positionInRecord } from '@/lib/shared-accounts.ts'; // F-34
 
 export type SymbolOpen = { o: OpenSummary; traders: number; asOf: Date };
 
@@ -16,7 +17,7 @@ export const symbolOpen = cache(async (...symbols: string[]): Promise<Map<string
   const rows = (await sql`
     select p.symbol, p.user_id, p.unrealized_pct, p.fetched_at
     from open_positions p join users u on u.id = p.user_id and ${visibleUser('u')}
-    where p.symbol = any(${symbols})`) as unknown as { symbol: string; user_id: number; unrealized_pct: number; fetched_at: Date }[];
+    where p.symbol = any(${symbols}) and ${positionInRecord(sql)}`) as unknown as { symbol: string; user_id: number; unrealized_pct: number; fetched_at: Date }[];
   if (!rows.length) return out;
   const states = await recordStates(rows.map((r) => r.user_id));
   const shown = rows.filter((r) => ['connected', 'failed'].includes(states.get(r.user_id)?.state ?? 'none'));

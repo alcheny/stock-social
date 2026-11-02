@@ -100,13 +100,14 @@ async function previousCard(handle: string, kind: 'unfurl' | 'square' | 'story',
   const rows = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${user.id} ${ordered ? sql`order by closed_at, id` : sql``}`;
   if (user.public_filer_id && !rows.length) return null;
   const [{ state }, demo, open, options] = await Promise.all([publicRecord(Number(user.id)), isDemoUser(Number(user.id)),
-    sql`select unrealized_pct from open_positions where user_id = ${user.id}`, optionHeadline([Number(user.id)])]);
+    sql`select unrealized_pct, fetched_at from open_positions where user_id = ${user.id}`, optionHeadline([Number(user.id)])]);
   const opt = paneView(options.get(Number(user.id))!);
   return recordCard({
     kind, handle, name: user.display_name as string | null, state, demo, now,
     link: kind === 'unfurl' ? null : cardLink(process.env, handle),
     verified: rows.length > 0 && rows.every((t) => t.verified),
     open: open.map((p) => Number(p.unrealized_pct)).filter(Number.isFinite),
+    ...(open.length ? { openAsOf: new Date(Math.min(...open.map((p) => (p.fetched_at as Date).getTime()))) } : {}), // F-34: the positions' as-of
     options: { shareLabel: opt.label, line: opt.line },
     trades: rows.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: Number(t.return_pct), holdingDays: Number(t.holding_days) })),
   });

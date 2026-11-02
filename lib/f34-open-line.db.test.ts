@@ -13,6 +13,7 @@ const ROOT = new URL('..', import.meta.url);
 registerHooks({
   resolve(spec, ctx, next) {
     if (spec.startsWith('@/')) return next(new URL(spec.slice(2), ROOT).href, ctx);
+    if (/^next\/(server|navigation|headers|cache)$/.test(spec)) return next(`${spec}.js`, ctx); // node resolves next's subpaths by file
     return next(spec, ctx);
   },
 });
@@ -114,14 +115,15 @@ dbTest('F-34 AC3: paper and marked accounts never feed the open line; every read
 });
 
 // Statement counts of the three image loaders on main (measured before F-34 with this fixture): F-34 adds none (EN7).
-const MAIN_STATEMENTS = { trade: 10, recap: 10, card: 12 } as const;
+const MAIN_STATEMENTS = { trade: 10, recap: 10, card: 9 } as const;
 
 dbTest('F-34 AC5: the image loaders run the same number of statements as on main (no extra per-request query)', async () => {
   const { loadTradeShare } = await import('./trade-share-load.ts');
   const { loadRecap } = await import('./recap-load.ts');
   const { profileReads } = await import('../app/u/[handle]/load.ts');
   const { recordCardLoader } = await import('../app/u/[handle]/record-card-data.ts');
-  await loadTradeShare(main.handle, `${tag}-0`); // warm module-level caches (schema checks, prepared statements)
+  // Warm module-level caches (schema checks, prepared statements) so each count is the steady per-request one.
+  await loadTradeShare(main.handle, `${tag}-0`); await loadRecap(main.handle, ym); await recordCardLoader(profileReads(requestScope()))(main.handle, 'unfurl');
   const got = {
     trade: await statements(() => loadTradeShare(main.handle, `${tag}-0`)),
     recap: await statements(() => loadRecap(main.handle, ym)),

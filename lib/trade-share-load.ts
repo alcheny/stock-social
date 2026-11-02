@@ -8,6 +8,7 @@ import { statusForOrNull as statusFor } from './record-status-load.ts'; // FIXES
 import { optionHeadline, paneView } from './options-load.ts'; // OPTIONS: the strip's "Excluding options", gated per trader
 import { filerVisibleSql } from './public-gate.ts';
 import { openingFilings, type PubRow } from './public-trades.ts';
+import { positionInRecord } from './shared-accounts.ts'; // F-34
 
 // The only query behind the trade page and card. A held thesis is nulled in SQL, so it never reaches rendering code.
 export async function loadTradeShare(handle: string, sellId: string) {
@@ -38,16 +39,22 @@ export async function loadTradeShare(handle: string, sellId: string) {
   // F-9: the note's dates and the trade's id (the Report control) ride beside the payload, never inside the share data.
   const note = { tradeId: String(t.id), writtenAt: (t.thesis_written_at ?? null) as Date | null, editedAt: (t.thesis_edited_at ?? null) as Date | null };
   // FIXES-LABELS: status (F-11): the status-line facts beside the state (the page renders live, the image static).
-  return { ...payload, sellId, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, note, open: await openPercents(Number(t.user_id), state), excludingOptions, status: await statusFor(Number(t.user_id), state) } satisfies TradeView;
+  return { ...payload, sellId, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, note, ...openOf(await openRead(Number(t.user_id), state)), excludingOptions, status: await statusFor(Number(t.user_id), state) } satisfies TradeView;
 }
 
-// F-12 (F-6 on every surface): the trader's open positions as unrealized percents, for the strip's open count. Read only
+// F-12 (F-6 on every surface): the trader's open positions as unrealized percents, for the strip's open line. Read only
 // for a connected or failed record, as on the profile; never while an import runs (TR-3) or with nothing consented.
-export async function openPercents(userId: number, state: RecordState): Promise<number[] | undefined> {
+// F-34: the record's account set only (positionInRecord), and the as-of date: MIN(fetched_at) of the shown positions,
+// from the same one statement (no vendor call, no extra query).
+export async function openRead(userId: number, state: RecordState): Promise<{ pcts: number[]; asOf: Date | null } | undefined> {
   if (state !== 'connected' && state !== 'failed') return undefined;
-  const rows = await sql`select unrealized_pct from open_positions where user_id = ${userId}`;
-  return rows.map((r) => r.unrealized_pct as number);
+  const rows = await sql`select p.unrealized_pct, p.fetched_at from open_positions p where p.user_id = ${userId} and ${positionInRecord(sql)}`;
+  const asOf = rows.length ? new Date(Math.min(...rows.map((r) => (r.fetched_at as Date).getTime()))) : null;
+  return { pcts: rows.map((r) => r.unrealized_pct as number), asOf };
 }
+// The view fields: `open` keeps its type; `openAsOf` rides beside it.
+export const openOf = (o: Awaited<ReturnType<typeof openRead>>): { open?: number[]; openAsOf?: Date } =>
+  o ? { open: o.pcts, ...(o.asOf ? { openAsOf: o.asOf } : {}) } : { open: undefined };
 
 // Route params may be percent-encoded; malformed input (or a NUL byte, which Postgres text cannot hold) is a 404, not a 500.
 export function decodeSellId(raw: string): string | null {
