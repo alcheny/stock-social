@@ -64,6 +64,7 @@ import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' da
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
+import { withGate } from '@/lib/gate-key.ts'; // F-29 (D3): the unfurl image URL carries the gate state
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
@@ -119,7 +120,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   // model the image draws (its label, so never "Verified" for a demo, importing or failed record). Declared here
   // because a file-level alt is static.
   const card = await loadRecordCard(user.handle, 'unfurl');
-  const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: card ? cardAlt(card) : '' }] };
+  const openGraph = { images: [{ url: withGate(`/u/${user.handle}/opengraph-image`), width: 1200, height: 630, type: 'image/png', alt: card ? cardAlt(card) : '' }] };
   // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete); with no
   // closes there is no stats line at all (PR-2b), only the profile's own empty-record words.
   // F-4 (2026-11-01): the stats part is the card's own words (average per trade with its range, period, evidence; no

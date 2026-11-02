@@ -13,6 +13,7 @@ import { cardSegments, paneSegments } from '@/lib/record-status.ts'; // FIXES-LA
 import { recordStrip, type Strip } from '@/lib/record-strip.ts';
 import { paneTrust, type TrustBadge } from '@/lib/pane.ts';
 import { ReportNote } from './report-note.tsx';
+import { cardOptionsLine } from '@/lib/options-view.ts'; // F-29
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
 // (appended pages), so an appended card is the same element as a server-rendered one (SW-1 identical).
@@ -67,6 +68,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
         <div className="row" key={t.id} data-trade={t.id} data-key={tradeKey(t.sell_id)} data-handle={t.handle}>
           <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} now={now} strip={stripOf(t)} stripBadge={strips.get(t.user_id) ? badges.get(t.user_id) : undefined}
             status={cardSegments(page.status?.get(t.user_id), now)} /* FIXES-LABELS: status */
+            optionsLine={cardOptionsLine(page.options?.get(t.user_id))} /* F-29 (D6): the count line under the strip, gated text only */
             // F-9: Report only for a signed-in reader who is not the trader, and never on a public filer's card (F-7: no notes there).
             // ponytail: Report still names the close by its row id (lib/reports.ts looks up closed_trades.id), so a report sent from a page
             // rendered before a rebuild is refused as invalid — key it by trade_key as the card menu now is (F-9's file).

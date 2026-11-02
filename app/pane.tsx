@@ -73,7 +73,6 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
   const incomplete = trust.incomplete && <WarnNotice role="status">{RECORD_BODY.failed}</WarnNotice>;
   const long = open ? longValues(pct(p.avgReturn), pct(open.avg), String(open.n)) : undefined;
   const figures = <>
-    {options && <ShareTradesLabel show={options.label} />}
     <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined} data-long={long}>
       {open && <RealizedLabel />}
       <div className="stat big"><b>{(p.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
@@ -83,6 +82,11 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
     </section>
     {open && <OpenGrid o={open} asOf={p.openAsOf ? new Date(p.openAsOf) : undefined} long={long} />}
     {both && <CombinedLine c={both} />}
+    {/* F-29 (plan D5): the one qualifier closes the figures block (after both grids, never between them), read right
+        after the figures it qualifies, then the count line. */}
+    {/* ponytail: F-21's exclusions line, then F-34's open line, go here (before the qualifier) — the pane/strip builder
+        owns the order; extend e2e/f29-gated-wording.spec.ts's 360/320 test */}
+    {options && <ShareTradesLabel show={options.label} />}
     <PaneOptions v={options} />
   </>;
   // FIXES-LABELS (D-09): the F3 line directly after the first block that shows performance: the figures when they lead

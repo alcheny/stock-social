@@ -61,3 +61,7 @@ export function optionDisplayText(m: OptionHeadline): string | null {
     c.openOther > 0 ? OPTIONS.openOther(c.openOther) : null].filter(Boolean);
   return lines.length ? lines.join(' ') : null;
 }
+
+/** F-29 (plan D6, round 3): the feed card's count line: the gated count text only (never option figures), so the card
+ *  has no line once the gate opens, at zero counts or without a view. */
+export const cardOptionsLine = (v: PaneOptionsView | undefined): string | undefined => (v?.line && !isOptionsLine(v.line) ? v.line : undefined);

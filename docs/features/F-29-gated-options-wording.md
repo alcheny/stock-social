@@ -94,3 +94,12 @@ second-vote mean 3.87, final vote 15/15, all with conditions). Part (c) is with 
 ## Rework notes
 
 ## Build log
+- 2026-11-02: Built per `docs/features/logs/F-29/plan.md` (rounds 2 and 3 applied). /how shows `F29.howInterim` while
+  `optionsPublic()` is false (`app/how/options-paragraph.tsx`); URL-keyed caches carry the gate key (`lib/gate-key.ts`:
+  pane, story and the three unfurl URLs; a missing or stale `g` gets `no-store`); the pane's qualifier moved after the
+  figures block (D5); the feed card shows the existing count line under its strip (D6). Sign-off record:
+  `docs/features/logs/F-29/legal-signoff.md` (no placement re-sign pending). Stops: the D5 stop (360x740, open
+  positions) and the D6 stop (yolo_yuki's card at 360x740 and 320x740) both pass, so no fallback. Measured at 320x740:
+  the fictional open-positions pane's F3 line sits below the fold in either label position (800 px before the move,
+  796 px after), so AC 10 checks in-view at 360 and reflow at 320, as the criterion says. AC 9's share part is not
+  applicable by design (plan B3/E7): left unticked for the business lead; its wording goes back to the design session.

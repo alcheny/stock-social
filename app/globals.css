@@ -868,3 +868,9 @@ h1 { overflow-wrap: anywhere; }
 .warn-notice [data-warn-icon] circle { stroke: none; }
 .warn-notice > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 /* ---- end F-27 ---- */
+/* F-29 (docs/features/logs/F-29/plan.md D5, D6): the pane's qualifier closes its figures block, as tight to the figures
+   as the grids sit to each other (the figures' own bottom margin is the gap); the feed card's count line under its
+   record strip, its own class (no pane or .options-gated rule reaches it), token colours through .muted only. */
+.pane .stats + .share-label, .pane .open-stats + .share-label, .pane .open-combined + .share-label { margin-top: 0; }
+.card-options-count { margin: 4px 0 0; }
+/* end F-29 */

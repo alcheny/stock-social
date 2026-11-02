@@ -5,17 +5,14 @@
 // (lib/privacy-fields.ts) and every trader is gated.
 import { PUBLIC_FIELDS, type Field } from './privacy-fields.ts';
 import { versionFor } from './consent-versions.ts';
+import { OPTION_PUBLIC_COLUMNS, optionColumnsPublic } from './gate-key.ts'; // F-29
 
-export const OPTION_PUBLIC_COLUMNS = [
-  'option_trades.underlying', 'option_trades.option_right', 'option_trades.option_expiry', 'option_trades.return_pct',
-  'option_trades.opened_at', 'option_trades.closed_at', 'option_trades.holding_days',
-  'open_option_positions.underlying', 'open_option_positions.option_right', 'open_option_positions.option_expiry', 'open_option_positions.unrealized_pct',
-] as const;
+// F-29 (plan D3): the column list and the global check live in lib/gate-key.ts (client-safe), re-exported here.
+export { OPTION_PUBLIC_COLUMNS } from './gate-key.ts';
 
 /** Global half: every option column is in a public field of the scope line. */
 export function optionsPublic(fields: readonly Field[] = PUBLIC_FIELDS): boolean {
-  const named = new Set(fields.flatMap((f) => f.columns));
-  return OPTION_PUBLIC_COLUMNS.every((c) => named.has(c));
+  return optionColumnsPublic(fields);
 }
 
 /** Per-trader half: the consent this hash records named every option column. Unknown or null hashes (every consent

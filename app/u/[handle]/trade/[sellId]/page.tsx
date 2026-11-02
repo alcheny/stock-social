@@ -22,6 +22,7 @@ import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: statu
 import { UserNote } from '../../../../user-note.tsx';
 import { HeldNote } from '@/lib/user-note.ts';
 import { loadOwnNote } from '@/lib/own-note.ts';
+import { withGate } from '@/lib/gate-key.ts'; // F-29 (D3): the unfurl image URL carries the gate state
 
 const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 
@@ -47,7 +48,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   // Reviewer fix (TR-3): no record stats while an import runs; the incomplete line first on a failed one. The image's
   // alt text is the strip in words, declared here because a file-level alt is static (F-4 pattern).
   const strip = recordStrip(tradeStripInput(t), 'image');
-  const url = `/u/${t.handle}/trade/${encodeURIComponent(sellId)}/opengraph-image`;
+  const url = withGate(`/u/${t.handle}/trade/${encodeURIComponent(sellId)}/opengraph-image`);
   return {
     title: `${t.symbol} ${pct(t.returnPct)} · @${t.handle} · Stock Social`,
     alternates: { canonical: tradePath(t.handle, t.sellId!) }, // F-15 second half: the stored id's spelling, untagged
