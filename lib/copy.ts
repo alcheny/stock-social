@@ -62,6 +62,11 @@ export const TRUST_NOTICE = {
 // The vendor's own security page, linked from the notice. Configurable so the owner can point at the page the vendor publishes.
 export const VENDOR_SECURITY_URL = process.env.NEXT_PUBLIC_VENDOR_SECURITY_URL || 'https://snaptrade.com/security';
 
+// F-32 Part A (council cycle 5, C5-1): one label for the transfer reason, rendered by the profile line, the compare card
+// and /how (and F-21's pane line when it lands). Neutral words: a limit of matching, never a judgment of the trader.
+// ponytail: the committee's wording; the owner's final wording is an owner item (with OD 2.28's POLICY F3 edit).
+export const TRANSFER_REASON = 'a share transfer in the same stock';
+
 // Own profile, first screen after sign-in (the committee's item 9): one status line, no celebration.
 export const PROFILE = {
   youreIn: "You're in. Next: connect your brokerage.",
@@ -86,6 +91,12 @@ export const PROFILE = {
   // ponytail: rows a give-up left held (a busy account; failed or multi-page widened reads) are no longer being checked
   // until a later pass, yet the line says "checks" — fix: a second line for given-up rows once the owner words it.
   excludedHeld: (n: number) => `${counted(n, 'sell')} excluded while the importer checks a broker row that may repeat an earlier one.`,
+  // F-32 Part A: sells a transfer row excludes (users.excluded_transfer), a count only. The line links to /how#transfers;
+  // the link's name adds `excludedTransferLink` (visually hidden) after the visible text.
+  // ponytail: shown on the public profile and compare cards only; /me/record shows no line — fix: add excluded_transfer
+  // to the session user row (lib/session.ts, protected) and a line there, as for excluded_corporate above.
+  excludedTransfer: (n: number) => `${counted(n, 'sell')} excluded: ${TRANSFER_REASON}.`,
+  excludedTransferLink: 'How share transfers are counted',
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
@@ -405,18 +416,23 @@ export const HOW = {
     'Short options and short sales: their risk has no fixed amount to measure a percent against.',
     'Exercised or assigned options, and share trades held over the day of an exercise or assignment in that stock. These are left out of the options average, so it does not include contracts that ended in the money.',
     'Options on futures or other non-stock underlyings, contracts adjusted after a corporate action, and contracts past expiry with no closing record.',
-    'Transfers in, and sells with no recorded entry in the imported history (shown as excluded sells, never guessed).',
+    // F-32 Part A (business lead, round 1): transfers have one home, HOW.transfer (it names transfers in, POLICY F3).
+    'Sells with no recorded entry in the imported history (shown as excluded sells, never guessed).',
     // Fixes cycle 4 (C4-2; UX lead, committee).
     'After a sell of more shares than the imported history holds (an earlier holding, a transfer in or a short sale), or a stock split, stock dividend or other corporate action on a stock the history shows none of, the later sells of that holding in that account (under its new symbol after a rename) are excluded and counted too, wins and losses alike: the history can\u2019t show which buys are left.',
     // Fixes cycle 4 (UX lead, round 4): the disclosure of F-30's accepted residual (lib/trades.ts ponytail in `replay`).
     'Some brokers send only the date of a trade. On those, a buy and a sell of one stock on the same day are read buy first, so a same-day short sale with no earlier sign of one can appear as a long trade (a known limit).',
-    'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
+    // F-32 Part A: transfers have their own reason (HOW.transfer), so this bullet no longer names them.
+    'Stock splits and other corporate actions whose ratio is not known exactly, and spin-offs: the trades they touch are excluded and counted, never guessed.',
     // Fixes cycle 3, F3-1 (lib/trades.ts): unusable broker trade rows are counted, never dropped.
     'Trade rows the broker sent without a usable price, share count or date: the trades they touch are excluded and counted, never guessed. With no share count, that includes the later trades of the same stock in the same account; with no date, all of its trades there.',
     'A sell of more shares than the imported history holds (for example after a stock split the broker did not report) is excluded whole, wins and losses alike.',
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
   ],
+  // F-32 Part A: the profile's transfer line links here (app/how/page.tsx renders it with id="transfers"). The exact
+  // window is not printed (UX lead, committee): the owner decides whether to state it (owner item).
+  transfer: `Sells excluded: ${TRANSFER_REASON}. A sell is counted here, wins and losses alike, when a transfer of that stock into or out of its account falls close to the sell\u2019s date or while the sold shares were held: a limit of how trades are matched, not a judgment of the trader.`,
   freezeTitle: 'Disconnecting and deleting',
   freeze: 'A record freezes when a brokerage is disconnected and stays public. Deleting the profile removes it; the handle is held for a year.',
 } as const;
