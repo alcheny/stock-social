@@ -49,7 +49,10 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
 - **Housekeeping** (expired sign-in links, the connections tick, pending deletions, the discovery purge, the daily billing
   reconciliation) runs once per cron mark: in the unsharded call, or in the `task=housekeeping` call on a sharded
   schedule. It never waits on a shard lease. Its time is reported as `housekeepingMs`. Its own vendor calls (import
-  steps, deletions) are outside the shards' request budgets.
+  steps, deletions) are outside the shards' request budgets. Chores cycle 5 (C5-43 (c)): it also rebuilds the stored
+  sitemap (`lib/sitemaps.ts#rebuildSitemapIfDue`, at most once per `REBUILD_MS` = 10 min fleet-wide, skipped while
+  another call rebuilds it), reported as `sitemap: { rebuilt, n }`; no request aggregates `closed_trades`, so a new
+  close appears in the sitemap at the next rebuild.
 - **Transient streak.** A trader that fails transiently 5 rounds in a row (`TRANSIENT_LIMIT`: a record that always
   times out, or whose own data always throws) is quarantined and backed off, never retried every round forever.
 
@@ -265,7 +268,7 @@ stays open until that record rebuilds.
 |---|---|---|
 | `sync run start {…}` | a run took its lease | of, shard, concurrency, rps |
 | `sync run {…}` | every call | of, shard, busy, done, skipped (lock held elsewhere), deferred (did not fit), transient, refused, failed, quarantined, releaseFailed, remaining (left this round), inBackoff, stoppedAtDeadline, breaker, leaseLost, aborted, concurrency, requests, tokenWaitMs, pages, ms |
-| `sync coverage {…}` | every unsharded or housekeeping call | missingShards (no heartbeat in 15 min, counting shards that never ran), capRatio, capBreach, oldestActivitiesReadHours, oldestPositionsReadHours, freshnessAlarm, unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings, idle (F-11: records with no successful sync for 30 days, `lib/sync.ts#idleCount`) |
+| `sync coverage {…}` | every unsharded or housekeeping call | missingShards (no heartbeat in 15 min, counting shards that never ran), capRatio, capBreach, oldestActivitiesReadHours, oldestPositionsReadHours, freshnessAlarm, unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings (C5-40: `jit` 1 on, 0 off), idle (F-11: records with no successful sync for 30 days, `lib/sync.ts#idleCount`) |
 | `sync round incomplete {…}` | the previous round left traders unclaimed, or a shard is missing | of, missingShards, unclaimedPrevRound |
 | `sync failed <id> <class> <status>` | one trader's sync failed | internal user id, failure class, error name and HTTP status (never the message) |
 
@@ -347,11 +350,19 @@ example:
 ```sql
 alter role stock_social set statement_timeout = '60s';
 alter role stock_social set idle_in_transaction_session_timeout = '6min';
+alter role stock_social set jit = off;
 ```
 
 The idle timeout must sit above the largest sync cost (`(1 + 3 × SYNC_FIT_CAP) × 30 s` = 300 s) and below the per-user lease
 (10 min). The coverage line checks both timeouts and `max_connections ≥ N × (C + 2) + 20`, and reports
 `dbConfigOk`.
+
+JIT (chores cycle 5, C5-40): PostgreSQL compiles a query's expressions when its estimated cost passes `jit_above_cost`,
+which on a default server was 485 of 570 ms in the F-15 rollup read and 674 ms in the ticker baseline. The app's queries
+are short reads that never repay the compile, so the app role runs with `jit = off` (above). Applying it in production is
+the owner's deploy setting; until then the coverage line reports `db.jit: 1` (0 when off) and the problem `jit is on`
+(`lib/sync-shard.ts#dbSettings`, `lib/sync-limits.ts#dbConfigCheck`). A role setting applies to new sessions only:
+restart the app's pool (redeploy) after the `alter role`.
 
 ## Cron setup
 
