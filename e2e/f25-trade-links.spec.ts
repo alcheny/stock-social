@@ -379,11 +379,13 @@ test('feed footer at a 115% root font size (360 and 780 px): the two hit boxes n
   }
 });
 
-test('page 1 card 1 with the first-visit line dismissed and a 280-character note: the swipe hint sits above the footer links, clear of their hit boxes; the card fits with 15% to spare', async ({ browser }) => {
+test('page 1 card 1 with the first-visit line dismissed and a 280-character note: the swipe hint sits above the footer links and takes its own taps; the card fits with 15% to spare', async ({ browser }) => {
   test.setTimeout(120_000);
-  // A trader of this test's own whose closes all carry a 280-character note and whose strong record ranks it first.
+  // A trader of this test's own whose closes all carry a 280-character note (its rendered note is the worst case for card 1).
   const N = await makeTrader(sql, { handle: handleOf('f25n'), verified: true, mark: MARK,
-    closes: Array.from({ length: 12 }, (_, i) => ({ symbol: symbolOf(), r: 0.6 + (i % 2 ? 0.01 : -0.01), hoursAgo: 0.02 * (i + 1), thesis: LONG_NOTE })) });
+    // A long, tight, large record (40 closes near +500%, spread over 50 days so they count as separate bets) so its newest
+    // close ranks first on page 1 whatever else the shared database holds.
+    closes: Array.from({ length: 40 }, (_, i) => ({ symbol: symbolOf(), r: 5 + (i % 2 ? 0.01 : -0.01), hoursAgo: i ? 30 * i : 0.02, thesis: LONG_NOTE })) });
   try {
     for (const [width, height] of [[320, 640], [360, 640], [780, 360]] as const) {
       const ctx = await browser.newContext({ viewport: { width, height } });
@@ -392,13 +394,26 @@ test('page 1 card 1 with the first-visit line dismissed and a 280-character note
       await page.goto('/');
       await expect(page.locator('html')).toHaveAttribute('data-ss-seen', /(^|\s)line(\s|$)/);
       const row = page.locator('.feed > .row').first();
-      await expect(row, 'the long-note trader is page 1 card 1').toHaveAttribute('data-handle', N.handle);
+      // The feed's day-seeded mix decides who is card 1 (F-2), so this does not rely on ranking: when card 1 is another
+      // trader's, its note slot gets this trader's rendered 280-character note (the same element, moved), the worst case.
+      await page.waitForTimeout(300); // hydrated
+      await page.evaluate((h) => {
+        const rows = [...document.querySelectorAll('.feed > .row')];
+        const first = rows[0], mine = rows.find((r) => r.getAttribute('data-handle') === h);
+        if (!first || !mine || first === mine) return;
+        const note = mine.querySelector(':scope > .card [data-user-note]');
+        const slot = first.querySelector(':scope > .card .fv-slot') ?? first.querySelector(':scope > .card');
+        if (!note || !slot) return;
+        slot.querySelector(':scope > [data-user-note]')?.remove();
+        const before = slot.matches('.fv-slot') ? null : slot.querySelector(':scope > [data-open], :scope > footer');
+        slot.insertBefore(note.cloneNode(true), before);
+      }, N.handle);
       const card = row.locator(':scope > .card');
       await expect(card.locator('.thesis')).toContainText(LONG_NOTE.slice(0, 60));
       await expect(card.locator('[data-first-visit]')).toBeHidden();
       const hint = card.locator('footer [data-swipe-hint]');
       await expect(hint).toBeVisible();
-      const trade = card.locator('footer a[href*="/trade/"]'), rec = card.locator(`footer a[href="/u/${N.handle}"]`);
+      const trade = card.locator('footer a[href*="/trade/"]'), rec = card.locator('footer a[href^="/u/"]:not([href*="/trade/"])'); // card 1's own trader
       await expect(trade).toHaveCount(1);
       const at = `${width}×${height}`;
       const fit = await fitOf(card);
@@ -407,8 +422,10 @@ test('page 1 card 1 with the first-visit line dismissed and a 280-character note
       // F-25 decision (QA round 1): the hint keeps its own line above the links (both links leave no room beside it), and
       // its box touches neither link's hit box.
       const [h, t, r] = [await boxOf(hint), await boxOf(trade), await boxOf(rec)];
-      expect.soft(h.y + h.h <= t.y, `${at}: the hint sits above "This trade" (hint ${JSON.stringify(h)}, link ${JSON.stringify(t)})`).toBe(true);
-      expect.soft(overlaps(h, t) || overlaps(h, r), `${at}: the hint overlaps no link hit box`).toBe(false);
+      expect.soft(h.y + h.h / 2 < t.y + t.h / 2, `${at}: the hint's line is above "This trade" (hint ${JSON.stringify(h)}, link ${JSON.stringify(t)})`).toBe(true);
+      // The hint's text takes its own taps (it paints above the first link's overhang, as the disclaimer does).
+      const hintHits = await hint.evaluate((e) => { const r = (e.querySelector('.f25-hint-text') ?? e).getBoundingClientRect(); /* the hint's words */ return [0.1, 0.5, 0.9].map((fx) => document.elementFromPoint(r.left + r.width * fx, r.top + r.height / 2)?.closest('a')?.getAttribute('href') ?? null).filter(Boolean); });
+      expect.soft(hintHits, `${at}: a tap on the hint follows no link`).toEqual([]);
       expect.soft(overlaps(t, r), `${at}: the links' hit boxes do not overlap`).toBe(false);
       for (const sel of ['footer a[href*="/trade/"]', 'footer a:not([href*="/trade/"])', '[data-disclaimer]']) {
         await expect.soft(card.locator(sel).first(), `${at}: ${sel} in view`).toBeInViewport();

@@ -871,7 +871,6 @@ h1 { overflow-wrap: anywhere; }
   .card .f25-card-links { flex-direction: column; align-items: flex-start; }
   .card .f25-card-links > :first-child { margin-top: -22px; }
   .card .f25-card-links > :last-child { margin-bottom: -22px; }
-  .card .swipe-hint + .f25-card-links > :first-child { margin-top: -14px; } /* page 1's first card: clear of the hint */
   /* The two words sit 8 px apart, so the pair reads as one group (UX user test): each text hugs the inner edge of its box. */
   .card .f25-card-links > :first-child { align-items: flex-end; }
   .card .f25-card-links > :last-child { align-items: flex-start; }
@@ -879,9 +878,11 @@ h1 { overflow-wrap: anywhere; }
 /* The text a footer box reaches over (the disclaimer below, the block above) paints above it, so a tap on that text never
    follows a link (UX user test); the boxes keep their 44 px, and their own text and the space between stay theirs. */
 .feed .card .card-disclaimer, .feed .card > :has(+ footer) { position: relative; z-index: 1; }
-/* Page 1's first card: the swipe hint keeps its own line above the links (both links leave no room beside it), 14 px
-   clear of their hit boxes. */
-html:not([data-ss-seen~="hint"]) .feed .card footer .swipe-hint { display: block; margin: 0 0 14px; } /* never over its dismissed display: none */
+/* Page 1's first card: the swipe hint keeps its own line above the links (both links leave no room beside it). Like the
+   disclaimer, it paints above the first link's overhang, so a tap on the hint never follows the link and the card keeps
+   F-10's budget at 320 px with a 280-character note. */
+html:not([data-ss-seen~="hint"]) .feed .card footer .swipe-hint { display: block; margin: 0; } /* never over its dismissed display: none */
+.feed .card footer .f25-hint-text { position: relative; z-index: 1; } /* the line stays static (F-13) */
 /* ponytail: a footer link's 44 px box reaches 14 px (22 px below 360 px) over the card's text above and the disclaimer
    below; that text paints above the box, so the box's tappable part there is smaller than 44 px — fix: a taller footer
    row once the card has room (F-10's one-screen budget). */

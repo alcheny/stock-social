@@ -146,3 +146,21 @@ page's flight payload. That came to about 100 KB, because every feed card carrie
 Decision 16: the pane's "Last 5 trades" list and the card's two footer links are small client components
 (`app/f25-links.tsx`) that take compact props (key, symbol and the printed date, figure and tone: never more precision than the row shows). The HTML, names and
 behaviour are unchanged. The pages now weigh 447, 421 and 459 KB, with the threshold unchanged.
+
+## Merge of main with F-23 (#97), 2026-11-02
+F-23 moved the pane to a `?v=2` model. The model's five `recent` rows now carry their `trade_key`
+(`lib/pane-model.ts`), and the "Last 5 trades" links print F-23's UTC day. `e2e/f23-payload-scan.spec.ts` scans the
+trade page by its key, so it covers the new rows' payloads. `e2e/f23-display.spec.ts` was updated to F-25's markup:
+the profile figure's name carries the sign word, and a pane row's content sits inside its link.
+
+Decision 17 (amends decision 14):
+- The card-1 check no longer depends on ranking. The feed's day-seeded mix put a demo trader in slot 1, so the test
+  moves this trader's rendered 280-character note into card 1 before measuring.
+- With that worst case, a card that also carries the open-positions line needed 645 of 639 px at 320. The 14 px gap
+  between the hint and the first link is therefore gone.
+- The hint's words now paint above the link's overhang, as the disclaimer does. They sit in a span; the line stays
+  `position: static` for F-13. A tap on the words follows no link (e2e).
+- Thresholds are unchanged.
+
+`e2e/fixes-labels.spec.ts` C1 fails on this database for origin/main alone too (checked with a main build), so it is
+not this PR's. CI is the reference.
