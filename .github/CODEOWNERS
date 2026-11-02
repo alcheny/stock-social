@@ -51,8 +51,8 @@
 /package.json @alcheny
 /package-lock.json @alcheny
 
-# Autonomous-build guardrails (owner decision 2026-11-01, item 2.58): billing, consent, deletion, auth, trade math,
-# moderation, claims, the disclaimer, /how and the share card change only with the owner's review.
+# Autonomous-build guardrails (owner decision 2026-11-01, item 2.58): the files below for billing, consent, deletion,
+# auth, trade math, moderation, claims, the disclaimer, /how and the share card change only with the owner's review.
 /lib/billing.ts @alcheny
 # Consent scope and public fields (POLICY P3, P6; brief 3.8). The scope line itself still sits in lib/copy.ts until an
 # agent moves it into lib/consent-versions.ts.
