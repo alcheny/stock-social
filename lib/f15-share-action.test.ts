@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { shareTarget, shareOutcome, SHARE_SURFACES, RECORD_SIGNS, SHARE_OUTCOMES } from './share-actions.ts';
 import { SHARE_VIAS } from './referral.ts';
-import { tradePath, shareVia } from './share.ts';
+import { shareVia } from './share.ts';
+import { tradePageHref } from './trade-href.ts'; // F-25: tradePath gave way to the trade_key builder
 import { siteOrigin } from './site-origin.ts';
 import { siteOrigin as billingSiteOrigin } from './billing.ts';
 
@@ -36,11 +37,13 @@ test('F-15 share_action: outcome is sheet or copy; anything else writes nothing;
   assert.deepEqual([...RECORD_SIGNS], ['up', 'down', 'flat', 'none']);
 });
 
+// F-25: the one spelling is now the trade_key form (lib/trade-href.ts); the same test, the new URL form.
 test('F-15 tradePath: one spelling from the stored sell id, used by the share link and the canonical link', () => {
-  assert.equal(tradePath('maya', 'abc'), '/u/maya/trade/abc');
-  assert.equal(tradePath('maya', 'a/b c'), '/u/maya/trade/a%2Fb%20c');
+  const key = 'a'.repeat(64);
+  assert.equal(tradePageHref({ handle: 'maya', tradeKey: key }), `/u/maya/trade/${key}`);
+  assert.throws(() => tradePageHref({ handle: 'maya', tradeKey: 'a/b c' })); // never a raw id in a URL
   const page = readFileSync(new URL('../app/u/[handle]/trade/[sellId]/page.tsx', import.meta.url), 'utf8');
-  assert.equal((page.match(/tradePath\(t\.handle, t\.sellId!\)/g) ?? []).length, 2); // canonical and share link, from the stored id
+  assert.equal((page.match(/tradePageHref\(\{ handle: t\.handle, tradeKey: t\.tradeKey! \}\)/g) ?? []).length, 2); // canonical and share link, from the stored key
   assert.doesNotMatch(page, /const path = `\/u\/\$\{t\.handle\}\/trade\//);
 });
 

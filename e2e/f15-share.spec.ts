@@ -16,9 +16,9 @@ test.beforeEach(async ({ page, context }) => {
 for (const kind of ['trade', 'month'] as const) {
   test(`${kind} page: one tap copies the link tagged via=${kind}; the polite live region says Link copied`, async ({ page, baseURL }) => {
     const [r] = kind === 'trade'
-      ? await sql`select c.sell_id k from closed_trades c join users u on u.id = c.user_id where u.handle = ${HANDLE} order by c.closed_at desc limit 1`
+      ? await sql`select c.trade_key k from closed_trades c join users u on u.id = c.user_id where u.handle = ${HANDLE} order by c.closed_at desc limit 1`
       : await sql`select to_char(max(c.closed_at), 'YYYY-MM') k from closed_trades c join users u on u.id = c.user_id where u.handle = ${HANDLE}`;
-    const path = `/u/${HANDLE}/${kind}/${encodeURIComponent(r.k)}`;
+    const path = `/u/${HANDLE}/${kind}/${encodeURIComponent(r.k)}`; // F-25: a trade page's address is its trade_key form
     await page.goto(`${path}?via=card`); // arrived from a shared link
     const live = page.locator('[aria-live="polite"]').filter({ hasText: /^$|Link copied/ }).first();
     await expect(live).toHaveText('');

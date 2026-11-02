@@ -16,7 +16,7 @@ export function profileReads(perRequest: PerRequest) {
   return {
     user: perRequest(async (handle: string) => (await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, excluded_held, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and deleted_at is null`)[0]),
     trades: perRequest((userId: number) => sql`
-      select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
+      select id, sell_id, trade_key, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
         thesis_written_at, thesis_edited_at, thesis_hold_rule
       from closed_trades where user_id = ${userId} order by closed_at desc, id desc`), // list order (lib/paging.ts)
     positions: perRequest((userId: number) => sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions where user_id = ${userId} order by symbol, account_id`),
