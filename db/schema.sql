@@ -1200,3 +1200,6 @@ select schema_add_column('activity_reissues', 'undecided', 'boolean not null def
 -- F-32 Part A (council cycle 5, C5-1): sells a vendor transfer row excludes (lib/trades.ts `excludedTransfer`), counted
 -- under their own reason, never excluded_corporate. A count only: no transfer units, date or account is stored.
 select schema_add_column('users', 'excluded_transfer', 'int not null default 0');
+-- F-22 (owner OD 2.28): transfer rows with units out of an account (lib/trades.ts `transfersOut`), each counted once. A
+-- count of transfers, not sells; no transfer units, date or account is stored.
+select schema_add_column('users', 'excluded_transferred_out', 'int not null default 0');

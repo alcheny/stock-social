@@ -50,11 +50,16 @@ const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale
 // transfers, not sells, so it is not an `excluded*` key (those partition the sells); F-21's sum names it in its own unit.
 export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number; excludedTransfer?: number; transfersOut?: number };
 // F-22: a transfer out with units (lib/sync.ts counts one in a pair with no activity, which is never replayed).
-export const isTransferOut = (ca: CorporateAction) => ca.kind === 'unpriceable' && ca.reason !== 'trade' && ca.transfer === true && (ca.units ?? 0) < 0;
+// A unit-less row counts when its type says out (loader `out`); a unit-less TRANSFER has no direction, so it does not.
+export const isTransferOut = (ca: CorporateAction) => ca.kind === 'unpriceable' && ca.reason !== 'trade' && ca.transfer === true && ((ca.units ?? 0) < 0 || (!ca.units && ca.out === true));
 // Every `excluded*` key of MatchResult, and their one sum (F-21's shared sum reads this; lib/f32-transfers.test.ts fails,
 // in tsc too, when a new `excluded*` key is not listed here).
 export const EXCLUDED_KEYS = ['excluded', 'excludedCorporate', 'excludedHeld', 'excludedTransfer'] as const satisfies readonly (keyof MatchResult)[];
 export const exclusionSum = (r: MatchResult): number => EXCLUDED_KEYS.reduce((s, k) => s + (r[k] ?? 0), 0);
+// F-22: every count a record keeps, in two units (sells, and share transfers out). F-21's shared sum reads this and
+// names both units, never "trades". lib/f22-transfers.test.ts fails (in tsc too) when a numeric key is not listed.
+export const COUNTED_KEYS = [...EXCLUDED_KEYS, 'transfersOut'] as const satisfies readonly (keyof MatchResult)[];
+export const countedSum = (r: MatchResult): number => COUNTED_KEYS.reduce((s, k) => s + (r[k] ?? 0), 0);
 export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 
 // FIFO, long only. One closed trade per SELL, or one count: every SELL is a shown trade, `excluded`, `excludedCorporate`,
@@ -340,6 +345,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
           }
           continue;
         }
+        if (isTransferOut(ca)) transfersOut++; // F-22: a unit-less transfer out (type _OUT) is counted too
         if (ca.scope === 'account') {
           for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`)) taint(other.lots);
         } else taintBy(b.lots, ca);

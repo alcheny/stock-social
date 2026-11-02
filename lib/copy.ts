@@ -69,7 +69,11 @@ export const TRANSFER_REASON = 'a share transfer in the same stock';
 
 // F-32 Part A: the /how sentence for the transfer reason (business lead: transfers' one home on /how). The exact window is
 // not printed (UX lead, committee): whether to state it is an owner item.
-const TRANSFER_HOW = `Transfers in and out of an account. A sell is counted as \u201cexcluded: ${TRANSFER_REASON}\u201d, wins and losses alike, when a transfer of that stock into or out of its account falls close to the sell\u2019s date or while the sold shares were held: a limit of how trades are matched, not a judgment of the trader.`;
+// F-22: rewritten so it stays true once a transfer taints no recorded buy: a transfer reaches a sell only by its date,
+// by the shares that arrived, or by the shares left after part of a holding moved out.
+const TRANSFER_HOW = `Transfers in and out of an account. A sell is counted as \u201cexcluded: ${TRANSFER_REASON}\u201d, wins and losses alike, when a transfer of that stock into or out of its account falls close to the sell\u2019s date, when the sell uses shares that arrived by transfer (their buy price is unknown), or when it sells shares left after part of a holding moved out by transfer (which shares left is unknown): a limit of how trades are matched, not a judgment of the trader.`;
+// F-22 (owner OD 2.28): the /how item for transfers out; the profile's transferred-out line links to it.
+const TRANSFER_OUT_HOW = 'Transfers out of an account. Shares that leave an account by transfer are not a closed trade and have no return; each transfer out is counted as a \u201cshare transfer out of an account\u201d. The shares that left are taken from the oldest buys first (first in, first out, which is this record\u2019s own matching method, not the broker\u2019s), and only where that can\u2019t change the buy price or date of the shares left: the whole holding moved, or every buy still held has the same price, fee and date.';
 
 // Own profile, first screen after sign-in (the committee's item 9): one status line, no celebration.
 export const PROFILE = {
@@ -101,6 +105,12 @@ export const PROFILE = {
   // to the session user row (lib/session.ts, protected) and a line there, as for excluded_corporate above.
   excludedTransfer: (n: number) => `${counted(n, 'sell')} excluded: ${TRANSFER_REASON}.`,
   excludedTransferLink: 'How share transfers are counted',
+  // F-22 (owner OD 2.28): transfers out (users.excluded_transferred_out), a count of transfers, not sells. Names no cause,
+  // blames no one; links to /how#transfers-out. ponytail: committee wording; the owner's final wording is an owner item.
+  excludedTransferredOut: (n: number) => n === 1
+    ? '1 share transfer out of an account: not a closed trade, so no return is shown for it.'
+    : `${count(n)} share transfers out of an account: not closed trades, so no return is shown for them.`,
+  excludedTransferredOutLink: 'How share transfers out are counted',
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
@@ -403,7 +413,7 @@ export function profileDescription(x: { state: RecordState; demo: boolean; verif
 export const HOW = {
   title: 'How records are calculated',
   verifiedTitle: 'What "Verified" means',
-  verified: 'Verified means imported read-only from the trader\u2019s broker through the integrated vendor. It does not verify identity, completeness or skill, and it is not an endorsement by a broker or by the vendor. Demo profiles carry a Demo badge instead.',
+  verified: 'Verified means imported read-only from the trader\u2019s broker through the integrated vendor. It does not verify identity, completeness or skill, and it is not an endorsement by a broker or by the vendor. Demo profiles carry a Demo badge instead. Shares moved into or out of an account by transfer are counted, not priced, as described below.',
   mathTitle: 'The math',
   math: [
     'Each closed trade is one sell, matched to earlier buys of the same symbol in the same account, first in, first out.',
@@ -423,6 +433,7 @@ export const HOW = {
     // F-32 Part A (business lead, round 1): transfers have one home, HOW.transfer (it names transfers in, POLICY F3).
     'Sells with no recorded entry in the imported history (shown as excluded sells, never guessed).',
     TRANSFER_HOW,
+    TRANSFER_OUT_HOW,
     // Fixes cycle 4 (C4-2; UX lead, committee).
     'After a sell of more shares than the imported history holds (an earlier holding, a transfer in or a short sale), or a stock split, stock dividend or other corporate action on a stock the history shows none of, the later sells of that holding in that account (under its new symbol after a rename) are excluded and counted too, wins and losses alike: the history can\u2019t show which buys are left.',
     // Fixes cycle 4 (UX lead, round 4): the disclosure of F-30's accepted residual (lib/trades.ts ponytail in `replay`).
@@ -438,6 +449,7 @@ export const HOW = {
   // F-32 Part A: the profile's transfer line links here (app/how/page.tsx renders it with id="transfers"); it is also an
   // item of `excluded` (POLICY F3 names transfers in there).
   transfer: TRANSFER_HOW,
+  transferOut: TRANSFER_OUT_HOW, // F-22: app/how/page.tsx renders it with id="transfers-out"
   freezeTitle: 'Disconnecting and deleting',
   freeze: 'A record freezes when a brokerage is disconnected and stays public. Deleting the profile removes it; the handle is held for a year.',
 } as const;

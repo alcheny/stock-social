@@ -29,7 +29,7 @@ export type CorporateAction =
   // < 0: shares removed. scope 'account' taints every open lot in the account (a spin-off whose parent is not named).
   // `transfer` (F-32 Part A): the row is a vendor transfer (TRANSFER or an external transfer in or out, unpaired), set by
   // loadCorporateActions from the stored row's type. The matcher counts the sells it excludes under their own reason.
-  | (Base & { kind: 'unpriceable'; reason: 'spin-off' | 'unknown'; units?: number; scope?: 'pair' | 'account'; transfer?: true })
+  | (Base & { kind: 'unpriceable'; reason: 'spin-off' | 'unknown'; units?: number; scope?: 'pair' | 'account'; transfer?: true; out?: true })
   // Fixes cycle 3, F3-1: a vendor BUY/SELL row the importer can't price (lib/broker.ts#toActivities via unusableTrade):
   // `units` when the row's share count is usable, `undated` when its date is missing or unparseable (then `executedAt` is
   // the epoch: it can't be placed, so it applies before every row of its pair). Never a repricing action.
@@ -320,8 +320,15 @@ export async function insertCorporateActions(db: Db, userId: number, source: 'sn
 // F-32 Part A: an unpriceable 'unknown' action whose stored vendor row is a transfer gets `transfer: true`. It is derived
 // here, from the row's type, so rows stored before F-32 are read the same way, and nothing new is stored (no units, date
 // or account beyond what the row already holds). A spin-off keeps its own reason.
+// F-22: the direction comes from the type where it names one: `out: true` for EXTERNAL_ASSET_TRANSFER_OUT, and a row whose
+// sign contradicts its type (an _OUT with units > 0, an _IN with units < 0) loses its units (unit-less: tainted, never
+// guessed). A TRANSFER's direction is its sign.
 export function withTransfer(a: CorporateAction, vendorType: string | null | undefined): CorporateAction {
-  return a.kind === 'unpriceable' && a.reason === 'unknown' && (TRANSFER_TYPES as readonly string[]).includes(vendorType ?? '') ? { ...a, transfer: true } : a;
+  if (!(a.kind === 'unpriceable' && a.reason === 'unknown' && (TRANSFER_TYPES as readonly string[]).includes(vendorType ?? ''))) return a;
+  const u = a.units ?? 0;
+  const contradicts = (vendorType === 'EXTERNAL_ASSET_TRANSFER_OUT' && u > 0) || (vendorType === 'EXTERNAL_ASSET_TRANSFER_IN' && u < 0);
+  const { units: _u, ...rest } = a;
+  return { ...(contradicts ? rest : a), transfer: true, ...(vendorType === 'EXTERNAL_ASSET_TRANSFER_OUT' ? { out: true as const } : {}) };
 }
 
 export async function loadCorporateActions(db: Db, userId: number, notFuture: PendingQuery<PgRow[]>): Promise<CorporateAction[]> {
