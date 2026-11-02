@@ -21,6 +21,9 @@ import { rebuildRecord } from './options-sync.ts';
 // adds is counted by F-24's rewrites (lib/options-sync.ts#logRewrites).
 // ponytail: the sign count compares stored and rebuilt share closes by sell_id only (option closes already divide by
 // premium plus entry fees) — fix: one rebuild report table with per-cause counts if a later bump needs them.
+// ponytail: the counts cover only records this run rebuilds; a record the hourly sync rebuilt on the new code first (one
+// left over at the time budget) reads unchanged here, so its changed returns are not counted — fix: keep the counts per
+// record in matcher_rebuilt, written by whichever rebuild first runs the new version (independent review, finding 1).
 export function signChanges(before: Map<string, number>, after: Map<string, number>): { changed: number; signChanged: number } {
   let changed = 0, signChanged = 0;
   for (const [id, r] of after) {

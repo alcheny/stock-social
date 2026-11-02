@@ -48,6 +48,9 @@ function main() {
     if (noFee.length) problems.push(`${noFee.length} changed figures with no entry fee:\n  ${noFee.join('\n  ')}`);
     const legacy = run('legacy', dir);
     if (!legacy.lines.includes('hook-loaded lib/trades.test.ts')) problems.push('legacy run: the hook did not load in lib/trades.test.ts');
+    // Independent review (finding 2): the legacy run must fail where a pinned fee-bearing figure lives, or the reporter
+    // collected nothing and the list of changed expectations would come out empty without a failure.
+    if (legacy.status === 0 || !legacy.failed.some((f) => f.startsWith('lib/trades.test.ts\t'))) problems.push('legacy run: no failure collected in lib/trades.test.ts (the reporter or the hook is not working)');
     // Every expectation that fails under the legacy figure is in a test file where a fee-bearing figure changed.
     const files = new Set(changed.map((l) => l.split(' ')[0]));
     const unexplained = legacy.failed.filter((f) => !files.has(f.split('\t')[0]));
