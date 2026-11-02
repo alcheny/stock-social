@@ -30,6 +30,10 @@ async function setup() {
     ]);
     return u.id;
   };
+  // A private version: the catch-up treats any done version at or above it as done, so a leftover row from an earlier
+  // run of this file (the only writer of versions >= 20000) would turn every call into null; fail with that reason.
+  const [stale] = await sql`select version from matcher_runs where version >= 20000 limit 1`;
+  assert.equal(stale, undefined, 'a matcher_runs row >= 20000 is left from an earlier run of this file');
   const version = () => { const v = privateVersion(); versions.push(v); return v; };
   // The figure an older matcher published for record `n`'s close (+50%): the test's own fixture row, as in
   // lib/fixes-cycle4.db.test.ts (production never patches closed_trades).
@@ -39,7 +43,7 @@ async function setup() {
     if (versions.length) await sql`delete from matcher_runs where version in ${sql(versions)}`;
     if (made.length) await sql`delete from users where id in ${sql(made)}`;
   };
-  return { sql, tag, made, mkRecord, version, staleFigure, cleanup };
+  return { sql, tag, made, versions, mkRecord, version, staleFigure, cleanup };
 }
 
 dbTest('C5-43(b) catch-up: a version bump over 50 records is drained by shard calls with no deploy, then marked done', async () => {
@@ -88,14 +92,14 @@ dbTest('C5-43(b) catch-up: a shard rebuilds only its own records, and the versio
     const v = version();
     const mine = ids.filter((id) => id % 2 === 0), theirs = ids.filter((id) => id % 2 === 1);
     const r = await catchUpMatcher({ shard: { shard: 0, of: 2 }, version: v, ids });
-    assert.deepEqual(r, { rebuilt: mine.length, failed: 0, busy: 0, left: 0, done: theirs.length === 0 });
+    assert.deepEqual(r, { rebuilt: mine.length, failed: 0, busy: 0, newer: 0, left: 0, done: theirs.length === 0 });
     const rows = await sql`select user_id from matcher_rebuilt where user_id in ${sql(ids)} and version = ${v} order by user_id`;
     assert.deepEqual(rows.map((x) => x.user_id), mine.sort((a, b) => a - b));
     if (theirs.length) {
       const [open] = await sql`select 1 from matcher_runs where version = ${v}`;
       assert.equal(open, undefined, 'the other shard still has records: the version is not done');
       const r2 = await catchUpMatcher({ shard: { shard: 1, of: 2 }, version: v, ids });
-      assert.deepEqual(r2, { rebuilt: theirs.length, failed: 0, busy: 0, left: 0, done: true });
+      assert.deepEqual(r2, { rebuilt: theirs.length, failed: 0, busy: 0, newer: 0, left: 0, done: true });
     }
   } finally {
     await cleanup();
@@ -115,10 +119,10 @@ dbTest('C5-43(b) catch-up: a record whose sync holds its lock is skipped, not wa
     // Another session holds the first record's lock, as a sync in flight does.
     await conn`select pg_advisory_lock(${USER_LOCK}, ${ids[0]})`;
     const r = await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: v, ids });
-    assert.deepEqual(r, { rebuilt: 1, failed: 0, busy: 1, left: 1, done: false });
+    assert.deepEqual(r, { rebuilt: 1, failed: 0, busy: 1, newer: 0, left: 1, done: false });
     await conn`select pg_advisory_unlock(${USER_LOCK}, ${ids[0]})`;
     const r2 = await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: v, ids });
-    assert.deepEqual(r2, { rebuilt: 1, failed: 0, busy: 0, left: 0, done: true });
+    assert.deepEqual(r2, { rebuilt: 1, failed: 0, busy: 0, newer: 0, left: 0, done: true });
   } finally {
     conn.release();
     await cleanup();
@@ -135,9 +139,9 @@ dbTest('C5-43(b) catch-up: the time budget stops the call before the next record
     // A clock that moves 10 ms per read and a 15 ms budget: the first record starts at 0 ms, the second check reads 20 ms.
     let t = 0;
     const r = await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: v, ids, budgetMs: 15, now: () => (t += 10) - 10 });
-    assert.deepEqual(r, { rebuilt: 1, failed: 0, busy: 0, left: 2, done: false });
+    assert.deepEqual(r, { rebuilt: 1, failed: 0, busy: 0, newer: 0, left: 2, done: false });
     const r2 = await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: v, ids });
-    assert.deepEqual(r2, { rebuilt: 2, failed: 0, busy: 0, left: 0, done: true });
+    assert.deepEqual(r2, { rebuilt: 2, failed: 0, busy: 0, newer: 0, left: 0, done: true });
   } finally {
     await cleanup();
   }
@@ -151,7 +155,7 @@ dbTest('C5-43(b) catch-up: records with no stored rows are never selected, so th
     const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `c5mempty${Math.random().toString(36).slice(2, 8)}` });
     made.push(u.id);
     const v = version();
-    assert.deepEqual(await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: v, ids: [u.id] }), { rebuilt: 0, failed: 0, busy: 0, left: 0, done: true });
+    assert.deepEqual(await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: v, ids: [u.id] }), { rebuilt: 0, failed: 0, busy: 0, newer: 0, left: 0, done: true });
     const [m] = await sql`select 1 from matcher_rebuilt where user_id = ${u.id}`;
     assert.equal(m, undefined);
   } finally {
@@ -160,7 +164,7 @@ dbTest('C5-43(b) catch-up: records with no stored rows are never selected, so th
 });
 
 dbTest('C5-43(b) catch-up: older code never rebuilds back a record a newer version already rebuilt, and stops once a newer version is done', async () => {
-  const { sql, tag, made, mkRecord, version, staleFigure, cleanup } = await setup();
+  const { sql, tag, made, versions, mkRecord, version, staleFigure, cleanup } = await setup();
   const { catchUpMatcher } = await import('./matcher-rebuild.ts');
   try {
     await mkRecord('n0');
@@ -168,12 +172,13 @@ dbTest('C5-43(b) catch-up: older code never rebuilds back a record a newer versi
     const ids = [...made];
     const older = version();
     const newer = older + 1;
+    versions.push(newer);
     // The next deploy's rebuild has done the first record (its marker row, as rebuildEach writes it); a stand-in figure
     // shows whether older code touches it again (the test's own fixture row).
     await sql`insert into matcher_rebuilt (user_id, version) values (${ids[0]}, ${newer}) on conflict (user_id) do update set version = excluded.version`;
     await staleFigure(ids[0], 'n0');
     // A tick still on older code rebuilds only the second record, and the older version is done.
-    assert.deepEqual(await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: older, ids }), { rebuilt: 1, failed: 0, busy: 0, left: 0, done: true });
+    assert.deepEqual(await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: older, ids }), { rebuilt: 1, failed: 0, busy: 0, newer: 0, left: 0, done: true });
     const [kept] = await sql`select version from matcher_rebuilt where user_id = ${ids[0]}`;
     assert.equal(kept.version, newer);
     const [c] = await sql`select return_pct from closed_trades where user_id = ${ids[0]} and sell_id = ${`${tag}-n0-s`}`;
@@ -187,6 +192,40 @@ dbTest('C5-43(b) catch-up: older code never rebuilds back a record a newer versi
     } finally {
       await sql`delete from matcher_runs where version = ${newer}`;
     }
+  } finally {
+    await cleanup();
+  }
+});
+
+dbTest('C5-43(b) catch-up: a newer rebuild that lands after the older batch was selected is never rebuilt back (re-checked inside the lock)', async () => {
+  const { sql, tag, made, versions, mkRecord, version, cleanup } = await setup();
+  const { catchUpMatcher } = await import('./matcher-rebuild.ts');
+  try {
+    await mkRecord('i0');
+    await mkRecord('i1');
+    const [a, x] = [...made];
+    const older = version();
+    const newer = older + 1;
+    versions.push(newer); // marked done below: cleaned up with the rest
+    // The parent review's interleaving: older code has selected [A, X]; before it reaches X, a newer deploy rebuilds X
+    // and marks the newer version done (for the test's population). A stand-in figure then shows whether older code
+    // rebuilds X again (the test's own fixture edit).
+    let interleaved = false;
+    const r = await catchUpMatcher({
+      shard: { shard: 0, of: 1 }, version: older, ids: [a, x],
+      beforeRecord: async (id) => {
+        if (id !== x || interleaved) return;
+        interleaved = true;
+        assert.deepEqual(await catchUpMatcher({ shard: { shard: 0, of: 1 }, version: newer, ids: [x] }), { rebuilt: 1, failed: 0, busy: 0, newer: 0, left: 0, done: true });
+        await sql`update closed_trades set return_pct = 0.5 where user_id = ${x} and sell_id = ${`${tag}-i1-s`}`;
+      },
+    });
+    assert.equal(interleaved, true);
+    assert.deepEqual(r, { rebuilt: 1, failed: 0, busy: 0, newer: 1, left: 0, done: true });
+    const [mark] = await sql`select version from matcher_rebuilt where user_id = ${x}`;
+    assert.equal(mark.version, newer, 'the marker never moves down');
+    const [c] = await sql`select return_pct from closed_trades where user_id = ${x} and sell_id = ${`${tag}-i1-s`}`;
+    assert.equal(+c.return_pct, 0.5, 'X was not rebuilt by the older code');
   } finally {
     await cleanup();
   }

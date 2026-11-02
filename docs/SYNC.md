@@ -251,9 +251,11 @@ call of the cron (`lib/matcher-rebuild.ts#catchUpMatcher`, after the shard's syn
   never rebuilds a record back, and stops once a newer version is done);
 - each rebuilt with `rebuildRecord` under the trader's lock, within 20 s of the call's time left (`MATCHER_CATCHUP_MS`);
 - a record whose sync holds the lock is skipped (`busy`) and taken by a later call.
+- inside the lock the record's marker is read again: a record a newer version reached after the batch was selected is
+  left alone (`newer`), and `matcher_rebuilt` never moves down to an older version.
 
 When no record is left in any shard, the version is written to `matcher_runs` and later calls cost one primary-key read.
-The response's `matcher` field carries `{ rebuilt, failed, busy, left, done }` (counts only), or `null` once the version
+The response's `matcher` field carries `{ rebuilt, failed, busy, newer, left, done }` (counts only), or `null` once the version
 is done. The housekeeping-only call does not run it. Alert on `failed` that stays above 0 across rounds: the version
 stays open until that record rebuilds.
 

@@ -49,6 +49,25 @@ code. Every probe record is fictional.
   done-marking logic, unchanged `rebuildAllForMatcher` behaviour, the route's time budget and the tests' isolation on a
   shared database.
 
+### Parent's independent review of #107 (head b7df09a, 2026-11-02): BLOCK, fixed
+
+- **Blocking (fixed).** The batch was selected before each record's lock was taken, and the marker upsert overwrote
+  unconditionally. Interleaving (reproduced by the reviewer): older code selects [A, X] and stalls on A; X is rebuilt
+  for v+1 and v+1 is marked done; older code then rebuilds X back and writes v, while `catchUpMatcher(v+1)` returns
+  `null`. Fix in `rebuildEach` (both paths): inside the lock the marker is read again and a record at this version or
+  newer is left alone (`newer`, counted in the response and excluded from the deploy path's `left`); the upsert only
+  moves the marker up (`where matcher_rebuilt.version < excluded.version`). Regression test "a newer rebuild that lands
+  after the older batch was selected is never rebuilt back (re-checked inside the lock)" drives exactly that
+  interleaving through a `beforeRecord` test hook; it fails with the in-lock check removed and passes with it.
+- **Non-blocking (kept, noted).** The done check reads `version >= v`, so a higher version marked done elsewhere would
+  make these tests' calls return `null`. Only this file writes versions ≥ 20000 (`lib/fixes-cycle4.db.test.ts` uses
+  9000-9899, below them), its tests run one after another and each deletes its own `matcher_runs` rows in `finally`, so
+  no parallel writer exists today; a new test file writing high versions must use a range of its own.
+  Running the full suite after the fix confirmed the concern in a narrower form: the two tests that mark a second
+  (`newer`) version done had not registered it for cleanup, so their rows stayed behind and turned every later run of
+  this file into `null` calls. Fixed: both register it, and the file's setup fails with that reason if any row ≥ 20000 is
+  left (the file is the only writer of that range).
+
 ### Gates (PR 1)
 
 - `npx tsc --noEmit`: clean.

@@ -24,8 +24,8 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
       not exists (select 1 from matcher_rebuilt m where m.user_id = u.id and m.version >= ${version})
       and (exists (select 1 from activities a where a.user_id = u.id) or exists (select 1 from corporate_actions c where c.user_id = u.id))
     order by u.id`;
-  const { rebuilt, failed } = await rebuildEach(users.map((u) => u.id as number), version, budgetMs, false);
-  const left = users.length - rebuilt;
+  const { rebuilt, failed, newer } = await rebuildEach(users.map((u) => u.id as number), version, budgetMs, false);
+  const left = users.length - rebuilt - newer;
   if (failed) console.error('matcher rebuild: records failed, the version stays open', JSON.stringify({ count: failed }));
   if (!left && !ids) await sql`insert into matcher_runs (version) values (${version}) on conflict (version) do nothing`;
   return { rebuilt, failed, left };
@@ -33,27 +33,33 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
 
 // Rebuilds each record under the trader's lock and marks it rebuilt for `version`, until `budgetMs` has passed (checked
 // before each record, so one record can run past it). `skipLocked`: a record whose lock is held (a sync in flight) is
-// skipped, not waited on, and stays for the next call; the deploy path waits instead.
-async function rebuildEach(ids: number[], version: number, budgetMs: number, skipLocked: boolean, now = Date.now) {
+// skipped, not waited on, and stays for the next call; the deploy path waits instead. Inside the lock the record's marker
+// is read again: a record rebuilt for this version or a newer one since the batch was selected is left alone (`newer`),
+// and the marker never moves down, so older code can never rebuild a record back after a newer version reached it
+// (parent review of #107: the batch is selected before the locks are taken).
+async function rebuildEach(ids: number[], version: number, budgetMs: number, skipLocked: boolean, now = Date.now, beforeRecord?: (id: number) => Promise<void>) {
   const start = now();
-  let rebuilt = 0, failed = 0, busy = 0;
+  let rebuilt = 0, failed = 0, busy = 0, newer = 0;
   for (const id of ids) {
     if (now() - start > budgetMs) break;
     try {
-      const done = await sql.begin(async (tx) => {
+      if (beforeRecord) await beforeRecord(id);
+      const outcome = await sql.begin(async (tx) => {
         if (skipLocked) {
           const [got] = await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${id}) as ok`;
-          if (!got.ok) return false;
+          if (!got.ok) return 'busy' as const;
         } else await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${id})`;
+        const [mark] = await tx`select version from matcher_rebuilt where user_id = ${id}`;
+        if (mark && (mark.version as number) >= version) return 'newer' as const;
         await rebuildRecord(id, tx);
         await tx`insert into matcher_rebuilt (user_id, version) values (${id}, ${version})
-          on conflict (user_id) do update set version = excluded.version`;
-        return true;
+          on conflict (user_id) do update set version = excluded.version where matcher_rebuilt.version < excluded.version`;
+        return 'rebuilt' as const;
       });
-      if (done) rebuilt++; else busy++;
+      if (outcome === 'rebuilt') rebuilt++; else if (outcome === 'busy') busy++; else newer++;
     } catch { failed++; }
   }
-  return { rebuilt, failed, busy };
+  return { rebuilt, failed, busy, newer };
 }
 
 // A record the matcher has to rebuild for `version`: it has stored rows and no matcher_rebuilt row for that version or a
@@ -65,7 +71,7 @@ const pending = (version: number, ids?: number[], shard?: Shard) => sql`
   ${ids ? sql`and u.id in ${sql(ids.length ? ids : [0])}` : sql``}
   ${shard && shard.of > 1 ? sql`and u.id % ${shard.of} = ${shard.shard}` : sql``}`;
 
-export type CatchUp = { rebuilt: number; failed: number; busy: number; left: number; done: boolean };
+export type CatchUp = { rebuilt: number; failed: number; busy: number; newer: number; left: number; done: boolean };
 export const MATCHER_CATCHUP_MS = 20_000;
 export const MATCHER_CATCHUP_BATCH = 200;
 
@@ -76,7 +82,8 @@ export const MATCHER_CATCHUP_BATCH = 200;
  *  cost one primary-key read. So a matcher change reaches every record within ticks, with no further deploy.
  *  `ids` limits the population to those records (tests); with `ids` the version is marked done only for that population
  *  being empty, which only a test's private version number may rely on. */
-export async function catchUpMatcher(o: { shard: Shard; budgetMs?: number; version?: number; ids?: number[]; batch?: number; now?: () => number }): Promise<CatchUp | null> {
+// `beforeRecord` is a test hook (it runs before each record's transaction), used to interleave another rebuild.
+export async function catchUpMatcher(o: { shard: Shard; budgetMs?: number; version?: number; ids?: number[]; batch?: number; now?: () => number; beforeRecord?: (id: number) => Promise<void> }): Promise<CatchUp | null> {
   const version = o.version ?? MATCHER_VERSION;
   // A newer version done (or a record rebuilt for a newer version, in `pending`) counts as done: code still serving the
   // cron while the next deploy rebuilds must never rebuild a record back with the older matcher (independent review).
@@ -84,7 +91,7 @@ export async function catchUpMatcher(o: { shard: Shard; budgetMs?: number; versi
   if (done) return null;
   const batch = o.batch ?? MATCHER_CATCHUP_BATCH;
   const users = await sql`select u.id from users u where ${pending(version, o.ids, o.shard)} order by u.id limit ${batch}`;
-  const r = await rebuildEach(users.map((u) => u.id as number), version, o.budgetMs ?? MATCHER_CATCHUP_MS, true, o.now);
+  const r = await rebuildEach(users.map((u) => u.id as number), version, o.budgetMs ?? MATCHER_CATCHUP_MS, true, o.now, o.beforeRecord);
   if (r.failed) console.error('matcher catch-up: records failed, the version stays open', JSON.stringify({ count: r.failed }));
   // ponytail: a record that fails every time is retried first on every tick of its shard (ids in order), so more than `batch`
   // such records in one shard would starve the rest — fix: a matcher_rebuilt attempt count, failed records ordered last.
