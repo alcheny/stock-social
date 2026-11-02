@@ -51,11 +51,14 @@ test('AC17: signed out, the demo trader with options shows the "Excluding option
   await expect(page.locator('.options-gated')).toHaveText(`${line} ${OPTIONS.howLink}`);
   await expect(page.locator('.options-gated a')).toHaveText(OPTIONS.howLink); // fix round 3 (item 6): its own short link
   await expect(page.locator('.options-gated a')).toHaveAttribute('href', '/how#options');
-  // Fix round 3 (item 3): the options block comes after the evidence line and before the secondary stats.
+  // Fix round 3 (item 3), moved by F-21 (committee decision 1, legal R1): the gated count line is a reason line of the
+  // profile's #excluded section, after the evidence line, the secondary stats and the chart, and before the closed trades.
   expect(await page.evaluate(() => {
-    const ev = document.querySelector('.evidence')!, g = document.querySelector('.options-gated')!;
+    const ev = document.querySelector('.evidence')!, g = document.querySelector('.options-gated')!, chart = document.querySelector('main figure.chart')!;
     const second = [...document.querySelectorAll('main section.stats')].find((x) => ev.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING)!;
-    return !!(ev.compareDocumentPosition(g) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(g.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const closes = document.querySelector('ul.rows.closes')!;
+    const after = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    return g.parentElement?.id === 'excluded' && after(ev, g) && after(second, g) && after(chart, g) && after(g, closes);
   })).toBe(true);
   await expect(page.locator('footer#site-footer')).toContainText(DISCLAIMER);
   // The headline equals the share-only figures (option_trades never reach it).
