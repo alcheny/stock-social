@@ -2,6 +2,9 @@
 // production only with both contacts and the launch gate open: fix round 3); unset: on outside production and in the e2e
 // sandbox. The importer reaches a non-loopback base only with an explicit =1 and the contact (no real filer in dev/CI).
 import { sql } from './db.ts';
+// F-16: the home preview's public-filing check skips hidden accounts too. (visible-users imports this file's prefix only
+// inside functions, so the import cycle is safe.)
+import { visibleUser } from './visible-users.ts';
 import { gateState, isSandbox } from './launch-gate.ts';
 import { isLoopbackUrl, type Env } from './vendor-env.ts';
 import { logSafe } from './privacy-log.ts'; // FIXES-CYCLE4-PART2 (F4-8)
@@ -58,9 +61,9 @@ export async function publicShown(now = Date.now(), env: Env = process.env, only
   const scope = only ? sql`and u.id = any(${only})` : sql``;
   try {
     const [r] = await sql`select
-        exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null and u.public_filer_id is not null
+        exists (select 1 from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')} and u.public_filer_id is not null
           where ${filerVisibleSql('u', env)} and ${feedReadySql('t')} ${scope}) as shown,
-        exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null join public_filers pf on pf.id = u.public_filer_id and pf.demo
+        exists (select 1 from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')} join public_filers pf on pf.id = u.public_filer_id and pf.demo
           where ${filerVisibleSql('u', env)} and ${feedReadySql('t')} ${scope}) as demo`;
     const v = { shown: r.shown === true, demo: r.demo === true };
     if (remember) shownMemo = { at: now, v };

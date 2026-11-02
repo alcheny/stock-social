@@ -116,11 +116,14 @@ const ROOT = new URL('..', import.meta.url).pathname;
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
 
-test('cycle-2 #20: the trade and month images call notFound() for a missing record and draw no "not found" picture', () => {
-  for (const [f, loader] of [['app/u/[handle]/trade/[sellId]/opengraph-image.tsx', 'loadTradeShare'], ['app/u/[handle]/month/[ym]/opengraph-image.tsx', 'loadRecap']] as const) {
+// Orchestrator review item 3 (F-16): notFound() in an image route answers a bare 404 with no Cache-Control, so the images
+// return lib/share.ts#imageNotFound (a 404, `no-store`, no body) instead; e2e/f16-hide.spec.ts checks the header.
+test('cycle-2 #20: the trade and month images answer a 404 (never cached) for a missing record and draw no "not found" picture', () => {
+  assert.match(code(read('lib/share.ts')), /export const imageNotFound = \(\) => new Response\(null, \{ status: 404, headers: \{ 'Cache-Control': 'no-store' \} \}\);/);
+  for (const [f, loader] of [['app/u/[handle]/trade/[sellId]/opengraph-image.tsx', 'loadTradeShare'], ['app/u/[handle]/month/[ym]/opengraph-image.tsx', 'loadRecap'], ['app/u/[handle]/opengraph-image.tsx', 'loadRecordCard'], ['app/u/[handle]/story/route.tsx', 'loadRecordCard']] as const) {
     const s = code(read(f));
-    assert.match(s, /import \{ notFound \} from 'next\/navigation'/, f);
-    assert.match(s, /if \(!\w+\) notFound\(\);/, f);
+    assert.match(s, /import \{[^}]*\bimageNotFound\b[^}]*\} from '@\/lib\/share\.ts'/, f);
+    assert.match(s, /if \(!\w+\) return imageNotFound\(\);/, f);
     assert.ok(s.includes(loader), f);
     assert.ok(!/not found/i.test(s), `${f} still draws a "not found" picture`);
     // A loader error is not turned into a missing record (a database outage is a 500, not a 404).

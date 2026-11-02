@@ -226,7 +226,7 @@ dbTest('the figures on a card are the profile\'s: the same functions over the sa
     if (card.figures!.low) assert.ok(card.figures!.range!.includes(card.figures!.low), 'the lower end is the range\'s own low');
   }
   const keys = Object.keys(cards[0]).sort().join(',');
-  assert.equal(keys, 'badge,closed,connected,excluded,figures,handle,id,isNew,name,since,state');
+  assert.equal(keys, 'badge,closed,connected,excluded,figures,handle,id,isNew,name,notice,since,state');
   assert.doesNotMatch(JSON.stringify(cards), /open_position|positions"|symbol|unrealized|rank|score|best|delta|diff/i);
 });
 

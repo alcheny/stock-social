@@ -9,17 +9,18 @@ import { sql } from '../../../lib/db.ts';
 import { applyClocks, publicRecordDetail } from '../../../lib/connections.ts';
 import { isDemoUser as readDemo } from '../../../lib/demo.ts';
 import { filerInfo } from '../../../lib/public-gate.ts';
+import { visibleId, visibleUser } from '../../../lib/visible-users.ts';
 
 export type PerRequest = <F extends (...args: never[]) => unknown>(fn: F) => F;
 
 export function profileReads(perRequest: PerRequest) {
   return {
-    user: perRequest(async (handle: string) => (await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_future_options, excluded_corporate, excluded_held, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and deleted_at is null`)[0]),
+    user: perRequest(async (handle: string) => (await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_future_options, excluded_corporate, excluded_held, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and ${visibleUser('users')}`)[0]), // F-16: a hidden profile is not found
     trades: perRequest((userId: number) => sql`
       select id, sell_id, trade_key, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
         thesis_written_at, thesis_edited_at, thesis_hold_rule
-      from closed_trades where user_id = ${userId} order by closed_at desc, id desc`), // list order (lib/paging.ts)
-    positions: perRequest((userId: number) => sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions where user_id = ${userId} order by symbol, account_id`),
+      from closed_trades where user_id = ${userId} and ${visibleId(userId)} order by closed_at desc, id desc`), // list order (lib/paging.ts); F-16: never a hidden trader's
+    positions: perRequest((userId: number) => sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions where user_id = ${userId} and ${visibleId(userId)} order by symbol, account_id`),
     // F-1 clocks (marking only), once per request with one `now`. Idempotent: both UPDATEs match only rows still in
     // their old state, and a funnel event is recorded only for the rows an UPDATE returned, so a second run (or a
     // concurrent one: READ COMMITTED re-checks the WHERE after the row lock) marks and records nothing.

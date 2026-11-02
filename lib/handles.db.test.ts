@@ -127,7 +127,9 @@ dbTest('two parallel look-alike renames: exactly one succeeds, the other is refu
     for (const n of ['a', 'b']) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_${n}` })).id);
     for (let round = 0; round < 3; round++) {
       const want = [`${tag}_calm${round}`, `${tag}_ca1m${round}`];
-      const out = await Promise.allSettled([changeHandle(ids[0], want[0]), changeHandle(ids[1], want[1])]);
+      // F-17 (plan §0.7): one rename per 30 days, so each round's clock is a month on (opts.now); no assertion changes.
+      const now = new Date(Date.now() + round * 31 * 86_400_000);
+      const out = await Promise.allSettled([changeHandle(ids[0], want[0], { now }), changeHandle(ids[1], want[1], { now })]);
       assert.equal(out.filter((o) => o.status === 'fulfilled').length, 1, `round ${round}`);
       const lost = out.find((o) => o.status === 'rejected') as PromiseRejectedResult;
       assert.ok(lost.reason instanceof HandleTakenError);
@@ -184,32 +186,35 @@ dbTest('checkHandle: a handle whose profile is pending deletion is taken', async
   }
 });
 
-// Fix round 5 (item 7): one account holds at most 3 old handles; a fourth rename releases its oldest reservation (its
-// hold ends now; nothing is deleted here), and the released handle is free for anyone.
-dbTest('rename hold cap: at most 3 active reservations per account; the oldest is released first', async () => {
+// Fix round 5 (item 7), F-17 (plan §0.7: the decision "at most one held handle per account" sets the cap to 1): a
+// new rename ends the older hold (its hold ends now; nothing is deleted here), and the released handle is free for
+// anyone. The 30-day rule is passed with the injected clock (opts.now), never by waiting.
+dbTest('rename hold cap: at most 1 active reservation per account; a new rename releases the older one', async () => {
   const { sql } = await import('./db.ts');
   const { createAttempt, createUserForAttempt, changeHandle, RENAME_HOLD_CAP } = await import('./auth/attempts.ts');
   const { checkHandle } = await import('./handles.ts');
-  assert.equal(RENAME_HOLD_CAP, 3);
+  assert.equal(RENAME_HOLD_CAP, 1);
   const tag = `rc${rand()}`;
   const ids: number[] = [];
+  const day = 86_400_000;
   try {
     const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_h0` });
     ids.push(u.id);
     const o = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_other` });
     ids.push(o.id);
-    for (let i = 1; i <= 3; i++) await changeHandle(u.id, `${tag}_h${i}`);
     const active = async () => (await sql`select handle from handle_reservations where user_id = ${u.id} and until > now() order by handle`).map((r) => r.handle);
-    assert.deepEqual(await active(), [`${tag}_h0`, `${tag}_h1`, `${tag}_h2`]);
+    await changeHandle(u.id, `${tag}_h1`);
+    assert.deepEqual(await active(), [`${tag}_h0`]);
     assert.equal(await checkHandle(`${tag}_h0`, o.id), 'reserved');
-    await changeHandle(u.id, `${tag}_h4`); // a fourth reservation (h3): h0, the oldest, is released
-    assert.deepEqual(await active(), [`${tag}_h1`, `${tag}_h2`, `${tag}_h3`]);
+    // The next rename a month later (clock injected): h1 is held, h0's hold ends.
+    await changeHandle(u.id, `${tag}_h2`, { now: new Date(Date.now() + 31 * day) });
+    assert.deepEqual(await active(), [`${tag}_h1`]);
     const [h0] = await sql`select until <= now() as ended from handle_reservations where handle = ${`${tag}_h0`}`;
     assert.equal(h0.ended, true); // released by ending its hold, not deleted
     assert.equal(await checkHandle(`${tag}_h0`, o.id), 'ok');
-    // Taking an own reserved handle back frees a slot (no release needed).
-    await changeHandle(u.id, `${tag}_h2`);
-    assert.deepEqual(await active(), [`${tag}_h1`, `${tag}_h3`, `${tag}_h4`]);
+    // Taking the own held handle back (any time, no clock): the handle left behind becomes the one hold.
+    await changeHandle(u.id, `${tag}_h1`, { now: new Date(Date.now() + 32 * day) });
+    assert.deepEqual(await active(), [`${tag}_h2`]);
   } finally {
     await sql`delete from handle_reservations where handle like ${tag + '%'}`;
     if (ids.length) await sql`delete from users where id in ${sql(ids)}`;

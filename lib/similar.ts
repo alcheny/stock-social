@@ -17,6 +17,7 @@ import { hiddenTraders } from './follows.ts';
 import { feedList, records, type PaneRow } from './feed.ts';
 import { recordStates, type RecordStatus } from './connections.ts';
 import { feedReadySql, filerVisibleSql } from './public-gate.ts';
+import { visibleUser } from './visible-users.ts'; // F-16: the rows read now skip a hidden trader (the kept pool may be older)
 import { utcDay } from './discovery/pager.ts';
 import { holdBucket, type SectionTrader } from './discovery/section.ts';
 import { SIMILAR_MIN, SIMILAR_SPARES, similarCandidates, similarRows } from './discovery/similar.ts';
@@ -185,7 +186,7 @@ export async function loadSimilar(o: { trader: number; hold: number; closes: num
     from users u cross join lateral (select id, sell_id, trade_key, symbol, return_pct, closed_at, holding_days from closed_trades x where x.user_id = u.id and ${feedReadySql('x')}
       and (case when holding_days < 1 then 0 when holding_days <= 7 then 1 when holding_days <= 28 then 2 when holding_days <= 183 then 3 else 4 end) = ${bucket}
       order by closed_at desc, sell_id desc limit 1) t
-    where u.id = any(${cands.map((c) => c.trader)}) and u.deleted_at is null and ${filerVisibleSql('u')}`, recordStates(cands.map((c) => c.trader))]);
+    where u.id = any(${cands.map((c) => c.trader)}) and ${visibleUser('u')} and ${filerVisibleSql('u')}`, recordStates(cands.map((c) => c.trader))]);
   const trades = new Map(found.filter((r) => states.get(r.id as number)?.state !== 'importing').map((r) => [r.id as number, {
     trader: r.id as number, handle: r.handle as string, name: r.display_name as string, tradeId: String(r.trade_id), sellId: r.sell_id as string, tradeKey: r.trade_key as string, symbol: r.symbol as string,
     returnPct: r.return_pct as number, closedAt: r.closed_at as Date, holdingDays: r.holding_days as number, bucket, verified: r.verified as boolean }]));

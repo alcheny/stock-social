@@ -25,6 +25,7 @@ const FL_DEMO = FL.demoNote; // FIXES-LABELS (DS-20): one Demo name
 import { dateText } from '@/lib/date-text.ts';
 import { recordRows, segments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
+import { generateMetadata as notFoundMetadata } from '../../not-found.tsx';
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
@@ -40,7 +41,9 @@ const day = (d: Date) => dateText(d, new Date()); // FIXES-LABELS (D-05): the ye
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const r = await load(params);
-  if (!r) return {};
+  // F-16/F-17: the 404 head comes from ../../not-found.tsx (hidden / retired / generic). Orchestrator review item 2:
+  // returned here, never notFound() in generateMetadata (which can leave two <title>s); the body calls notFound().
+  if (!r) return notFoundMetadata({ params });
   // F-12: the strip's words. Reviewer fix (TR-3): the record part follows the profile's record-state rule, as on the
   // trade page. The image's alt text is declared here because it depends on the record (F-4 pattern).
   const whole = recordStrip(recordStripInput(r), 'image');
