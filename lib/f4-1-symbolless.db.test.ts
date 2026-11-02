@@ -24,7 +24,7 @@ async function setup() {
     return u.id;
   };
   // Vendor-shaped trade rows, through the real importer (lib/broker.ts#toActivities); `symbol` null is the F4-1 row.
-  const vendor = (id: string, side: 'BUY' | 'SELL', units: number, price: number, at: string, symbol: string | null = 'FAKE', acc = 'acc') =>
+  const vendor = (id: string, side: 'BUY' | 'SELL', units: number, price: number, at: string | null, symbol: string | null = 'FAKE', acc = 'acc') =>
     ({ acc, row: { id: `${tag}-${id}`, symbol: symbol === null ? null : { symbol }, type: side, trade_date: at, price, units: side === 'SELL' ? -units : units, fee: 0 } });
   const store = async (u: number, rows: ReturnType<typeof vendor>[]) => {
     for (const acc of new Set(rows.map((r) => r.acc))) {
@@ -100,5 +100,19 @@ dbTest('F4-1: a future-dated unusable sell raises excluded_future and moves to t
     assert.deepEqual(await t.closes(u), [['s1', 0.1]]);
     assert.equal(r.future, 0);
     assert.deepEqual(await t.counts(u), { positions: 0, corporate: 2, future: 0 });
+  } finally { await t.cleanup(); }
+});
+
+dbTest('F4-1 review: an undated symbol-less sell through the rebuild: counted once, the account\'s later sell never priced from the wrong lot', async () => {
+  const t = await setup();
+  try {
+    const u = await t.mkUser();
+    await t.store(u, [t.vendor('b1', 'BUY', 100, 10, '2026-04-01T14:00:00Z'), t.vendor('b2', 'BUY', 100, 20, '2026-04-10T14:00:00Z'),
+      t.vendor('s2', 'SELL', 100, 18, '2026-04-20T14:00:00Z'), t.vendor('o1', 'BUY', 10, 10, '2026-04-02T14:00:00Z', 'OTHR'),
+      t.vendor('o2', 'SELL', 10, 11, '2026-04-03T14:00:00Z', 'OTHR'), t.vendor('s1', 'SELL', 100, 15, null, null)]);
+    const r = await t.rebuildTrades(u);
+    assert.deepEqual(await t.closes(u), []);
+    assert.equal(r.excludedCorporate, 3); // s1 once (two pairs replayed it), s2, o2
+    assert.deepEqual(await t.counts(u), { positions: 0, corporate: 3, future: 0 });
   } finally { await t.cleanup(); }
 });

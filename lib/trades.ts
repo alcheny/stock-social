@@ -73,9 +73,13 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 //   long-only ledger it sold shares some pair of the account held, which one is unknown, so every pair holding lots then
 //   has an unknown ledger from that row on (as a unit-less row on its own pair): its lots and later lots are tainted. A
 //   buy may have opened a lot in any pair, existing or new, so the whole account's ledger is unknown from that row on.
+//   An undated symbol-less row, buy or sell, may sit anywhere in the history: the whole account is unknown from the start.
 //   ponytail: a symbol-less sell is read as a long close of shares held; a pair holding none then (the sell a short or
 //   of shares before the history) is left as it was, like F-30's residual — fix: the vendor's symbol on every trade row
 //   (vendor question list) or a positions read with units (owner item).
+//   ponytail: one symbol-less buy (or undated symbol-less row) marks its whole account unknown for good, so a vendor that
+//   sends such rows routinely turns that account's record into counted rows only (over-counts, never a wrong figure) —
+//   fix: the vendor's answer on when a trade row has no symbol (vendor question list).
 // - Held possible re-issues (F-24, council cycle 5 RT-2; POLICY F3c "count, never guess"): a row the vendor may have
 //   re-issued under a new id is passed in with `held`. It is either a second genuine fill or a duplicate, and the
 //   readings price every later sell of the pair differently. So a held row opens no lot; a held sell is counted only when
@@ -237,8 +241,10 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         if (ca.side === 'SELL') excludedCorporate++;
         if (ca.scope === 'account') {
           // F4-1: no symbol, so no pair (see the header): a sell leaves every pair holding lots unknown, a buy the account.
-          if (ca.side === 'BUY') unknownAccounts.add(ca.accountId);
-          for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`) && (ca.side === 'BUY' || other.lots.length)) { taint(other.lots); unknownFrom.add(k); }
+          // An undated row (replayed first, at the epoch) may sit anywhere in the history: the account, whatever its side.
+          const wholeAccount = ca.side === 'BUY' || !!ca.undated;
+          if (wholeAccount) unknownAccounts.add(ca.accountId);
+          for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`) && (wholeAccount || other.lots.length)) { taint(other.lots); unknownFrom.add(k); }
           continue;
         }
         if (ca.units !== undefined && !ca.undated) {

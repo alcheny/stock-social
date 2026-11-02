@@ -194,7 +194,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       and ${notShared(tx, userId)}`;
     // F4-1: a future-dated unusable sell (F3-1 row, any scope) is counted as future too, with the same filters
     // loadCorporateActions applies (paper accounts, marked accounts, an activity stored first); once its date passes it
-    // loads with the actions and is counted in excluded_corporate instead.
+    // loads with the actions and is counted in excluded_corporate instead. Only sells, by design (the spec counts sells):
+    // a future unusable buy closes nothing, so it is not counted here.
     const [{ future: futureSells }] = await tx`select count(*)::int as future from corporate_actions a where a.user_id = ${userId} and not (${notFuture(tx)})
       and a.kind = 'unpriceable' and a.detail->>'reason' = 'trade' and a.detail->>'side' = 'SELL'
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)

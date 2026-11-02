@@ -8,7 +8,7 @@ import { matchTrades, type Activity } from './trades.ts';
 
 const row = (id: string, side: 'BUY' | 'SELL', units: number, price: number, at: string, symbol = 'FAKE', accountId = 'acc'): Activity =>
   ({ externalId: id, accountId, symbol, side, units, price, fee: 0, executedAt: new Date(at), verified: true });
-const noSymbol = (id: string, side: 'BUY' | 'SELL', units: number, price: number, at: string, accountId = 'acc') =>
+const noSymbol = (id: string, side: 'BUY' | 'SELL', units: number, price: number, at: string | null, accountId = 'acc') =>
   toActivities(accountId, [{ id, symbol: null, type: side, trade_date: at, price, units: side === 'SELL' ? -units : units, fee: 0 }]).unusable[0] as CorporateAction;
 
 test('F4-1: toActivities stores a BUY/SELL with an id and no symbol as an account-wide unusable row; option rows stay option rows', () => {
@@ -89,4 +89,25 @@ test('F4-1: the rebuild\'s per-pair replay (each pair gets the account-wide rows
   const deduped = parts.reduce((s, p) => s + p.excludedCorporate - 2, 0) + 2;
   assert.equal(deduped, whole.excludedCorporate);
   assert.equal(whole.excludedCorporate, 5); // s1, s2, and a2, b2 (held lots at s2), c3 drawing tainted lots
+});
+
+test('F4-1 review: an undated symbol-less sell (replayed first, at the epoch) makes the whole account unknown; it is counted once and nothing wrong is shown', () => {
+  const acts = [row('b1', 'BUY', 100, 10, '2026-04-01T14:00:00Z'), row('b2', 'BUY', 100, 20, '2026-04-10T14:00:00Z'), row('s2', 'SELL', 100, 18, '2026-04-20T14:00:00Z'),
+    row('zb', 'BUY', 10, 10, '2026-04-06T14:00:00Z', 'ZZZ', 'acc2'), row('zs', 'SELL', 10, 11, '2026-04-07T14:00:00Z', 'ZZZ', 'acc2')];
+  const undated = noSymbol('s1', 'SELL', 100, 15, null);
+  assert.ok(undated.kind === 'unpriceable' && undated.reason === 'trade' && undated.undated && undated.scope === 'account');
+  assert.equal(undated.executedAt.getTime(), 0);
+  const m = matchTrades(acts, [undated]);
+  assert.deepEqual(m.trades.map((t) => t.sellId), ['zs']); // never s2 at +80%; the other account is untouched
+  assert.deepEqual([m.excluded, m.excludedCorporate], [0, 2]); // s1 once, s2 drawing an unknown ledger
+  // Per-pair replay, as the rebuild runs it: each pair gets the row, and the de-duplicated count matches.
+  const index = actionIndex([undated]);
+  const parts = [['acc', 'FAKE'], ['acc2', 'ZZZ']].map(([acc, s]) => {
+    const acts1 = acts.filter((a) => a.accountId === acc && a.symbol === s), got = index(new Set([pairKey(acc, s)]));
+    return { m: matchTrades(acts1, got), shared: got.length };
+  });
+  assert.deepEqual(parts.flatMap((p) => p.m.trades).map((t) => t.sellId), ['zs']);
+  assert.equal(parts.reduce((s, p) => s + p.m.excludedCorporate - p.shared, 0) + 1, m.excludedCorporate);
+  // An undated symbol-less buy does the same (no lot, the account unknown).
+  assert.deepEqual(matchTrades(acts, [noSymbol('n1', 'BUY', 5, 15, null)]).trades.map((t) => t.sellId), ['zs']);
 });
