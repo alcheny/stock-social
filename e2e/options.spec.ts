@@ -23,6 +23,7 @@ import { profileChart } from '../lib/chart-series.ts'; // F-23
 import { RecordCardImage } from '../app/u/[handle]/record-card-image.tsx';
 import { recordCard } from '../lib/record-card.ts';
 import { OPTIONS } from '../lib/copy.ts';
+import { ExcludedSection } from '../app/u/[handle]/excluded-section.tsx'; // F-21: the option count lines moved there
 import { paneView, type OptionCounts, type OptionHeadline } from '../lib/options-view.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
@@ -241,6 +242,7 @@ const worst = { id: '1', underlying: 'ABCDE', right: 'PUT' as const, expiry: '20
 const trades = [worst, ...Array.from({ length: 13 }, (_, i) => ({ ...worst, id: String(i + 2), underlying: ['XYZ', 'QRS', 'LMNOP'][i % 3], right: (i % 2 ? 'CALL' : 'PUT') as 'CALL' | 'PUT', returnPct: [-0.5, 0.31, -0.12, 0.08][i % 4], closedAt: new Date(Date.parse('2026-10-03') - i * DAY) }))];
 const summary = { n: 14, winRate: 5 / 14, avg: -0.22, range: { low: -0.41, high: -0.03 }, bets: 9 };
 const openModel: OptionHeadline = { gate: 'open', counts: counts({ shown: 14, short: 3, other: 2, openLong: 1, openShort: 2, unsupported: 2 }), summary };
+const zeroShares = { excluded_positions: 0, excluded_future_sells: 0, excluded_corporate: 0, excluded_held: 0, excluded_shared: 0, public: null }; // F-21
 const openRows = [{ key: 'k', underlying: 'ABCDE', right: 'PUT' as const, expiry: '2026-12-19', pct: -0.999 }];
 
 async function mount(page: Page, nodes: ReactElement[], scheme: 'light' | 'dark') {
@@ -289,12 +291,15 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 
   test(`AC19/20 (${scheme}): the short line stands alone; one expiry format; the open block shows a long option with its chip, the short count and the futures count; no countdown words`, async ({ page }) => {
-    const markup = await mount(page, [h(OptionsLines, { m: openModel }), h(UnsupportedLine, { counts: openModel.counts }), h(OpenOptionRows, { open: openRows })], scheme);
+    // F-21 (committee decision 1, legal R1): the short and technical lines are in the profile's #excluded section, gate open.
+    const markup = await mount(page, [h(OptionsLines, { m: openModel }), h(ExcludedSection, { c: { ...zeroShares, options: openModel.counts, gate: 'open' } }), h(UnsupportedLine, { counts: openModel.counts }), h(OpenOptionRows, { open: openRows })], scheme);
     await noHScroll(page);
     const short = page.locator('.options-short');
     await expect(short).toHaveText(OPTIONS.short(3, 2));
     expect(await short.evaluate((el) => getComputedStyle(el).display)).toBe('block');
-    expect(await short.evaluate((el) => el.previousElementSibling?.className)).toBe('stats options-stats');
+    expect(await short.evaluate((el) => el.previousElementSibling?.className)).toBe('muted options-summarized');
+    expect(await short.evaluate((el) => el.nextElementSibling?.className)).toBe('muted options-technical');
+    expect(await short.evaluate((el) => el.closest('section')?.id)).toBe('excluded');
     await expect(page.locator('.options-technical')).toHaveText(OPTIONS.technical(2));
     await expect(page.locator('.options-unsupported')).toHaveText('Plus 2 open positions not shown: futures and similar contracts are out of scope.');
     const open = page.locator('.rows.options-open li');
@@ -308,7 +313,9 @@ for (const scheme of ['light', 'dark'] as const) {
 
   test(`AC16/AC24 (${scheme}): the closed-gate render is the count line only; the pane part is the label and the line (or the options line once open)`, async ({ page }) => {
     const closed: OptionHeadline = { gate: 'closed', counts: counts({ shown: 3, short: 1, openLong: 1 }) };
-    const markup = await mount(page, [h(ShareTradesLabel, { counts: closed.counts }), h(OptionsLines, { m: closed }), h('section', { className: 'pane' }, h(PaneOptions, { v: paneView(closed) }))], scheme);
+    // F-21 (legal R1): with the gate closed the gated line is the profile's #excluded line, word for word; OptionsLines draws nothing.
+    expect(renderToStaticMarkup(h(OptionsLines, { m: closed }))).toBe('');
+    const markup = await mount(page, [h(ShareTradesLabel, { counts: closed.counts }), h(ExcludedSection, { c: { ...zeroShares, options: closed.counts, gate: 'closed' } }), h('section', { className: 'pane' }, h(PaneOptions, { v: paneView(closed) }))], scheme);
     await noHScroll(page);
     await expect(page.locator('.share-label')).toHaveText('Excluding options');
     await expect(page.locator('.options-gated')).toHaveText([`${OPTIONS.gated(4, 1)} ${OPTIONS.howLink}`, OPTIONS.gated(4, 1)]);

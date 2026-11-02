@@ -64,6 +64,11 @@ import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' da
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
+// F-21: the #excluded section (lib/exclusions.ts sums; summed filing reasons move into it, the rest stay below it).
+import { ExcludedSection } from './excluded-section.tsx';
+import { fromRow } from '@/lib/exclusions-load.ts';
+import { PUBLIC_KINDS } from '@/lib/exclusions.ts';
+import type { PublicReason } from '@/lib/public-trades.ts';
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
@@ -374,21 +379,11 @@ export default async function Profile({ params, searchParams }: Params) {
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
       {complete && trades.length === 0 && open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={longValues(pct(open.avg), String(open.n))} />}
-      {user.excluded_positions > 0 && (
-        <p className="muted">{PROFILE.excludedPositions(user.excluded_positions)}</p>
-      )}
-      {user.excluded_future > 0 && (
-        <p className="muted">{PROFILE.excludedFuture(user.excluded_future)}</p>
-      )}
-      {user.excluded_corporate > 0 && (
-        <p className="muted">{PROFILE.excludedCorporate(user.excluded_corporate)}</p>
-      )}
-      {/* F-24 RT-2: sells counted while a possible re-issue in their pair is checked (shown only when there are any). */}
-      {user.excluded_held > 0 && (
-        <p className="muted" data-excluded-held>{PROFILE.excludedHeld(user.excluded_held)}</p>
-      )}
+      {/* F-21: the one sum and its reason lines (positions, future sells, corporate, F-24 held, shared accounts, the summed
+          filing reasons, then the option count lines per gate); the pane and strip lines link here. */}
+      <ExcludedSection c={{ ...fromRow(user, filer?.excluded ?? null), options: opt.counts, gate: opt.gate }} />
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
-      {filer && publicExclusions(filer.excluded).map((l) => <p key={l} className="muted" data-public-excluded>{l}</p>)}
+      {filer && publicExclusions(Object.fromEntries(Object.entries(filer.excluded).filter(([k]) => !PUBLIC_KINDS[k as PublicReason]?.summed))).map((l) => <p key={l} className="muted" data-public-excluded>{l}</p>)}
       {filer && filer.openSymbols.length > 0 && <section aria-labelledby="public-open" data-public-open>
         <h2 id="public-open">{PUBLIC.openTitle}</h2>
         <p>{[...filer.openSymbols].sort().join(', ')}</p>
