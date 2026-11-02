@@ -146,7 +146,8 @@ dbTest('AC 20 / AC 31: a filer card on a feed page carries its public state; its
 test('Round 5 item 7: every feed-side read applies the filer gate and the feed floor (feed, similar, suggest)', () => {
   const feed = src('./feed.ts');
   // Candidates (c), the second eligibility branch, the TR-9 weight read: each carries the floor; eligibility the gate.
-  assert.equal((feed.match(/ready\('(t|x|y|closed_trades)', asOf\)/g) ?? []).length, 4, 'the floor on c, the eligibility count, the fingerprint and the weights');
+  // F-33: + the readout's ranked-records count (lib/feed.ts#countRanked), which reads the weights' rows the same way.
+  assert.equal((feed.match(/ready\('(t|x|y|closed_trades)', asOf\)/g) ?? []).length, 5, 'the floor on c, the eligibility count, the fingerprint, the weights and the ranked count');
   assert.match(feed, /filerVisibleSql\('u'\)/);
   assert.match(feed, /feedReadySql/);
   const similar = src('./similar.ts');
