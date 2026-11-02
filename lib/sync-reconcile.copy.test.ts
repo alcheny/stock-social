@@ -10,6 +10,7 @@
 // currentUser returns null) and next/navigation with throwing notFound/redirect.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire, registerHooks } from 'node:module';
 import { join } from 'node:path';
@@ -199,7 +200,7 @@ dbTest('AC7: a close found by a pass renders like any close (profile row, trade 
       return { html, row: html.slice(start, html.indexOf('</li>', start) + 5) };
     };
     const tradeSection = async () => {
-      const html = renderToStaticMarkup(await TradePage({ params: params({ handle, sellId: encodeURIComponent(lateSell.externalId) }) }));
+      const html = renderToStaticMarkup(await TradePage({ params: params({ handle, sellId: createHash('sha256').update(lateSell.externalId, 'utf8').digest('hex') }), searchParams: params({}) }) /* F-25: a trade page's address is its trade_key */);
       const start = html.indexOf('aria-labelledby="this-trade"');
       assert.ok(start >= 0, 'the trade page renders the found close');
       // The close's figures and its note section (two sections since #85); the record section between them stays out.

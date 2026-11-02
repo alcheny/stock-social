@@ -5,7 +5,7 @@ export type NewTradeInput = { sellId: string; symbol: string; returnPct: number;
 export const TRADES_PROMPT_ACTIONS = ['dismissed', 'opened'] as const;
 export type TradesPromptAction = (typeof TRADES_PROMPT_ACTIONS)[number];
 
-export function newTradesSince(trades: NewTradeInput[], seenAt: Date | null, cap = 3): { shown: NewTradeInput[]; more: number } {
+export function newTradesSince<T extends NewTradeInput>(trades: T[], seenAt: Date | null, cap = 3): { shown: T[]; more: number } { // F-25: rows keep their fields (the trade_key)
   if (seenAt === null) return { shown: [], more: 0 }; // first-ever visit: history is never new
   const fresh = trades
     .filter((t) => t.closedAt.getTime() > seenAt.getTime())
