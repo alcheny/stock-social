@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db.ts';
+import { visibleUser } from '@/lib/visible-users.ts'; // F-16: the owner's referral list skips hidden accounts
 import { currentUser } from '@/lib/session.ts';
 import { confidence, edgeText, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
@@ -18,7 +19,8 @@ import { paneTrust } from '@/lib/pane.ts';
 import { Badge, PublicNotice } from '../../ui.tsx';
 import { UserNote } from '../../user-note.tsx';
 import { HeldNote } from '@/lib/user-note.ts';
-import { HANDLE_RULE, profileHandleError } from '@/lib/handles.ts';
+import { HANDLE_RULE, nextRenameAt, nextRenameText, profileHandleError, RENAME_HOLD, RENAME_RULE, renamedText } from '@/lib/handles.ts';
+import { FocusHeading } from '../../connect/result/focus-heading.tsx'; // F-17 fix round 2 (UX1): the rename status takes focus
 // F-7 public-record traders.
 import { isPublicRecord, PUBLIC, publicExclusions } from '@/lib/copy.ts';
 import { filerInfo, filerVisible, PUBLIC_STALE_DAYS } from '@/lib/public-gate.ts';
@@ -65,18 +67,28 @@ import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/opti
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
 import { Arrowed } from '../../arrow.tsx'; // C5-39
+// F-16 (plan docs/features/logs/F-16-F-17/plan.md §2.1, §5.4; v2 B6, B7): the quiet report menu and the line.
+import { ProfileReportMenu, TrustFoot, TrustShown } from '../../trust-foot.tsx';
+import { impersonationLineShown } from '@/lib/takedown.ts';
+import { generateMetadata as notFoundMetadata } from './not-found.tsx';
 import { tradePageHref } from '@/lib/trade-href.ts'; // F-25: the one trade URL builder
 import { TRADE_LINK } from '@/lib/copy.ts'; // F-25
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
+// F-17 (plan §2.6, §6.1): a "soon" rejection (the 30-day rule, lib/handles.ts) also says when the next change is allowed.
+function renameError(code: string | undefined, renamedAt: Date | null): string | undefined {
+  const base = profileHandleError(code);
+  const next = code === 'soon' ? nextRenameText(renamedAt) : undefined;
+  return base && next ? `${base} ${next}` : base;
+}
 
-type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
+type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string; renamed?: string }> };
 
 // One read per request: generateMetadata and the page share it (React cache), and its rows are the record card's (load.ts).
 const load = cache(async (handle: string) => {
   if (!routeHandle(handle)) return null; // security hardening (2026-11-01), F12: junk in the URL is a 404, not a 500
-  const user = await reads.user(handle);
+  const user = await reads.user(handle); // F-16: load.ts reads a visible user only (hidden → not-found.tsx)
   if (!user) return null;
   // F-7: a filer's record shows only while the switch is on and it is neither hidden nor removed (legal C13, C19).
   const filer = user.public_filer_id ? await reads.filer(user.id) : null;
@@ -112,7 +124,9 @@ const load = cache(async (handle: string) => {
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const data = await load((await params).handle);
   // Cycle 2 review of fix #20: a missing profile's 404 takes the 404 page's title, not the site default.
-  if (!data) notFound();
+  // Orchestrator review item 2: returning the not-found head here (never notFound() in generateMetadata) keeps one
+  // <title> on the 404; the page body still calls notFound().
+  if (!data) return notFoundMetadata({ params });
   const { user, s, c, state } = data;
   // Fix round 5 (TR-3): the same count wording as the trade and month previews ("closed" for a failed or partly
   // unverified record, "demo" for demo data, "verified" only for a whole record from the broker).
@@ -191,7 +205,7 @@ export default async function Profile({ params, searchParams }: Params) {
             exists(select 1 from activities d where d.user_id = u.id and d.source = 'demo') as is_demo,
             exists(select 1 from activities a where a.user_id = u.id and a.source = 'snaptrade') as has_snaptrade_activity,
             coalesce(u.referred_surface, u.referred_via) as surface
-          from users u where u.referred_by_user_id = ${user.id} order by u.id`).map((r) => ({
+          from users u where u.referred_by_user_id = ${user.id} and ${visibleUser('u')} order by u.id` /* F-16: a hidden referred account is not listed */).map((r) => ({
           id: r.id as number,
           handle: r.handle as string,
           isDemo: r.is_demo as boolean,
@@ -233,7 +247,16 @@ export default async function Profile({ params, searchParams }: Params) {
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
   const win = closesWindow((await searchParams)?.closes, trades.length);
-  const handleError = isMe ? profileHandleError((await searchParams)?.handle) : undefined;
+  const renamedAt = isMe ? ((me as { handle_renamed_at?: Date | null }).handle_renamed_at ?? null) : null;
+  const code = (await searchParams)?.handle;
+  const handleError = isMe ? renameError(code, renamedAt) : undefined;
+  // F-17 fix round 2: BL1, a 30-day refusal already says the rule's first sentence and the date, so the hint keeps only
+  // the rest; UX1, after a rename (?renamed=1) a focused status line says the old links stopped working.
+  const soonError = handleError !== undefined && code === 'soon';
+  const renamed = isMe && (await searchParams)?.renamed === '1';
+  const renameNext = nextRenameAt(renamedAt);
+  const renameSoon = renameNext && renameNext.getTime() > Date.now() ? nextRenameText(renamedAt) : null;
+  const trustShown = impersonationLineShown(); // F-16: draft line in the sandbox until the owner approves it
   const listed = trades.slice(win.start, win.start + win.shown);
   const firstNew = win.next !== null ? trades[win.end] : null;
 
@@ -277,6 +300,7 @@ export default async function Profile({ params, searchParams }: Params) {
       </div>}
       {me && !isMe && !pub && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}{done === 'hidden' && <> <Link href="/me/following">{FOLLOW.settingsLink}</Link></>}</p>}</div>}
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
+      {renamed && <><p id="renamed" role="status" tabIndex={-1} className="small">{renamedText(user.handle)}</p><FocusHeading id="renamed" /></>}
       {/* S5: the live banner (owner polls; visitors see the server's line). Rendered in every state so its finished
           line survives the refresh that follows the end of the import. */}
       {!pub && <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />}
@@ -316,13 +340,16 @@ export default async function Profile({ params, searchParams }: Params) {
         // rule is a visible hint and the field's title, so a pattern failure explains itself.
         <details className="handle-edit" open={!!handleError}>
           <summary className="button secondary">{PROFILE.changeHandle}</summary>
-          <form action={setHandle} className="inline">
-            <label htmlFor="new-handle" className="sr-only">New handle</label>
-            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" title={HANDLE_RULE} defaultValue={user.handle} autoFocus={!!handleError} aria-describedby={handleError ? 'handle-hint handle-err' : 'handle-hint'} />
+          {/* F-17 (plan §2.6, E16): the label is visible with the same text; a rejection is the field's next sibling
+              (role=alert, aria-invalid, described by it, focus on the field), and the 30-day rule is a visible hint. */}
+          <form action={setHandle} className="inline handle-form">
+            <label htmlFor="new-handle">New handle</label>
+            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" title={HANDLE_RULE} defaultValue={user.handle} autoFocus={!!handleError} aria-describedby={handleError ? 'handle-hint handle-err' : 'handle-hint'} aria-invalid={handleError ? true : undefined} />
+            {handleError && <p id="handle-err" role="alert" className="down small">{handleError}</p>}
             <button>Save</button>
           </form>
           <p id="handle-hint" className="muted small">{HANDLE_RULE}</p>
-          {handleError && <p id="handle-err" role="alert" className="down small">{handleError}</p>}
+          <p className="muted small rename-rule" data-rename-rule>{soonError ? RENAME_HOLD : <>{RENAME_RULE}{renameSoon && ` ${renameSoon}`}</>}</p>
         </details>
       )}
       {!shareAfterFigures && ownerShareCard /* FIXES-LABELS (PR #85 review, nit 1) */}
@@ -386,6 +413,12 @@ export default async function Profile({ params, searchParams }: Params) {
       {user.excluded_corporate > 0 && (
         <p className="muted">{PROFILE.excludedCorporate(user.excluded_corporate)}</p>
       )}
+      {/* F-32 Part A: sells a transfer row excludes, under their own reason; a real link to the /how sentence. */}
+      {user.excluded_transfer > 0 && (
+        <p className="muted" data-excluded-transfer>
+          <a className="tap44 excluded-link" href="/how#transfers">{PROFILE.excludedTransfer(user.excluded_transfer)}<span className="sr-only"> {PROFILE.excludedTransferLink}</span></a>
+        </p>
+      )}
       {/* F-24 RT-2: sells counted while a possible re-issue in their pair is checked (shown only when there are any). */}
       {user.excluded_held > 0 && (
         <p className="muted" data-excluded-held>{PROFILE.excludedHeld(user.excluded_held)}</p>
@@ -427,11 +460,11 @@ export default async function Profile({ params, searchParams }: Params) {
             {t.filing_url && <a className="filing-link" href={t.filing_url} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.filingName(t.symbol, day(t.closed_at))}>{PUBLIC.filing}</a>}
             {/* F-9: UserNote (Report only for a signed-in reader who is not the author); the author sees the hold and its reason in plain words, muted (fix round 2: lib/report-copy.ts#heldLine). */}
             {t.thesis_status === 'published' && <UserNote text={t.thesis} handle={user.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={me && !isMe ? String(t.id) : undefined} symbol={t.symbol} />}
-            {isMe && t.thesis_status === 'held' && !!t.thesis && <HeldNote rule={t.thesis_hold_rule} />}{/* F-26: the one held-line markup (lib/user-note.ts); an empty note is never held */}
+            {isMe && t.thesis_status === 'held' && !!t.thesis && <HeldNote rule={t.thesis_hold_rule} id={`held-${t.id}`} />}{/* F-26: the one held-line markup (lib/user-note.ts); an empty note is never held */}
             {isMe && (
               <form action={saveThesis} className="inline">
                 <input type="hidden" name="tradeId" value={t.id} />
-                <input type="text" name="thesis" maxLength={280} defaultValue={t.thesis ?? ''} placeholder="Why did you take this trade?" aria-label={`Thesis for ${t.symbol}`} />
+                <input type="text" name="thesis" maxLength={280} defaultValue={t.thesis ?? ''} placeholder="Why did you take this trade?" aria-label={`Thesis for ${t.symbol}`} {...(t.thesis_status === 'held' && !!t.thesis ? { 'aria-describedby': `held-${t.id}`, 'aria-invalid': true } : {})} />{/* F4-17: the held reason describes its field */}
                 <button>Save</button>
               </form>
             )}
@@ -446,8 +479,14 @@ export default async function Profile({ params, searchParams }: Params) {
         </p>
       )}
       {opt.gate === 'open' && complete && <OptionTradesSection trades={opt.trades} start={Number((await searchParams)?.options) || 0} handle={user.handle} />}
-      {similar && <SimilarSection handle={user.handle} similar={similar} signedIn={!!me} />}
-      <p><Link href="/" className="tap44"><span aria-hidden="true">←</span> Feed</Link></p>
+      {similar && <TrustShown shown={trustShown}><SimilarSection handle={user.handle} similar={similar} signedIn={!!me} /></TrustShown>}
+      {/* F-16 block (plan §2.1, §5.4; v2 B6): the quiet report menu (signed out too, never on your own profile, never
+          beside Follow or Share), then the anti-impersonation line last in <main>, so the footer's F3 disclaimer sits
+          directly after it. Fix round 2 (BL7): the menu sits left, on "← Feed"'s line. */}
+      <div className="f16-block">
+        <div className="profile-end"><Link href="/" className="tap44"><span aria-hidden="true">←</span> Feed</Link>{!isMe && <ProfileReportMenu handle={user.handle} />}</div>
+        <TrustFoot shown={trustShown} />
+      </div>
     </main>
   );
 }

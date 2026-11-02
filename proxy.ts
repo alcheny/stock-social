@@ -11,6 +11,9 @@ export function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('Content-Security-Policy', csp);
+  // F-16/F-17 (plan §11): the request path for app/u/[handle]/not-found.tsx, which gets no props. Set, so a client's
+  // own x-ss-path is overwritten.
+  requestHeaders.set('x-ss-path', request.nextUrl.pathname);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set('Content-Security-Policy', csp);
   return response;

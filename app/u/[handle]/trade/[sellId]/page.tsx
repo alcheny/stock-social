@@ -9,7 +9,6 @@ import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { toneClass } from '@/lib/open-split.ts';
 import { decodeSellId, legacyTradeKey, loadTradeShareByKey } from '@/lib/trade-share-load.ts';
 import { tradePageHref, withQuery } from '@/lib/trade-href.ts';
-import { metadata as notFoundMeta } from '../../../../not-found.tsx'; // F-25: one 404 title // F-25: the one trade URL builder
 import { tradeAlt, tradeDescription, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
 import { RecordStrip } from '@/app/record-strip.tsx';
@@ -23,6 +22,7 @@ import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: statu
 import { UserNote } from '../../../../user-note.tsx';
 import { HeldNote } from '@/lib/user-note.ts';
 import { loadOwnNote } from '@/lib/own-note.ts';
+import { generateMetadata as notFoundMetadata } from '../../not-found.tsx';
 
 const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 
@@ -56,9 +56,10 @@ const held = (d: number) => (d < 1 ? 'Held under a day' : `Held ${Math.round(d)}
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const t = await load(params);
-  // F-25 (council cycle 5, merge hazard with F-16/F-17): a missing trade gets the 404 page's title here, without calling
-  // notFound(): the page body still runs, so a legacy sell-id URL reaches its 308 (legacyRedirect), and anything else 404s.
-  if (!t) return { title: notFoundMeta.title };
+  // F-16/F-17 and F-25 (both sides' merge note): a missing trade gets the 404 head of ../../not-found.tsx (hidden /
+  // retired / generic) without calling notFound() here, so the page body still runs: a legacy sell-id URL reaches its
+  // 308 (legacyRedirect), and anything else 404s.
+  if (!t) return notFoundMetadata({ params });
   // F-12: the strip's words. Fix round 6: "verified" only for a whole record from the broker; "demo" for demo data.
   // Reviewer fix (TR-3): no record stats while an import runs; the incomplete line first on a failed one. The image's
   // alt text is the strip in words, declared here because a file-level alt is static (F-4 pattern).

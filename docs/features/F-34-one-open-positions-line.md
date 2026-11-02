@@ -1,7 +1,6 @@
 # F-34 · One open-positions line on every surface
 
-Status: blocked
-Blocked: waits for the owner's answer to OD 2.25 (whether unrealized values show for real users) and for F-16/F-17 (#100), F-25 (#102) and F-23 (#97) to merge, since they edit the image routes, the record strip and the pane
+Status: building
 Start conditions: OD 2.25 is answered (`docs/direction/owner-decisions-2026-11-01.md` §2), and #100, #102 and #97
 merge. It is the pane/strip build slot; F-29 and F-21 (re-approved this cycle) ride in the same slot with one builder
 owning the line order.
@@ -48,6 +47,13 @@ all with conditions).
   part is routed to the cycle-5 fixes lane now and is not this feature's work. Why: approved by the approval council
   (cycle 5); CO, EN (routed in round 3).
 
+- 2026-11-02: OD 2.25 answered by the owner, overriding the council's recommendation: real users' unrealized values
+  keep showing publicly (F-6 as it is today). There is no "aren't shown yet" line. F-34 builds the single open line in
+  the shown-values variant (F-4's card line, lowest value first) on every surface; the council's C5-5 wording ("per
+  closed trade") still applies where this file says so. The guard test "no unrealized value on the strips" is replaced
+  by the render-equality test (first AC). Build starts before #100 and #102 merge; main is merged in as each lands.
+  Why: the owner's decision of 2026-11-02 (OD 2.25).
+
 ## Acceptance criteria
 - [ ] Until OD 2.25 is answered, a guard test pins "no unrealized value on the strips or their images". After 2.25, a
       render-equality test replaces it: a fictional record with a −15% open loser gives byte-identical open-line text
@@ -68,7 +74,7 @@ all with conditions).
 - The "per closed trade" wording (fixes lane).
 
 ## Open questions
-- Owner (OD 2.25): hide unrealized values for real users until the vendor answers in writing?
+- Resolved 2026-11-02 (OD 2.25): no, unrealized values keep showing (Decisions).
 - Owner (OD 2.7): move the positions' as-of date from "freshness, internal" into the named record-state fields?
 
 ## POLICY notes

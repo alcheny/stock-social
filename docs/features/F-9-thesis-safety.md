@@ -43,6 +43,9 @@ creative direction council CR-34..CR-36, approved by the approval council
   lead's user test found those false holds; the fix committee accepted it.
 - 2026-11-01: The feed card's note has no "Note by @handle" line (the card's header already names the trader); every
   other surface keeps it. Why: business lead user test.
+- 2026-11-02: The owner accepted OD 2.20: the owner takes the held-thesis release duty with
+  `scripts/review-theses.ts`, daily during Beta, until admin identity exists. Each admin read is logged (OD 2.53;
+  fixes-list item F6-12). Why: the owner's decisions of 2026-11-02 (accepted en bloc).
 
 ## Acceptance criteria
 - [x] Every entry of a bypass corpus in `lib/moderation.test.ts` (built as the new file `lib/moderation-v2.test.ts`, so

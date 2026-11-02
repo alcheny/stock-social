@@ -5,7 +5,9 @@
 // it (until = now()) without deleting it, so a same-day feed cursor never changes (lib/discovery/exclusions.ts).
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
+import { HIDDEN_NOTICE } from './copy.ts';
 import { filerVisibleSql } from './public-gate.ts';
+import { visibleUser } from './visible-users.ts';
 import { EXCLUSION_DAYS, FEED_HIDES_UNFOLLOWED } from './discovery/weights.ts';
 import type { ExclusionRow } from './discovery/exclusions.ts';
 
@@ -23,8 +25,10 @@ export async function traderId(handle: unknown): Promise<number | null> {
 // Low 3; an empty list after unfollowing everyone does not bring it back).
 // F-7 (legal C16): a public-record filer can't be followed; `followable` lets the action refuse it, and the insert
 // itself skips one.
+// F-16 (plan v2 E12): a hidden trader can't be newly followed or liked. traderId stays deletion-only so a viewer can still
+// unfollow, or end a "Not interested" on, a trader in their own lists (private lists are untouched).
 export async function followable(trader: number): Promise<boolean> {
-  return (await sql`select 1 from users where id = ${trader} and public_filer_id is null`).length > 0;
+  return (await sql`select 1 from users u where u.id = ${trader} and u.public_filer_id is null and ${visibleUser('u')}`).length > 0;
 }
 export async function follow(viewer: number, trader: number): Promise<{ first: boolean }> {
   return sql.begin(async (tx) => {
@@ -99,23 +103,27 @@ function cursor(after: unknown): [string, number] {
   return m && Number(m[2]) <= INT_MAX ? [m[1], Number(m[2])] : ['9007199254740991', INT_MAX];
 }
 export const isListCursor = (v: unknown): v is string => typeof v === 'string' && !!CURSOR.exec(v) && Number(v.split('.')[1]) <= INT_MAX;
+// F-16 fix round 1 (review item 2): a trader the owner hid stays in the viewer's own lists (so unfollow, Show again and
+// Remove still work by handle, lib/follows.ts#traderId) but their display name is not shown: null, rendered as
+// HIDDEN_NOTICE.name. Exported for the Record tools views too.
+export const shownName = (alias: string) => sql`case when ${sql(alias)}.hidden_at is null then ${sql(alias)}.display_name end`;
 function page(rows: Record<string, unknown>[]): ListPage {
   const shown = rows.slice(0, FOLLOW_PAGE), last = shown.at(-1);
   return {
-    rows: shown.map((r) => ({ handle: r.handle as string, name: r.display_name as string, ...(r.until ? { until: r.until as Date } : {}) })),
+    rows: shown.map((r) => ({ handle: r.handle as string, name: (r.display_name as string | null) ?? HIDDEN_NOTICE.name, ...(r.until ? { until: r.until as Date } : {}) })),
     next: rows.length > FOLLOW_PAGE && last ? `${last.us}.${last.trader_id}` : null,
   };
 }
 export async function ownFollowing(viewer: number, after?: unknown): Promise<ListPage> {
   const [us, id] = cursor(after);
-  return page(await sql`select u.handle, u.display_name, f.trader_id, (extract(epoch from f.created_at) * 1000000)::bigint::text as us
+  return page(await sql`select u.handle, ${shownName('u')} as display_name, f.trader_id, (extract(epoch from f.created_at) * 1000000)::bigint::text as us
     from follows f join users u on u.id = f.trader_id and u.deleted_at is null
     where f.viewer_id = ${viewer} and (f.created_at, f.trader_id) < (timestamptz 'epoch' + ${us}::bigint * interval '1 microsecond', ${id}::int)
     order by f.created_at desc, f.trader_id desc limit ${FOLLOW_PAGE + 1}`);
 }
 export async function ownHidden(viewer: number, after?: unknown): Promise<ListPage> {
   const [us, id] = cursor(after);
-  return page(await sql`select u.handle, u.display_name, x.until, x.trader_id, (extract(epoch from x.created_at) * 1000000)::bigint::text as us
+  return page(await sql`select u.handle, ${shownName('u')} as display_name, x.until, x.trader_id, (extract(epoch from x.created_at) * 1000000)::bigint::text as us
     from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
     where x.viewer_id = ${viewer} and x.until > now() and (x.reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean)
       and (x.created_at, x.trader_id) < (timestamptz 'epoch' + ${us}::bigint * interval '1 microsecond', ${id}::int)
@@ -149,7 +157,8 @@ export async function ownListsFirstPage(viewer: number): Promise<{ following: Li
 // ponytail: the cap bounds what is returned, not what is read: every follow of the owner is joined and sorted by handle
 // (about 36 ms at 20,000 follows) — an index on the handle order (a handle copied onto follows) would read only `limit` rows.
 export async function followHandles(viewer: number, limit: number, exclude: readonly string[] = []): Promise<{ handles: string[]; more: boolean }> {
-  const rows = await sql`select u.handle from follows f join users u on u.id = f.trader_id and u.deleted_at is null
+  // F-16 fix round 1: a hidden trader is not offered (Record tools' addTrader refuses one as unknown).
+  const rows = await sql`select u.handle from follows f join users u on u.id = f.trader_id and ${visibleUser('u')}
     where f.viewer_id = ${viewer} and u.handle <> all(${[...exclude]}::text[]) order by u.handle collate "C" limit ${limit + 1}`;
   return { handles: rows.slice(0, limit).map((r) => r.handle as string), more: rows.length > limit };
 }
@@ -178,7 +187,7 @@ export async function unfollowsFor(viewer: number): Promise<{ trader: number; at
 // end first, FOLLOW_PAGE at a time (cursor on `until`, same keyset as ownFollowing).
 export async function expiredHidesPage(viewer: number, after?: unknown): Promise<ListPage> {
   const [us, id] = cursor(after);
-  return page(await sql`select u.handle, u.display_name, x.until, x.trader_id, (extract(epoch from x.until) * 1000000)::bigint::text as us
+  return page(await sql`select u.handle, ${shownName('u')} as display_name, x.until, x.trader_id, (extract(epoch from x.until) * 1000000)::bigint::text as us
     from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
     where x.viewer_id = ${viewer} and x.reason = 'not_interested' and x.ended_at is null and x.until <= now()
       and (x.until, x.trader_id) < (timestamptz 'epoch' + ${us}::bigint * interval '1 microsecond', ${id}::int)
@@ -193,7 +202,7 @@ export async function removeExpiredHide(viewer: number, trader: number): Promise
 // F-2 PR-5: personal ordering's inputs (lib/discovery/personal-load.ts), as of the feed session's asOf: the traders this
 // viewer followed by then (with handles, for reason lines), and their exclusions made after `since` and running at asOf.
 export async function followsAt(viewer: number, asOf: Date): Promise<{ trader: number; handle: string }[]> {
-  return (await sql`select f.trader_id, u.handle from follows f join users u on u.id = f.trader_id and u.deleted_at is null
+  return (await sql`select f.trader_id, u.handle from follows f join users u on u.id = f.trader_id and ${visibleUser('u')} -- F-16: a hidden trader names no reason
     where f.viewer_id = ${viewer} and f.created_at <= ${asOf}`).map((r) => ({ trader: r.trader_id as number, handle: r.handle as string }));
 }
 export async function exclusionsAt(viewer: number, since: Date, asOf: Date): Promise<{ trader: number; at: number; reason: 'not_interested' | 'unfollow' }[]> {

@@ -59,6 +59,11 @@ second-vote mean 4.67, final vote 15/15, all with conditions).
   Clearing it needs vendor position evidence (protected `lib/broker.ts`, stored units), which is the owner's call. Any
   future release rule must never publish a close that main counts. Why: approval council cycle 5; lapse rule; RT, LC
   (F3c veto against re-approval as written), CO.
+- 2026-11-02: The owner accepted OD 2.27 as recommended. Council cycle 5 found it overtaken by #89: main already
+  counts every later sell after an oversell, which is at least as strict as this file's rule, so the owner's yes is
+  met by main and this feature stays `draft`; nothing is built for it. Clearing the oversell mark with vendor position
+  evidence (protected `lib/broker.ts`, stored units) is not decided. Why: the owner's decision of 2026-11-02 (OD 2.27,
+  accepted en bloc); council cycle 5 lapse record.
 
 ## Acceptance criteria
 - [ ] Probe (intraday): SELL 100 @15 with nothing held, BUY 100 @14, BUY 100 @20, SELL 100 @18. The last sell is

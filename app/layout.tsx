@@ -4,7 +4,8 @@ import { currentUser } from '@/lib/session.ts';
 import { sql } from '@/lib/db.ts';
 import { NavLogin } from './nav-login.tsx';
 import { headers } from 'next/headers';
-import { FOOTER, NAV, verifiedMeansFooter } from '@/lib/copy.ts';
+import { FOOTER, NAV, TAKEDOWN, verifiedMeansFooter } from '@/lib/copy.ts';
+import { takedownReachable } from '@/lib/takedown.ts';
 // F-13: the pre-paint device-flag script (no flash of a dismissed line or a used hint).
 import { SEEN_SCRIPT } from '@/lib/device-flag.ts';
 import { THEME_COLOR } from '@/lib/palette.ts';
@@ -59,6 +60,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Not investment advice. Past performance does not guarantee future results. {verifiedMeansFooter()}
           <nav className="legal" aria-label="Legal">
             <Link href="/terms">{FOOTER.terms}</Link> <Link href="/privacy">{FOOTER.privacy}</Link> <Link href="/how">{FOOTER.how}</Link>
+            {/* F-16 fix round 2 (UX6): the notices page, only while it is reachable (lib/takedown.ts). */}
+            {takedownReachable() && <Link href="/takedown">{TAKEDOWN.link}</Link>}
           </nav>
         </footer>
       </body>
