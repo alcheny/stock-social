@@ -98,11 +98,12 @@ export type FeedCandidate = {
 // with the same vendor id from the other source imported later does not make it late (the old filter did); not
 // reachable while demo ids carry their own prefix — if demo ids ever share a namespace with real ones, set
 // sell_imported_at in lib/sync.ts#rebuildTrades (the derived table's one writer), never from the import path.
-const importedBy = (col: ReturnType<typeof sql>, asOf: Date) => sql`(${col} is null or ${col} <= ${asOf})`;
+// F-33: exported for scripts/f15-readout.ts#loadRanked, so the readout counts the rows the feed's weight reads.
+export const importedBy = (col: ReturnType<typeof sql>, asOf: Date) => sql`(${col} is null or ${col} <= ${asOf})`;
 // ---- F-7 (plan Round 5 item 7): the 30-day feed floor on every feed-side read of closed_trades (candidates, both
 // eligibility branches, the weight and its fingerprint, exploration, the section pool), pinned to asOf when there is one
 // so a close crossing its floor between two pages never shifts a list; filers pass the switch / hide gate in `elig`.
-const ready = (t: string, asOf?: Date) => (asOf ? sql`(${sql(`${t}.feed_after`)} is null or ${sql(`${t}.feed_after`)} <= ${asOf})` : feedReadySql(t));
+export const ready = (t: string, asOf?: Date) => (asOf ? sql`(${sql(`${t}.feed_after`)} is null or ${sql(`${t}.feed_after`)} <= ${asOf})` : feedReadySql(t));
 
 // `ids` is a test hook (rank only these traders); the feed passes none.
 // F-2 PR-1: `asOf` freezes the ranking clock for a feed session (lib/discovery/pager.ts): the score's age, the

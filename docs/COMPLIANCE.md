@@ -179,6 +179,11 @@ privacy-policy diff for every new field or vendor; deletion tested end to end, i
   return on what the contracts cost, fees included; share-only headline) and the excluded list now names short
   options, exercised or assigned options and the share trades held over that day, and adjusted, non-stock and dangling
   contracts.
+  2026-11-02 (F-33; owner decisions cycle-5 Q3, OD 2.32, OD 2.33): "How your feed is ordered" states the ranking tier
+  (30 independent bets over 90 days, a per-trade range no wider than 10 points either side), the 1-point spread floor,
+  the near-edge weight (the end of the 30-day range nearest zero; none when it crosses zero), closed trades only, and
+  that a record below the tier keeps its place in the base order. The math list says a range with no width prints
+  "Too early to tell".
 - Counsel opinions: adviser status, each Phase 2/3 feature, state coverage.
 
 ## 13. Penalty exposure: laws that fine per user, per message or per violation

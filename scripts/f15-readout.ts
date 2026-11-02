@@ -50,7 +50,16 @@ export type InternalState = 'unset' | 'none-valid' | 'set';
 export type ReadoutInput = {
   rollup: RollupRow[]; drops: DropRow[]; g1: { strict: number; partial: number }; g2: G2Input;
   top?: { week: Day; n: number }[]; cap?: { day: Day; trusted: boolean }[]; internal?: { state: InternalState; ignored: number; listed?: number };
+  // F-33: how many visible, non-Demo records carry ranking weight above 0 at the run (loadRanked). A count only.
+  ranked?: number;
 };
+
+// ---- F-33: records with ranking weight above 0 (docs/features/F-33-ranking-weight-needs-evidence.md, AC10) ----
+// One cell, no total or difference row: 0, "<5" for 1 to 4, else the count; "not loaded" when the input lacks it.
+export const RANKED_LABEL = '- records with ranking weight above 0: ';
+export const RANKED_LINE = '  Counts visible records that are not Demo and whose ranking weight is above 0 at the time of the run (30 or more independent bets over 90 or more days and a likely range clear of zero). A count only: no handle, no id, no return.';
+export const rankedCell = (n: unknown): string =>
+  typeof n !== 'number' || !Number.isFinite(n) || n < 0 ? 'not loaded' : n > 0 && n < SMALL ? '<5' : Math.floor(n).toLocaleString('en-US');
 
 // ---- F-31: the limits block, the strict family and the new rows (docs/features/F-31-readout-limits-and-partial-rows.md;
 // plan docs/features/logs/F-31/plan.md §2-§3) ----
@@ -320,6 +329,7 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
   if (live.some((l) => !l)) out.push(CAP_FLAG_LINE);
   out.push(internalFactLine(internalState, count(input.internal?.ignored), count(input.internal?.listed)));
   if (internalSet) out.push(INTERNAL_RUNS_LINE);
+  out.push(`${RANKED_LABEL}${rankedCell(input.ranked)}`, RANKED_LINE); // F-33
   out.push('');
 
   // G1: two disjoint single counts, no total.
@@ -573,6 +583,41 @@ export async function loadG2(sql: Sql, to: string, retentionDays: number, onlyUs
   return { traders: traders.map((t) => ({ card: t.card, story: t.story, record: t.record, sheet: t.sheet, copy: t.copy, down: t.down, internal: t.internal === true })), firstDay: null, retentionDays };
 }
 
+// F-33: the records the feed would weigh, counted. One statement: the visible, non-Demo users first (the predicates the
+// feed and G1 use: lib/visible-users.ts, lib/public-gate.ts#filerVisibleSql, demoUser below), then their closed trades
+// with the feed weight's own row filters (lib/feed.ts#ready, #importedBy, closed by asOf), grouped by user as
+// lib/feed.ts#weights() groups them; rankWeight runs per user in JS. Returns the count only. onlyUsers narrows the users
+// (db tests on a shared database read only their own rows).
+// ponytail: reads every visible record's closes once a run — fix: read the feed's cached TraderFacts or a per-user
+// summary when records grow.
+// Wrapped in { q } because a query is a thenable: awaiting this function must not run it (the db test EXPLAINs it).
+export async function rankedQuery(sql: Sql, asOf: Date, onlyUsers?: number[]): Promise<{ q: PendingQuery<Row[]> }> {
+  const { ready, importedBy } = await import('../lib/feed.ts');
+  const { visibleUser } = await import('../lib/visible-users.ts');
+  const { filerVisibleSql } = await import('../lib/public-gate.ts');
+  return { q: sql`
+    with v as (
+      select u.id from users u
+      where ${visibleUser('u')} and ${filerVisibleSql('u')} and not ${demoUser(sql, sql`u.id`)}
+        ${onlyUsers ? sql`and u.id = any(${onlyUsers}::int[])` : sql``})
+    select t.user_id, '[' || string_agg(concat_ws(',', to_json(t.symbol)::text, t.return_pct, t.holding_days,
+      date_part('epoch', t.opened_at) * 1000, date_part('epoch', t.closed_at) * 1000), ',') || ']' as j
+    from closed_trades t join v on v.id = t.user_id
+    where t.closed_at <= ${asOf} and ${ready('t', asOf)} and ${importedBy(sql`t.sell_imported_at`, asOf)}
+    group by t.user_id` };
+}
+export async function loadRanked(sql: Sql, asOf: Date, onlyUsers?: number[]): Promise<number> {
+  const { rankWeight } = await import('../lib/rank-weight.ts');
+  let n = 0;
+  for (const r of await (await rankedQuery(sql, asOf, onlyUsers)).q) {
+    const a = JSON.parse(r.j as string) as (string | number)[], ts = [];
+    for (let k = 0; k < a.length; k += 5) ts.push({ symbol: a[k] as string, returnPct: a[k + 1] as number, holdingDays: a[k + 2] as number,
+      openedAt: new Date(a[k + 3] as number), closedAt: new Date(a[k + 4] as number) });
+    if (rankWeight(ts) > 0) n++;
+  }
+  return n;
+}
+
 // Demo target (cycle 4 F4-11, C4-4): a user with a demo activity (lib/demo.ts) or a fictional fixture filer
 // (public_filers.demo, lib/public-import.ts), whose closed trades are written without any activity row.
 const demoUser = (sql: Sql, id: PendingQuery<Row[]>) => sql`(exists (select 1 from activities a where a.user_id = ${id} and a.source = 'demo')
@@ -676,8 +721,9 @@ async function main() {
             where u.deleted_at is null
               and not ${demoUser(sql, sql`u.id`)}
             group by u.id) t`;
+    const ranked = await loadRanked(sql, now); // F-33
     // G1 strict is the G2 trader count itself, so the two can't disagree.
-    const text = buildReadout({
+    const text = buildReadout({ ranked,
       rollup, drops: [...drops], g1: { strict: g2.traders.length, partial: g1?.partial ?? 0 }, g2,
       top, cap, internal: { state: internal.state, ignored: internal.ignored, listed: internal.handles.length },
     }, now);

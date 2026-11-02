@@ -207,6 +207,9 @@ export function cardOpen(pcts: number[]): CardOpen | null {
 export const evidenceRangeText = (e: Pick<Confidence, 'perTrade'>): string | null =>
   e.perTrade && !zeroWidth(e.perTrade) ? `(${pct(e.perTrade.low)} to ${pct(e.perTrade.high)})` : null;
 
+// ponytail: ticker pages, recap, trade-share and the tools card print confidence()'s log range, not OD 2.32's arithmetic
+// one (F-33 gives them only the zero-width rule; orchestrator ruling R3, a tracked hand-off) — fix: move
+// othersConfidence's sums to simple returns (EXPLAIN rows-read test) and the per-trader ones to cardEvidence.
 // ponytail: the compare page still prints confidence()'s log-based range and tier (the trade and month pages call this
 // through lib/record-strip.ts#stripEvidence) — have it call cardEvidence too, or move confidence onto arithmeticRange.
 export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {

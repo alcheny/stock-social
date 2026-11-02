@@ -109,3 +109,55 @@ dbTest('F-15 readout: a fixture filer view is in no G3 row and not in "all"; a D
     await sql`delete from signup_attempts where id = any(${attempts}::bigint[])`;
   }
 });
+
+// ---- F-33 AC10: the ranked-records loader (one statement; EXPLAIN rows read) ----
+type PlanNode = { 'Node Type': string; 'Relation Name'?: string; 'Index Name'?: string; 'Actual Rows': number; 'Actual Loops': number;
+  'Rows Removed by Filter'?: number; 'Rows Removed by Index Recheck'?: number; Plans?: PlanNode[] };
+const planNodes = (n: PlanNode): PlanNode[] => [n, ...(n.Plans ?? []).flatMap(planNodes)];
+const rowsRead = (n: PlanNode) => (n['Actual Rows'] + (n['Rows Removed by Filter'] ?? 0) + (n['Rows Removed by Index Recheck'] ?? 0)) * n['Actual Loops'];
+
+dbTest('F-33 AC10: loadRanked counts visible, non-Demo records with ranking weight above 0 in one statement that reads each close once (EXPLAIN)', async () => {
+  const { sql } = await import('../lib/db.ts');
+  const { loadRanked, rankedQuery } = await import('./f15-readout.ts');
+  const ids: number[] = [];
+  const DAY = 86_400_000, now = Date.now();
+  const user = async () => {
+    const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+    const h = `f33r${Math.random().toString(36).slice(2, 10)}`;
+    const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${h}, ${h}, now(), ${a.id}) returning id`;
+    ids.push(u.id);
+    return u.id as number;
+  };
+  // k one-day bets over `days` days, each +2% ± 1 point (weighted once at the tier), or ± 30 points (crosses zero).
+  const closes = (u: number, k: number, days: number, spread = 0.01) => Array.from({ length: k }, (_, i) => {
+    const closed = now - DAY - (i / (k - 1)) * (days - 1) * DAY;
+    return { user_id: u, sell_id: `f33r-${u}-${i}`, account_id: 'a', symbol: `F33R${i}`, opened_at: new Date(closed - DAY), closed_at: new Date(closed),
+      return_pct: 0.02 + (i % 2 ? spread : -spread), holding_days: 1, verified: true };
+  });
+  try {
+    const weighted = await Promise.all([1, 2, 3].map(() => user()));
+    const [short, crossing, demo, deleted] = [await user(), await user(), await user(), await user()];
+    const rows = [...weighted.flatMap((u) => closes(u, 40, 120)), ...closes(short, 20, 120), ...closes(crossing, 40, 120, 0.3), ...closes(demo, 40, 120), ...closes(deleted, 40, 120)];
+    await sql`insert into closed_trades ${sql(rows)}`;
+    await sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
+      values (${demo}, 'demo', ${'f33r-' + Math.random().toString(36).slice(2, 12)}, 'a', 'F33R', 'BUY', 1, 1, now(), '{}')`;
+    await sql`update users set deleted_at = now() where id = ${deleted}`;
+    assert.equal(await loadRanked(sql, new Date(), ids), 3, 'the three weighted records; not the short, crossing, Demo or deleted one');
+    // Closes after asOf are not counted: at a time before every close, nothing weighs.
+    assert.equal(await loadRanked(sql, new Date(now - 200 * DAY), ids), 0);
+    // One statement; closed_trades is read once per close of the users it keeps, never per user per close.
+    const [r] = await sql`explain (analyze, format json) ${(await rankedQuery(sql, new Date(), ids)).q}`;
+    const nodes = planNodes((r['QUERY PLAN'] as { Plan: PlanNode }[])[0].Plan);
+    // On a small table the planner reads it in one pass; with the user filter selective it reads only those users' closes
+    // through the user index. Either way at most one read per close in the table: never once per user per close.
+    const read = nodes.filter((n) => n['Relation Name'] === 'closed_trades' || n['Index Name']?.startsWith('closed_trades_')).reduce((a, n) => a + rowsRead(n), 0);
+    const [{ total }] = await sql`select count(*)::int as total from closed_trades`;
+    assert.ok(read >= rows.length - 80, `at least the kept users' closes are read (${read})`); // 80: the Demo and deleted users' closes may be skipped
+    assert.ok(read <= Math.max(total, rows.length), `closed_trades rows read: ${read}, rows in the table: ${total}`);
+    assert.equal(nodes.filter((n) => n['Node Type'] === 'Seq Scan' && n['Relation Name'] === 'closed_trades' && n['Actual Loops'] > 1).length, 0, 'no repeated scan');
+    const acts = nodes.filter((n) => n['Relation Name'] === 'activities');
+    for (const n of acts) assert.ok(n['Actual Loops'] <= ids.length, `the Demo check runs per user (${n['Actual Loops']} loops), never per close`);
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});

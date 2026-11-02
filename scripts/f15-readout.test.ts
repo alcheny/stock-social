@@ -440,3 +440,23 @@ test('G2: buildReadout prints exactly g2Print of the trader cells', () => {
   const cells = { story: 6, card: 8, other: 2, non: 6, sheetOnly: 8, copyOnly: 2, both: 6, down: 6, upOnly: 10 };
   assert.deepEqual(g2Values(buildReadout(g2Input(traders), NOW)), g2Print(cells, 22));
 });
+
+// ---- F-33 AC10: records with ranking weight above 0, counts only ----
+test('F-33 AC10: ranked records print <5 from 1 to 4, exact from 5, 0 at 0, not loaded when missing', async () => {
+  const { RANKED_LABEL, RANKED_LINE, rankedCell } = await import('./f15-readout.ts');
+  const base: ReadoutInput = { rollup: [], drops: [], g1: { strict: 0, partial: 0 }, g2: { traders: [], firstDay: null, retentionDays: 120 } };
+  const line = (ranked?: number) => buildReadout({ ...base, ...(ranked === undefined ? {} : { ranked }) }, NOW).split('\n').find((l) => l.startsWith(RANKED_LABEL));
+  assert.equal(line(0), `${RANKED_LABEL}0`);
+  for (const n of [1, 2, 3, 4]) assert.equal(line(n), `${RANKED_LABEL}<5`, `${n}`);
+  assert.equal(line(5), `${RANKED_LABEL}5`);
+  assert.equal(line(1234), `${RANKED_LABEL}1,234`);
+  assert.equal(line(), `${RANKED_LABEL}not loaded`);
+  for (const bad of [Number.NaN, -1, Infinity, '7' as unknown as number]) assert.equal(rankedCell(bad), 'not loaded');
+  // The definition follows the cell, inside the facts block (before ## G1); no handle, id or return is printed.
+  const md = buildReadout({ ...base, ranked: 3 }, NOW);
+  const at = md.indexOf(`${RANKED_LABEL}<5`);
+  assert.ok(at > 0 && at < md.indexOf('\n## G1\n'));
+  assert.equal(md.split('\n')[md.split('\n').indexOf(`${RANKED_LABEL}<5`) + 1], RANKED_LINE);
+  assert.match(RANKED_LINE, /30 or more independent bets over 90 or more days/);
+  assert.match(RANKED_LINE, /A count only: no handle, no id, no return\./);
+});
