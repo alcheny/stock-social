@@ -96,9 +96,10 @@ anything else.
 - 2026-10-22: The owner confirmed F-1 is decided; Status set to ready.
 - 2026-11-01: The owner accepted F-1 as built (PRs #11, #15, #16, #17). Why: the owner's verdict.
 - 2026-11-02: The owner accepted OD 2.10, 2.11, 2.16 and 2.62 for the connect flow. They are built as new features,
-  not as rework of this accepted feature: F-37 (in-app disconnect), F-38 (connect preview and the licensed-user
-  question) and F-39 (a finished connect link never signs a browser in). Why: the owner's decisions of 2026-11-02
-  (accepted en bloc); `docs/direction/owner-decisions-2026-11-02-worklist.md`.
+  not as rework of this accepted feature: F-37 (a finished connect link never signs a browser in), F-40 (in-app
+  disconnect), F-44 (the licensed-user question and the claims line) and F-45 (connect preview); deleting the vendor
+  connection on a freeze (OD 2.12) is F-48. Why: the owner's decisions of 2026-11-02 (accepted en bloc);
+  `docs/direction/owner-decisions-2026-11-02-worklist.md`.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.

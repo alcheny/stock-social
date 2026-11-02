@@ -89,9 +89,9 @@ second-vote mean 3.67, final vote 15/15, all with conditions).
 - 2026-11-01: A drawdown goes out rounded as it prints (negated: `-wirePct(-dd)`); near -100% a wire return comes from
   the printed digits plus at most one; a chart whose closes fall on one UTC day prints one end date. Why: decided by the committee under the owner's instruction of 2026-11-01; the
   independent code review and the user test.
-- 2026-11-02: Above ±100%, the cumulative figure prints at about 3 significant figures. The public payload carries no more precision than that print (this feature's rule).
-  The F-23 session builds it as a follow-up; that session sets the status. Why: the owner's decision of 2026-11-02
-  (chart precision).
+- 2026-11-02: Above ±100%, the cumulative figure prints at about 3 significant figures. The public payload carries no
+  more precision than that print (this feature's rule). The F-23 session builds it as a follow-up; that session sets
+  the status. Why: the owner's decision of 2026-11-02 (chart precision).
 
 ## Acceptance criteria
 - [x] For a fixture with an odd return and a 14:31:07 close, `/pane`, `/pane-chart` and the feed HTML contain no return

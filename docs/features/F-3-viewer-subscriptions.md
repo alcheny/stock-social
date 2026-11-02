@@ -90,7 +90,7 @@ opinion lands.
   checklist plus the C4-41 line hold; the checkout conditions (unchecked box, no preselected plan, reminder 30-40 days
   before renewal, no trial); a connected trader never sees a price, with one plain line; no pricing tests now; the
   priced notify-me test runs with "nothing is charged now"; no creator payouts for now. OD 2.62: the Terms ban selling
-  signals or paid access through a profile, thesis or card, and the licensed-user question is asked at connect (F-38).
+  signals or paid access through a profile, thesis or card, and the licensed-user question is asked at connect (F-44).
   Why: the owner's decisions of 2026-11-02 (accepted en bloc).
 
 ## What viewers pay for (candidates; each needs the legal committee's review before build)

@@ -41,7 +41,7 @@ account divided between realized and unrealized gains and losses.
   A, OD 2.24). One "Open" line across surfaces is F-34; withholding symbols on thinly traded names is deferred. Why:
   the owner's decision of 2026-11-02 (OD 2.25).
 - 2026-11-02: The owner accepted OD 2.31 (a disconnected account's last positions shown, labelled "Last known ‹date›";
-  F-40) and OD 2.34 (open positions in the TR-9 range; F-45). These resolve the follow-up and idea-board questions
+  F-41) and OD 2.34 (open positions in the TR-9 range; F-46). These resolve the follow-up and idea-board questions
   below. Why: the owner's decisions of 2026-11-02 (accepted en bloc).
 
 ## Acceptance criteria

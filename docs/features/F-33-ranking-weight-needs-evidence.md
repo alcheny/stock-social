@@ -51,14 +51,14 @@ second-vote mean 4.00, final vote 15/15, all approving, 14 of them with conditio
   owner's decision of 2026-11-02 (ranking).
 - 2026-11-02: The owner answered OD 2.33 with (c): rank by the near-edge distance from 0 of the range (the edge nearer
   to 0, so a record whose range crosses 0 has weight 0, and gains and losses of the same size weigh the same),
-  documented on /how. /how and all copy
-  describe it without "edge" as a label (POLICY F3b), for example "the end of the likely range nearer to 0". The property-test AC above uses this method. The TR-9 and CLAUDE.md:92 text edits (brief 3.6,
-  3.20) go to the protected-files session, never in the build PR. Why: the owner's decision of 2026-11-02 (ranking; OD
-  2.33).
+  documented on /how. /how and all copy describe it without "edge" as a label (POLICY F3b), for example "the end of
+  the likely range nearer to 0". The property-test AC above uses this method. The TR-9 and CLAUDE.md:92 text edits
+  (brief 3.6, 3.20) go to the protected-files session, never in the build PR. Why: the owner's decision of 2026-11-02
+  (ranking; OD 2.33).
 - 2026-11-02: The owner accepted OD 2.32: one range rule everywhere, the arithmetic mean of simple returns; "Too early
   to tell" for a zero-width range; the wording "average per trade so far, likely between X and Y". This feature owns
   the printed range and its one producer, so it carries 2.32's wording. OD 2.34 (open positions in the range) is
-  accepted and is its own feature, built after this one in the ranking slot
+  accepted and is F-46, built after this one in the ranking slot
   (`docs/direction/owner-decisions-2026-11-02-worklist.md`); the hold-losers AC stays a `todo` naming it until then.
   Why: the owner's decisions of 2026-11-02 (OD 2.32, 2.34, accepted en bloc).
 
