@@ -22,8 +22,12 @@ export function effectiveRows(rows: PubRow[]): PubRow[] {
   }
   return rows.filter((r) => best.get(root(r.filing_id)) === r.filing_id);
 }
+// F-21 (committee decision 6): every reason a filing row is excluded and counted for, as data, so the exclusion sum's
+// guard (lib/f21-exclusions.test.ts) reads the runtime list; `count` takes only these.
+export const PUBLIC_REASONS = ['no_price', 'unreconciled', 'derivative', 'gift', 'other', 'indirect'] as const;
+export type PublicReason = (typeof PUBLIC_REASONS)[number];
 export function matchPublic(input: PubRow[]): { trades: PubTrade[]; excluded: Record<string, number>; openSymbols: string[] } {
-  const excluded: Record<string, number> = {}, count = (k: string) => { excluded[k] = (excluded[k] ?? 0) + 1; };
+  const excluded: Record<string, number> = {}, count = (k: PublicReason) => { excluded[k] = (excluded[k] ?? 0) + 1; };
   const rowNo = (r: PubRow) => Number(r.external_id.split(':').pop()) || 0;
   const rows = effectiveRows(input).sort((a, b) => a.executed_at.getTime() - b.executed_at.getTime() || a.filed_at.getTime() - b.filed_at.getTime()
     || (a.filing_id < b.filing_id ? -1 : a.filing_id > b.filing_id ? 1 : rowNo(a) - rowNo(b)));
