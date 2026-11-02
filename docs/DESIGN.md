@@ -36,9 +36,9 @@ technology** — and the owner resolves. Dissent that was overruled is kept, on 
   losses included.*
 - ICP-S2: "Educator." Explains trading to an audience on social and video platforms. Pain: viewers
   can't tell whether the teacher's own trades match the lessons. Job: *show my own record, as it is.*
-- Paid signal sellers are not a launch segment: held for the AI legal committee, and the Terms ban selling
-  signals or paid access through a profile, thesis or card (POLICY F1). (Owner decision 2026-11-01,
-  item 2.41, with 2.62: supply leads with hobbyists and educators, replacing the "Signals seller" persona.)
+- Paid signal sellers are not a launch segment: held for the AI legal committee, and the Terms will ban selling
+  signals or paid access through a profile, thesis or card (POLICY F1; the Terms are not yet live). (Owner decision
+  2026-11-01, item 2.41, with 2.62: supply leads with hobbyists and educators, replacing the "Signals seller" persona.)
 
 **Demand (people who watch) — abundant; capture through shared links.**
 - ICP-D: 18–27, mobile-only, discovers finance through short video, attention span of one swipe.
@@ -240,7 +240,8 @@ securities-counsel opinion** on the publisher's exclusion for each feature.
 
 ### 3.4 Never
 - Hiding, deleting or editing individual trades; opting single accounts out of a connected login; deleting history on disconnect (TR-1, TR-2, TR-5).
-- Confetti or celebration on real trades. Only correct *predictions* (Phase 2, paper only) may be celebrated.
+- Confetti or celebration on real trades. Only correct *predictions* in a separate paper-only mode, never tied to
+  real trades or real money, may be celebrated.
 - Rewards for trading **frequency**: nothing in the product rewards trading more often.
   (Owner decision 2026-11-01, item 2.41: "skill" and "badges" struck from these two lines.)
 - Points convertible to money; real-money predictions; loot boxes; paid streak saves.
@@ -331,7 +332,7 @@ cherry-picking route and the rule that closes it:
 | TR-1 | Hide or delete individual losing trades | No per-trade hide, delete or edit, ever. Every trade from a connected account is published. Only the thesis is editable. |
 | TR-2 | Connect only the "good" account under a broker login | Every account under a connected broker login is included. No per-account opt-out. |
 | TR-3 | Start the record after a hot streak | Import the full history the broker provides, not just from the connect date. The profile shows "Record since ‹first trade date›". |
-| TR-4 | Sell winners, hold losers forever, so realized stats look great | Show open positions next to realized stats, as prominent as the headline: "Open: 6 positions · −23% unrealized", in the down color when negative. Uses SnapTrade positions (average cost and current price), so no new vendor. Owner decision 2026-11-01 (item 2.25): unrealized values stay shown; no exception hides them. |
+| TR-4 | Sell winners, hold losers forever, so realized stats look great | Show open positions next to realized stats, as prominent as the headline: "Open: 6 positions · −23% unrealized", in the down color when negative. Uses SnapTrade positions (average cost and current price), so no new vendor. Owner ruling 2026-11-01 (item 2.25): unrealized values stay shown; no exception hides them. The data vendor's written permission for public display is still required before real users (POLICY, owner decision 2026-11-01). |
 | TR-5 | Disconnect after losses, or delete and start fresh | Disconnecting freezes the record: it stays public with "Disconnected ‹date›". Removing an account keeps its trades, marked "Account removed ‹date›". Only deleting the whole profile removes history, and that handle can't be reused for 1 year. |
 | TR-6 | Attach the same broker account to a new profile to reset | A broker account can belong to only one profile, ever (unique on the broker's account ID). |
 | TR-7 | Advertise a lucky short streak | Headline stats and the share card always show all-time numbers; 30d/90d views are secondary and labeled. Profiles under 30 days of history or 10 closed trades show an "Early record" badge (owner decision 2026-11-01, item 2.41; was "New record"). |
@@ -373,13 +374,14 @@ holding losers can't flatter the interval.
   Pace and the method sit one tap deeper. Losses and below-zero results are shown with the same prominence.
 - **Copy (Must):** never "skill", "proven", "guaranteed" or similar; the label describes evidence, not
   the trader.
-- **Ranking (Must):** any ranking of traders (lists, "top traders", future leaderboards) sorts by the
-  pace interval's **near-end distance from 0**, never by raw averages: max(0, low) for an interval
-  wholly above 0, max(0, −high) for one wholly below, 0 when it spans 0. Losses rank like gains, and
-  small lucky samples can't top it. Ranking weight starts only at the Moderate evidence tier (K ≥ 30 and
-  span ≥ 90 days; this replaces the owner's 2026-11-01 floor of 10 bets); below it a record ranks by
-  recency alone. The spread used in the error term never falls below 1 percentage point per trade. The
-  one method is documented on /how. (Owner decisions 2026-11-01: item 2.33 option (c), and cycle-5 Q3.)
+- **Ranking (Must):** any ranking of traders (lists, future leaderboards) sorts by the pace interval's **near-end
+  distance from 0**, never by raw averages: max(0, low) for an interval wholly above 0, max(0, −high) for one wholly
+  below, 0 when it spans 0. Losses rank like gains, and a small lucky sample weighs less than a longer record with the
+  same results. Ranking weight starts only at the Moderate evidence tier (K ≥ 30 and span ≥ 90 days; this replaces
+  the owner's 2026-11-01 floor of 10 bets); below it a record keeps the base order (return size × recency decay, never
+  trade count or frequency) with a stable tie-break, stays visible and is never hidden. The spread used in the error
+  term never falls below 1 percentage point per trade. The one method is documented on /how. (Owner decisions
+  2026-11-01: item 2.33 option (c), and cycle-5 Q3.)
 - **Share card:** shows the evidence label next to the headline numbers.
 - **Tests (Must):** unit tests for clustering of overlapping same-symbol trades, K < 5 → too early, half-width > 10 points → too early,
   a hand-computed example, and zero spread (no division by zero).
