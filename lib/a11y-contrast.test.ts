@@ -102,8 +102,7 @@ const TOKENS_END = '/* end TOKENS */';
 
 // The floors (AC4, AC5, AC12). Cycle 2 set these (approval council, cycle 2: 4.5:1 text, 3:1 large text, UI parts and the
 // focus ring, ΔE00 ≥ 9 under protan, deutan and tritan); they are never lowered to make a pair pass.
-// ponytail: these floors live in a test the same PR can edit; the owner is asked (council cycle 3, flag 7; plan OQ-7) to
-// add a FLOORS ≥ cycle-2 check to the protected scripts/invariants.test.ts.
+// The protected scripts/invariants.test.ts pins FLOORS at or above cycle 2 (owner decision 2026-11-01, item 2.44).
 export const FLOORS = { text: 4.5, large: 3, ui: 3, focus: 3, cvd: 9 } as const;
 const CYCLE2 = { text: 4.5, large: 3, ui: 3, focus: 3, cvd: 9 } as const; // written separately on purpose
 
