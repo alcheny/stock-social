@@ -26,8 +26,12 @@ deployed, never in the same deploy (the orchestrator orders the merge).
 - **/how** (`lib/copy.ts`, `app/how/page.tsx`):
   - The formula appears once, as plain text that reflows at 320 px.
   - One fictional worked example: paid 100 plus a fee of 10, sold for 165, +50%.
+  - The example renders last in the math list, right above the Disclaimer: it is /how's only percent figure, so the
+    F3 line is in plain view with it (`e2e/fixes-labels.spec.ts` C1).
   - A new last section, "Changes to the math", dated from `F36_RECALC_DATE` (rendered in UTC). It says that returns of
     trades with a purchase fee were recalculated, and that before, gains and losses both looked bigger.
+- **F-16 read scan:** the rebuild's counts-only share-return read is on `lib/f16-visible-reads.test.ts`'s allowlist (as
+  F-32's rebuild read is).
 - **COMPLIANCE §12:** a dated entry in the history of "How records are calculated".
 - **DESIGN §2.5:** referenced, not edited (protected). The protected-files session is preparing the amendment.
 - **Fixture audit (test-only):** `scripts/f36-audit.ts` and its hook rewrite `lib/trades.ts`'s `returnPct:` line in

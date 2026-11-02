@@ -63,3 +63,16 @@ only when every test exited cleanly); `|new| ≤ |legacy|` and the zero-fee equa
   failure in `lib/trades.test.ts`) and finding 1 (a ponytail: records the hourly sync rebuilt first are not in the
   deploy's counts). Findings 3-5 (per-file cross-check backed by the per-trade `entryFee=no` check; the date constant,
   an owner item; DB fixture legacy rows written by hand) are noted, not changed.
+
+## After the merges (orchestrating build session, 2026-11-02; no further review rounds: owner's token-saving pause)
+- C5-43(b) (#107) merged: the rebuild moved into a shared `rebuildEach` (deploy and sync-tick catch-up). F-36's
+  sign counts moved into it; the catch-up keeps its return shape and logs only a sign change.
+- F-32 Part A (#108) merged first with MATCHER_VERSION 3, so F-36 takes 4. F-32's reasons come first in `replay`
+  (a transfer-tainted lot keeps the transfer count); F-36's guard then counts an untainted no-basis lot as corporate.
+  The rebuild records F-32's per-reason moves and F-36's sign counts in one transaction.
+- F-16 (on main) scans every `closed_trades` read: the rebuild's counts-only share-return read is allowlisted, as
+  F-32's `lib/matcher-report.ts` read is.
+- `e2e/fixes-labels.spec.ts` C1: the worked example made /how a performance route (its only percent figure), so the F3
+  line must be in plain view with it. The example now renders last in the math list, right above the Disclaimer (copy
+  unchanged, still an item of `HOW.math`). This also keeps the business lead's R2-11 (Disclaimer right after the math
+  list).
