@@ -118,7 +118,7 @@ test('F-10 AC8: reflow at 320, 360×640 and 780×360: no horizontal scroll, the 
   }
   await page.setViewportSize({ width: 360, height: 640 });
   await page.goto('/');
-  await cardOf(page, 'f10_strip').getByRole('link', { name: /See their record/ }).click();
+  await cardOf(page, 'f10_strip').getByRole('link', { name: /Record, wins and losses/ }).click();
   await expect(page).toHaveURL(/\/u\/f10_strip$/);
 });
 
@@ -165,7 +165,7 @@ test('F-12 AC1/AC4: the trade page shows the strip with "@handle\'s record", los
   await expect(section.locator('[data-disclaimer]')).toHaveText(DISCLAIMER);
   await expect(page.getByRole('link', { name: '← @f10_strip\'s record' })).toBeVisible();
   // One link per destination: the duplicate footer record link is gone.
-  await expect(page.getByRole('link', { name: /See their record, wins and losses/ })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /(See t|T)heir record, wins and losses|Record, wins and losses/ })).toHaveCount(0);
   const { alt } = await pageFacts(page);
   expect(alt).toMatch(/12 closed trades, average per trade \+[\d.]+%, 95% range .+ to .+\./);
   expect(alt).not.toMatch(/[·()]/);

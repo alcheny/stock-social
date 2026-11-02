@@ -50,6 +50,8 @@ publishing anyone's dollar amounts.
   Why: the owner's answer to the legal review of 2026-10-31.
 - 2026-11-01: The owner confirmed F-5 is decided; it stays blocked until the data vendor's written permission
   and counsel's sign-off. Why: the owner's choice; the vendor permission is a hard gate the owner accepted.
+- 2026-11-02: The owner accepted OD 2.50: F-5 stays parked, blocked until the vendor answers in writing. Why: the
+  owner's decision of 2026-11-02 (OD 2.50).
 
 ## Acceptance criteria
 To be written once the open questions are settled.

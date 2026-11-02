@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { RANGES, nearestIndex, pct, stepIndex, type RangeKey } from '@/lib/trades.ts';
 import { tone, toneClass } from '@/lib/open-split.ts';
 import { pathD, PAYLOAD_V, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
-import { counted } from '@/lib/format.ts';
+import { counted, curvePct } from '@/lib/format.ts';
 import { tradeHref } from '@/lib/paging.ts';
 import { fromNoteDay } from '@/lib/paging.ts'; // FIXES-CYCLE4-PART2 (F4-16)
 // FIXES-LABELS (D-05): the chart says when it starts and ends; the at-rest subline names the last close.
@@ -125,7 +125,7 @@ export function PerformanceChart({ chart, src, now, linkBase = '', current, shar
   // last close drawn in the range. None while a range is still loading.
   const closes = pts.filter((p) => p.trade);
   const ends = range === 'ALL' ? (series.n > 0 ? [t0, t1] : null) : closes.length ? [closes[0].at, closes[closes.length - 1].at] : null;
-  const label = `${counted(series.n, 'trade')}, ${pct(last, 0)} total, max drawdown ${pct(-series.drawdown, 0)}`; // fix round 8: "1 trade"
+  const label = `${counted(series.n, 'trade')}, ${curvePct(last, 0)} total, max drawdown ${pct(-series.drawdown, 0)}`; // fix round 8: "1 trade"
 
   const scrubTo = (e: PointerEvent) => {
     const r = stack.current!.getBoundingClientRect();
@@ -156,7 +156,7 @@ export function PerformanceChart({ chart, src, now, linkBase = '', current, shar
     <figure ref={fig} className={`chart ${tone(last) === 'down' ? 'loss' : 'gain'}`} style={tone(last) === 'flat' ? ({ '--c': 'var(--muted)' } as React.CSSProperties) : undefined} data-chart={lazy ? 'stand-in' : 'full'}>
       <figcaption>Return if every trade were the same size{shareOnly && OPTIONS.chartShareOnly}</figcaption>
       <div className="chart-head" aria-live="polite">
-        <b className={`chart-value ${toneClass(shown) ?? ''}`}>{pct(shown, 1)}</b>
+        <b className={`chart-value ${toneClass(shown) ?? ''}`}>{curvePct(shown, 1) /* F-23 (owner decision 2026-11-02): 3 significant figures from +100% */}</b>
         <span className="muted"> · {sub}</span>
       </div>
       {series.n === 0 ? (

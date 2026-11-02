@@ -25,8 +25,8 @@ const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 
 test.describe.configure({ mode: 'serial' });
 let release: (() => Promise<void>) | null = null;
-let target = { id: '', sell: '', symbol: '' };
-let deep = { id: '', sell: '' }; // the author's close beyond the first 50
+let target = { id: '', key: '', symbol: '' }; // F-25: trade pages are addressed by trade_key
+let deep = { id: '', key: '' }; // the author's close beyond the first 50
 
 async function makeUser(handle: string, closes: { r: number; hoursAgo: number; note?: string }[], symbol: (i: number) => string) {
   const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
@@ -52,10 +52,10 @@ test.beforeAll(async () => {
   // Fillers with small moves, so the feed has a second page (the paging action) under the exclusive lock.
   for (const h of FILL) await makeUser(h, Array.from({ length: 5 }, (_, i) => ({ r: (i % 2 ? 1 : -1) * 0.003, hoursAgo: 5 + i })), (i) => `FZF${i}`);
   await makeUser(READER, [], () => '');
-  const [t] = await sql`select t.id::text as id, t.sell_id, t.symbol from closed_trades t join users u on u.id = t.user_id where u.handle = ${AUTHOR} order by t.closed_at desc limit 1`;
-  target = { id: t.id, sell: t.sell_id, symbol: t.symbol };
-  const [d] = await sql`select t.id::text as id, t.sell_id from closed_trades t join users u on u.id = t.user_id where u.handle = ${AUTHOR} order by t.closed_at desc, t.id desc offset 55 limit 1`;
-  deep = { id: d.id, sell: d.sell_id };
+  const [t] = await sql`select t.id::text as id, t.trade_key, t.symbol from closed_trades t join users u on u.id = t.user_id where u.handle = ${AUTHOR} order by t.closed_at desc limit 1`;
+  target = { id: t.id, key: t.trade_key, symbol: t.symbol };
+  const [d] = await sql`select t.id::text as id, t.trade_key from closed_trades t join users u on u.id = t.user_id where u.handle = ${AUTHOR} order by t.closed_at desc, t.id desc offset 55 limit 1`;
+  deep = { id: d.id, key: d.trade_key };
 });
 test.afterAll(async () => {
   await sql`delete from users where handle in ${sql([AUTHOR, LONG, READER, ...FILL])}`;
@@ -175,8 +175,8 @@ async function grab(api: APIRequestContext, path: string, init?: { method?: 'POS
 function surfaces(ym: string) {
   return [
     '/', `/u/${AUTHOR}`, `/u/${AUTHOR}/pane?v=3`, `/u/${AUTHOR}/pane-chart?v=3`, `/u/${AUTHOR}/month/${ym}`,
-    `/t/${encodeURIComponent(target.symbol)}`, `/u/${AUTHOR}/trade/${encodeURIComponent(target.sell)}`,
-    `/u/${AUTHOR}/story`, `/u/${AUTHOR}/opengraph-image`, `/u/${AUTHOR}/trade/${encodeURIComponent(target.sell)}/opengraph-image`,
+    `/t/${encodeURIComponent(target.symbol)}`, `/u/${AUTHOR}/trade/${target.key}`,
+    `/u/${AUTHOR}/story`, `/u/${AUTHOR}/opengraph-image`, `/u/${AUTHOR}/trade/${target.key}/opengraph-image`,
   ];
 }
 const ymNow = () => new Date().toISOString().slice(0, 7);
@@ -297,7 +297,7 @@ test('F-26 author: the held line on their own card and on the trade page (privat
     expect(await page.content()).not.toContain(MARK);
 
     // Trade page, close #1 (window 50).
-    const tr = await page.goto(`/u/${AUTHOR}/trade/${encodeURIComponent(target.sell)}`);
+    const tr = await page.goto(`/u/${AUTHOR}/trade/${target.key}`);
     expect(tr!.headers()['cache-control'] ?? '').toMatch(/private.*no-store|no-store.*private/);
     await expect(page.locator('.trade-card p.thesis-held')).toContainText('Held because it has a link or web address.');
     const link = page.getByRole('link', { name: 'Edit it on your profile' });
@@ -308,7 +308,7 @@ test('F-26 author: the held line on their own card and on the trade page (privat
     await expect(page.locator(`#trade-${target.id} p.thesis-held`)).toBeVisible();
 
     // The close beyond the first 50 (row 56): window 100.
-    await page.goto(`/u/${AUTHOR}/trade/${encodeURIComponent(deep.sell)}`);
+    await page.goto(`/u/${AUTHOR}/trade/${deep.key}`);
     await expect(page.locator('.trade-card p.thesis-held')).toContainText('Readers reported it');
     await page.getByRole('link', { name: 'Edit it on your profile' }).click();
     await expect(page).toHaveURL(new RegExp(`/u/${AUTHOR}\\?closes=100#trade-${deep.id}$`));
@@ -321,7 +321,7 @@ test('F-26 author: the held line on their own card and on the trade page (privat
     expect(prof.headers()['cache-control'] ?? '').toMatch(/private.*no-store|no-store.*private/);
 
     // Nothing public or shared carries the line, even when the author asks.
-    for (const s of [`/u/${AUTHOR}/pane?v=3`, `/u/${AUTHOR}/pane-chart?v=3`, `/u/${AUTHOR}/story`, `/u/${AUTHOR}/opengraph-image`, `/u/${AUTHOR}/trade/${encodeURIComponent(target.sell)}/opengraph-image`]) {
+    for (const s of [`/u/${AUTHOR}/pane?v=3`, `/u/${AUTHOR}/pane-chart?v=3`, `/u/${AUTHOR}/story`, `/u/${AUTHOR}/opengraph-image`, `/u/${AUTHOR}/trade/${target.key}/opengraph-image`]) {
       const r = await page.request.get(s);
       const body = (await r.body()).toString('utf8');
       expect(body, s).not.toContain('Thesis held for review');

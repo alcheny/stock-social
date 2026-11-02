@@ -2,13 +2,14 @@ import Link from 'next/link';
 import type { PublicState } from '@/lib/connections.ts';
 import { isPublicRecord, PUBLIC, RECORD_BODY } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
-import { counted } from '@/lib/format.ts';
+import { counted, tone } from '@/lib/format.ts'; // F-25: tone for the pane rows
 import { paneChart, paneChartSrc, type PackedChart } from '@/lib/chart-series.ts';
 import { PerformanceChart } from './u/[handle]/chart.tsx';
 import { Badge, PublicNotice, WhoName } from './ui.tsx';
 import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
 import { OPEN, OPTIONS } from '@/lib/copy.ts';
+import { PaneTradeRows, type PaneRowData } from './f25-links.tsx'; // F-25
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from './open-rows.tsx';
 // FIXES-LABELS (D-09): the F3 line right after the figures, in both orders.
 import { Disclaimer } from './disclaimer.tsx';
@@ -25,6 +26,7 @@ import { WarnNotice } from './warn-notice.tsx'; // F-27
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
   openedAt?: Date; // FIXES-LABELS (code review, TR-7/TR-9): the entry time behind the pane's range and "New record"
+  tradeKey?: string; // F-25: on the 5 latest rows (lib/feed.ts#records1), the "Last 5 trades" link to the trade page
   writtenDay?: number | null; editedDay?: number | null; // FIXES-CYCLE4-PART2 (F4-16): a published note's UTC day numbers, for the chart sheet
 };
 
@@ -112,14 +114,9 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
           label and the line) — when feed cards come, cap the ranking size term at 100% for options (long losses stop at
           -100%, so uncapped gains would tilt the feed toward winners). */}
       <h3>Last {counted(p.recent.length, 'trade')}</h3>
-      <ul className="rows">
-        {p.recent.map((t) => (
-          <li key={t.id} className={t.id === highlight ? 'line hl' : 'line'} aria-current={t.id === highlight ? 'true' : undefined}>
-            <span><b>{t.symbol}</b> <span className="muted">{numericDay(t.day * 86_400_000) /* F-23: the UTC day */}</span></span>
-            <b className={toneClass(t.returnPct)}>{pct(t.returnPct)}</b>
-          </li>
-        ))}
-      </ul>
+      {/* F-25 Shape R: each row links to its trade page (app/f25-links.tsx; compact props, the same markup). */}
+      <PaneTradeRows handle={handle} current={p.recent.findIndex((t) => t.id === highlight)}
+        rows={p.recent.map((t): PaneRowData => [t.tradeKey ?? null, t.symbol, numericDay(t.day * 86_400_000) /* F-23: the UTC day */, pct(t.returnPct), tone(t.returnPct)])} />
       <p><Link href={`/u/${handle}`} className="button">See full profile →</Link></p>
       {/* OPTIONS fix round 2: the note follows the gate (the paneView line), so it can't go stale when the gate opens.
           QA round 1 (finding 12): a Demo record's footer names Demo, never connected accounts. */}

@@ -114,7 +114,8 @@ async function profileChecks(browser: Browser, timezoneId: string | undefined) {
       const b = page.locator(`#trade-${c.id} .trade-link b`);
       await expect(b, `${where} row ${c.symbol}`).toHaveText(pct(c.r));
       await expectTone(page, `#trade-${c.id} .trade-link b`, c.r, `${where} row ${c.symbol}`);
-      await expect(page.locator(`#trade-${c.id} .trade-link`)).toHaveAttribute('aria-label', `${c.symbol} ${pct(c.r)}, open trade page`);
+      // F-25 (Shape C): the name carries the sign word before the printed figure (lib/copy.ts#TRADE_LINK.name).
+      await expect(page.locator(`#trade-${c.id} .trade-link`)).toHaveAttribute('aria-label', `${c.symbol} ${({ up: 'Gain', down: 'Loss', flat: 'Flat' } as const)[tone(c.r)]} ${pct(c.r)}, open trade page`);
     }
     // Chart at rest: ALL total compounded from stored returns; the accessible name.
     const chart = page.locator('main figure.chart').first();
@@ -274,10 +275,11 @@ test('F-23 AC 3/5 feed: the card and its swiped-open pane print the stored-value
     const want = newestFirst.slice(0, 5);
     for (let i = 0; i < 5; i++) {
       const c = want[i], li = items.nth(i);
-      await expect(li.locator('span > b')).toHaveText(c.symbol);
-      await expect(li.locator('span > span.muted')).toHaveText(utcDay(c.at));
-      await expect(li.locator(':scope > b')).toHaveText(pct(c.r));
-      await expectTone(page, ':scope > b', c.r, `pane row ${c.symbol}`, li);
+      // F-25: each row is one link (.line) to its trade page; the figure carries its visually hidden sign word first.
+      await expect(li.locator('.line > span > b')).toHaveText(c.symbol);
+      await expect(li.locator('.line > span > span.muted')).toHaveText(utcDay(c.at));
+      await expect(li.locator('.line > b')).toHaveText(`${({ up: 'Gain', down: 'Loss', flat: 'Flat' } as const)[tone(c.r)]} ${pct(c.r)}`);
+      await expectTone(page, '.line > b', c.r, `pane row ${c.symbol}`, li);
     }
     expect(want.some((c) => c.key === 'flat'), 'the Flat close is among the last 5').toBe(true);
   } finally {

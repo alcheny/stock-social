@@ -6,6 +6,7 @@ import { statusForOrNull as statusFor } from '@/lib/record-status-load.ts'; // F
 import { paneSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { optionHeadline, paneView } from '@/lib/options-load.ts'; // OPTIONS (AC 24): the pane's label and line, gated per trader
 import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
+import { visibleId, visibleUser } from '@/lib/visible-users.ts';
 import { paneModel } from '@/lib/pane-model.ts'; // F-23
 import { feedPaneChart, PAYLOAD_V } from '@/lib/chart-series.ts'; // F-23
 import { positionInRecord } from '@/lib/shared-accounts.ts'; // F-34
@@ -24,11 +25,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   if (new URL(req.url).searchParams.get('v') !== String(PAYLOAD_V)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const no = () => NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
-  const [user] = await sql`select id from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
+  const [user] = await sql`select id from users u where handle = ${handle} and ${visibleUser('u')} and ${filerVisibleSql('u')}` // F-16: hidden is 404;
   if (!user) return no();
   // F-6: the trader's open positions (unrealized percent only), served for a connected or failed record only, as on the feed.
   const [rows, states, positions, options] = await Promise.all([records([user.id as number]), recordStates([user.id as number]),
-    sql`select unrealized_pct, fetched_at from open_positions p where p.user_id = ${user.id as number} and ${positionInRecord(sql)}`, optionHeadline([user.id as number])]);
+    sql`select unrealized_pct, fetched_at from open_positions p where p.user_id = ${user.id as number} and ${visibleId(user.id as number)} and ${positionInRecord(sql)}`, optionHeadline([user.id as number])]);
   const state = states.get(user.id as number)?.state ?? 'connected';
   if (state === 'importing') return no();
   const shown = state === 'connected' || state === 'failed' ? positions : [];

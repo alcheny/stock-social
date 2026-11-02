@@ -13,8 +13,9 @@
 // same detectors on payloads in the pre-F-23 format and asserts that they flag them.
 import { expect, test, type Page } from '@playwright/test';
 import postgres from 'postgres';
+import { createHash } from 'node:crypto';
 import { feedLock } from './feed-lock.ts';
-import { wirePct, wireDay, isoDay } from '../lib/public-wire.ts';
+import { wirePct, wireDay, isoDay, wireCurve } from '../lib/public-wire.ts';
 
 const DAY = 86_400_000, HOUR = 3_600_000;
 const tag = Math.random().toString(36).slice(2, 7);
@@ -61,6 +62,8 @@ const rateOk = (v: number) => Number(v.toFixed(2)) === v;
 // Every regex metacharacter escaped (CodeQL: escape them all, not only the first dot).
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const pctOk = (v: number) => wirePct(v) === v;
+// The cumulative curve (point values, totals, y bounds): 3 significant figures from +100% (owner decision 2026-11-02).
+const curveOk = (v: number) => wireCurve(v) === v;
 // A drawdown prints negated ("max drawdown -99.999%"), so it is rounded as printed: -wirePct(-dd).
 const ddOk = (v: number) => (-wirePct(-v) || 0) === v;
 
@@ -125,20 +128,20 @@ function checkPacked(c: Record<string, unknown>, where: string, out: string[]) {
   const stride = c.lite ? 2 : 3;
   for (const [k, r] of Object.entries((c.ranges ?? {}) as Record<string, Record<string, unknown>>)) {
     for (const f of ['t0', 't1']) if (!day5(r[f])) out.push(`${where}: ${k}.${f} ${String(r[f])} is not a 5-digit UTC day`);
-    for (const f of ['last', 'dd', 'min', 'max']) if (!(f === 'dd' ? ddOk : pctOk)(r[f] as number)) out.push(`${where}: ${k}.${f} ${String(r[f])}`);
+    for (const f of ['last', 'dd', 'min', 'max']) if (!(f === 'dd' ? ddOk : curveOk)(r[f] as number)) out.push(`${where}: ${k}.${f} ${String(r[f])}`);
     if (!Number.isInteger(r.n)) out.push(`${where}: ${k}.n ${String(r.n)}`);
     const p = r.p as number[];
     // The compact form (c.sfx): ALL as [day, value] pairs, a dated range as its values only.
     if (c.sfx && k !== 'ALL') {
       if (p.length !== r.n) out.push(`${where}: ${k}.p has ${p.length} values for ${String(r.n)} closes`);
-      for (const v of p) if (!pctOk(v)) out.push(`${where}: ${k}.p value ${v}`);
+      for (const v of p) if (!curveOk(v)) out.push(`${where}: ${k}.p value ${v}`);
       continue;
     }
     const st = c.sfx ? 2 : stride;
     if (p.length % st) out.push(`${where}: ${k}.p length ${p.length} is not a multiple of ${st}`);
     for (let i = 0; i < p.length; i += st) {
       if (!Number.isInteger(p[i]) || p[i] < 0) out.push(`${where}: ${k}.p day offset ${p[i]}`);
-      if (!pctOk(p[i + 1])) out.push(`${where}: ${k}.p value ${p[i + 1]}`);
+      if (!curveOk(p[i + 1])) out.push(`${where}: ${k}.p value ${p[i + 1]}`);
       if (st === 3 && !Number.isInteger(p[i + 2])) out.push(`${where}: ${k}.p close index ${p[i + 2]}`);
     }
   }
@@ -166,7 +169,7 @@ function walkJson(v: unknown, path: string, out: string[]) {
     if (/^1\d{12}$/.test(String(Math.trunc(Math.abs(v))))) out.push(`${path}: 13-digit epoch ${v}`);
     if (new RegExp(`^(${DATE_KEYS})$`).test(key) && !(Number.isInteger(v) && v < 100_000)) out.push(`${path}: date ${v} is not a UTC day`);
     if (key === 'winRate') { if (!rateOk(v)) out.push(`${path}: winRate ${v}`); }
-    else if (!Number.isInteger(v) && !(key === 'dd' ? ddOk : pctOk)(v)) out.push(`${path}: ${v} is finer than printed`);
+    else if (!Number.isInteger(v) && !(key === 'dd' ? ddOk : /^(last|min|max|value|p)$/.test(key) ? curveOk : pctOk)(v)) out.push(`${path}: ${v} is finer than printed`);
   } else if (typeof v === 'string') {
     for (const m of v.matchAll(ISO)) if (!MIDNIGHT.test(m[0])) out.push(`${path}: time ${m[0]}`);
   } else if (Array.isArray(v)) v.forEach((x, i) => walkJson(x, `${path}[${i}]`, out));
@@ -183,7 +186,7 @@ function scan(s: Surface): string[] {
   for (const p of PLANT_DEC) if (text.includes(p)) at(`planted digits ${p}`);
   if (s.fixture) for (const p of [...PLANT_BARE, ...PLANT_TIME]) if (text.includes(p)) at(`planted ${p}: …${text.slice(Math.max(0, text.indexOf(p) - 60), text.indexOf(p) + 30)}…`);
   // (b) named fields
-  for (const m of text.matchAll(new RegExp(`"(${RETURN_KEYS})":(-?[\\d.]+(?:e[+-]?\\d+)?)(?=[,}\\]])`, 'g'))) if (!(m[1] === 'dd' ? ddOk : pctOk)(Number(m[2]))) at(`${m[1]}=${m[2]} is finer than printed`);
+  for (const m of text.matchAll(new RegExp(`"(${RETURN_KEYS})":(-?[\\d.]+(?:e[+-]?\\d+)?)(?=[,}\\]])`, 'g'))) if (!(m[1] === 'dd' ? ddOk : /^(last|min|max|value)$/.test(m[1]) ? curveOk : pctOk)(Number(m[2]))) at(`${m[1]}=${m[2]} is finer than printed`);
   for (const m of text.matchAll(/"winRate":(-?[\d.]+(?:e[+-]?\d+)?)/g)) if (!rateOk(Number(m[1]))) at(`winRate=${m[1]}`);
   for (const m of text.matchAll(/"(open|unrealized)":\[(-?[\d.e+,-]+)\]/g)) for (const v of m[2].split(',')) if (!pctOk(Number(v))) at(`${m[1]}[] ${v}`);
   for (const m of text.matchAll(new RegExp(`"(${DATE_KEYS})":(\\d+(?:\\.\\d+)?)`, 'g'))) if (Number(m[2]) >= 100_000) at(`${m[1]}=${m[2]} is not a UTC day`);
@@ -253,6 +256,10 @@ test('F-23 scan self-check: the planted digits are not in the rounded values, an
   expect(f2.some((f) => f.includes('ALL.t0'))).toBe(true);
   expect(f2.some((f) => f.includes('ALL.p value 0.112233'))).toBe(true);
   expect(f2.some((f) => f.includes('ALL.p day offset 0.5'))).toBe(true);
+  // Owner decision 2026-11-02: a curve value above +100% at one absolute decimal (98.123 = +9,812.3%) is finer than the
+  // 3 figures the chart prints (+9,810%).
+  const bigCurve = JSON.stringify({ v: 2, base: 20375, trades: [], ranges: { ALL: { t0: 20375, t1: 20376, last: 98.123, n: 0, dd: 0, min: 0, max: 98.123, p: [] } } });
+  expect(scan({ name: 'big curve', kind: 'json', body: bigCurve, fixture: false }).some((f) => f.includes('ALL.last 98.123'))).toBe(true);
   // The same in a page's flight (escaped quotes, a $D date) and in an HTML <time>.
   const oldPage = `<html><head><title>x</title></head><body><time datetime="${A_AT.toISOString()}">x</time>`
     + `<script>self.__next_f.push([1,${JSON.stringify(`5:["$","div",null,{"points":[{"returnPct":0.112233,"closedAt":"$D${B_AT.toISOString()}","winRate":0.6666}]}]\n`)}])</script></body></html>`;
@@ -284,7 +291,8 @@ test('F-23 AC 8 (+ AC 1/2): every signed-out response on the profile, pane, pane
   const found: string[] = [];
   const surfaces: Surface[] = [];
   const meta: { page: string; og: string[]; tw: string[]; title: string }[] = [];
-  const P = `/u/${H}`, TRADE = `${P}/trade/${encodeURIComponent(A)}`, MONTH = `${P}/month/${YM}`;
+  // F-25: the trade page's address is its trade_key (the old sell-id address answers 308 here).
+  const P = `/u/${H}`, TRADE = `${P}/trade/${createHash('sha256').update(A, 'utf8').digest('hex')}`, MONTH = `${P}/month/${YM}`;
   const pages: [string, boolean][] = [['/', false], [P, true], [`${P}?closes=100`, true], [TRADE, true], [MONTH, true]];
   for (const [url, fixture] of pages) {
     const html = await api.get(url);

@@ -5,8 +5,9 @@ import { markTradesPromptSeen, recordTradesPromptAction } from '../../actions.ts
 import { moreText, type TradesPromptAction } from '@/lib/new-trades.ts';
 import { pct } from '@/lib/trades.ts';
 import { signWord } from '@/lib/copy.ts';
+import { tradePageHref } from '@/lib/trade-href.ts';
 
-type Row = { sellId: string; symbol: string; returnPct: number; closedAt: string };
+type Row = { tradeKey: string; symbol: string; returnPct: number; closedAt: string }; // F-25: never the vendor id
 
 const record = (a: TradesPromptAction) => void recordTradesPromptAction(a).catch(() => {});
 
@@ -27,9 +28,9 @@ export function NewTradesPrompt({ handle, trades, more }: { handle: string; trad
       <h2 id="nt-h">New closed trades since your last visit</h2>
       <ul>
         {trades.map((t) => (
-          <li key={t.sellId}>
+          <li key={t.tradeKey}>
             {/* Opening one row advances the timestamp, so the other new trades stop being prompted (accepted). */}
-            <Link href={`/u/${handle}/trade/${encodeURIComponent(t.sellId)}`} onClick={() => record('opened')}>
+            <Link href={tradePageHref({ handle, tradeKey: t.tradeKey })} onClick={() => record('opened')}>
               <span><b>{t.symbol}</b> <span className="muted small">closed {new Date(t.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}</span></span>
               <b><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</b>
             </Link>

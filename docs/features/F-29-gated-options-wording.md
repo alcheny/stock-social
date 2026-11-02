@@ -63,6 +63,12 @@ second-vote mean 3.87, final vote 15/15, all with conditions). Part (c) is with 
   one line each. Why: approval council cycle 5; UX, RT round 4, CO.
 - 2026-11-01: Status ready: the code prerequisites merged (#85, #77) and the words are signed. If #97 (F-23) merges
   first, the first commit rebases on it. Why: approval council cycle 5; EN.
+- 2026-11-02: The owner accepted OD 2.63 en bloc: options stay gated until the owner approves an amended scope line
+  (plan D5 wording) as a new consent version with a re-consent prompt; a private "not asked yet" vs "declined" fact on
+  the trader's own view, worded by the legal committee; `optionsPublic()` stays closed until that exists; a size
+  caveat only if the fee probe shows leakage; "never shown" for `sell_id` only once F-25 makes it true. Whether strike
+  inference goes in the consent text or the Privacy Policy stays open. Why: the owner's decision of 2026-11-02 (OD
+  2.63).
 
 ## Acceptance criteria
 - [ ] With the gate closed, the /how options paragraph never contains "consented". With it open, it shows the legal

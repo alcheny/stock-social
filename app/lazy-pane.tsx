@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { PublicState } from '@/lib/connections.ts';
 import { PAYLOAD_V, type PackedChart } from '@/lib/chart-series.ts';
 import { ProfilePane } from './pane.tsx';
+import { TrustFoot } from './trust-foot.tsx'; // F-16 (plan v2 B1): shown per the profile's <TrustShown>
 import type { Segment } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import type { PaneOptionsView } from '@/lib/options-view.ts'; // OPTIONS
 import type { PaneModel } from '@/lib/pane-model.ts'; // F-23
@@ -27,5 +28,6 @@ export function LazyPane({ handle, name, highlight, disclaimer = true }: { handl
   // F-23 (user test, UX 4): announced like the loading line, and the link never breaks before its arrow.
   if (data === 'failed') return <p className="muted small sheet-wait" role="status">The record could not be loaded. <a href={`/u/${handle}`} style={{ whiteSpace: 'nowrap' }}>See full profile →</a></p>;
   if (!data) return <p className="muted small sheet-wait" role="status">Loading <bdi>{name}</bdi>’s record…</p>;
-  return <ProfilePane handle={handle} name={name} model={data.model} chart={data.chart} now={new Date()} state={data.state} highlight={highlight} back={false} disclaimer={disclaimer} status={data.status ?? undefined} options={data.options} />;
+  // F-16: the trust line under the pane; the sheet's own F3 note follows it (app/u/[handle]/similar-section.tsx).
+  return <><ProfilePane handle={handle} name={name} model={data.model} chart={data.chart} now={new Date()} state={data.state} highlight={highlight} back={false} disclaimer={disclaimer} status={data.status ?? undefined} options={data.options} /><TrustFoot inPane disclaimer={false} /></>;
 }

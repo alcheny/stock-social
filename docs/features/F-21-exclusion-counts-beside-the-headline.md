@@ -1,7 +1,6 @@
 # F-21 · Exclusion counts beside the headline (pane and record strip)
 
-Status: blocked
-Blocked: waits for F-23 (PR #97, edits the pane and its payload) and F-24 (PR #84, edits the future-count query in `lib/sync.ts` that the sells-only count needs, and adds `excludedHeld`) to merge
+Status: ready
 Start conditions: fix F3-2 merged in #85. It starts once #97 and #84 merge. It rides the pane/strip build slot with
 F-29 and F-34 (one builder owns the pane's line order). F-22 (draft, OD 2.28) joins the shared sum if it lands later.
 
@@ -73,6 +72,9 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 - 2026-11-01: Recorded as a decided limit: the share card and the feed card keep the clean headline (cycle-3 owner
   question Q4, D22). Owner flag: OD 2.7's consent version names the public exclusion counts before real users. Why:
   approval council cycle 5; BL, LC, PR.
+- 2026-11-02: Unblocked: F-23 (#97, ca34767) and F-24 (#84, bdf3ea9) have merged. It rides in the pane/strip slot with
+  F-34 and F-29, with one builder owning the pane's line order (exclusions, open, options qualifier). Why: the
+  stale-blocker correction the owner accepted with OD 2.60 on 2026-11-02.
 
 ## Acceptance criteria
 - [ ] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);
