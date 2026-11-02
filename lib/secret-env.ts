@@ -25,6 +25,6 @@ export function assertSecrets(env: Record<string, string | undefined> = process.
   if (env.SESSION_SECRET && weak(env.SESSION_SECRET)) throw new SecretEnvError('SESSION_SECRET');
   if (!env.SESSION_SECRET || env.SESSION_SECRET === env.APP_SECRET_KEY) { // FIXES-CYCLE5 (F5-20)
     if (env.SESSION_SECRET_REQUIRED === '1') throw new SecretEnvError('SESSION_SECRET');
-    if (!warned.done) { warned.done = true; console.warn(SESSION_SHARED_WARNING, JSON.stringify({ count: 1 })); }
+    if (!warned.done) { warned.done = true; console.warn('secret-env: SESSION_SECRET missing or shared with APP_SECRET_KEY (launch row 5)', JSON.stringify({ count: 1 })); } // = SESSION_SHARED_WARNING
   }
 }
