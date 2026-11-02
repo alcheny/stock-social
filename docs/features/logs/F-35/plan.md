@@ -109,3 +109,47 @@ Accessibility: a muted `<p>`, no interaction. Claims: a mechanical rule, no comp
 ## 11. Owner items (none blocking)
 (a) Amending #62's grace ruling (council-approved); (b) the frozen-record ruling; (c) the matcher bump (a full rebuild
 at deploy); (d) the copy.
+
+## Round 2 changes (orchestrator's synthesis of the business lead's and the engineer's round-1 reviews)
+Supersedes round 1 where they differ.
+1. Copy (BL 1): the second sentence is "It waits on this line until that date passes." / "They wait on this line until
+   their dates pass." It describes the line only, so it stays true whatever happens at maturity. Both forms pinned in
+   `lib/copy.test.ts`.
+2. No `excluded_future_sells` (BL 2): F-21's file gets a hand-off note: its sum never reads `excluded_future` (it holds
+   buys); the sells part comes from its own query. `excluded_future_options` stays (option rows dated ahead are counted
+   nowhere today).
+3. No `MATCHER_VERSION` bump (EN 4; BL 7 then moot): instead the matured pass also selects users whose watermark is
+   null and who hold a future-stored row dated after now() (the partial index covers it). That reaches exactly the
+   records that may show an early-published close today, options-only records included, with no fleet-wide rebuild and
+   no collision with F-36. `lib/matcher-rebuild.ts` is untouched (EN 5).
+4. Query shape (EN 1): one statement, per table a `materialized` CTE driven by the partial index
+   (`select user_id, max(executed_at) mx … where executed_at > created_at and executed_at <= now() and executed_at >
+   now() - 8 days and user_id % of = shard [scope] group by user_id`), joined to users on
+   `mx > coalesce(published_through, '-infinity')`. The tests assert the partial index is used, not only "no seq scan".
+5. Insert side (EN 2): `insertActivities`, `insertOptionActivities` and `insertCorporateActions` lower the watermark to
+   the transaction's now() (`least`) when a row they stored is dated after now(), so a blocked import step whose clock
+   predates a rebuild never stores a row the pass skips. A rebuild sets the watermark to its own now(), never
+   `greatest`. A two-connection test covers the interleaving; another asserts the watermark equals the publish clock.
+6. Placement and budget (EN 3, BL 5): after the heartbeat starts, before the workers; before each rebuild it stops on
+   `leaseLost`, the deadline or the route end; capped by `MATURED_PER_RUN = 50` and a time box (`MATURED_BOX_MS`,
+   20 s, a test hook). Test: 50 matured users with a slow rebuild hook, the workers still sync that tick.
+7. Opt-in (EN 6): `RunOpts.mature` (true from the route; tests pass it with `ids`), so existing unscoped `runShard`
+   tests never rebuild another test's users. The pass applies `scopeSql`.
+8. AC3 (BL 4): counted as real `rebuildRecord` calls per user (pass and worker sync, the sync reading nothing) across
+   three ticks, and the watermark's advances.
+9. AC1 (BL 3): absent from closed_trades/option_trades and from the read paths: feed, profile load, month recap, compare
+   card, /me/record's data source, the share card's data source; the line shows shares + options on the profile and
+   compare card.
+10. Frozen (BL 6): signed "publish", with the two tests (status line still frozen, "Updated" unchanged; a matured loss
+    counts in win rate and average return).
+11. Thesis (BL 7): a close dated +12 h published before this change with a thesis: the null-watermark rebuild moves the
+    thesis to `kept_theses`, and it returns unchanged when the close matures.
+12. `rebuildWithoutRead` keeps `last_synced_at`, so the claim order is unchanged (EN 5; tested).
+13. Time is simulated by shifting the test's own rows (activities, option_activities, corporate_actions) and its
+    watermark; the database clock is never moved (EN 7).
+14. Clock-skew ponytail (EN 8): a vendor timestamp a few seconds ahead of `created_at` causes one extra rebuild.
+15. The 8-day bound (BL 8, non-blocking): kept, as a ponytail (an unbounded scan grows with every row ever stored
+    future-dated); the record's next rebuild still publishes the row.
+16. AC5 (BL 9): the browser half under `timezoneId` UTC and Pacific/Kiritimati at 360 px (the orchestrator's brief),
+    light and dark; the server-zone half a db test under `TZ=Pacific/Kiritimati`.
+17. AC6 (BL 10): the edited "fix round 6" test keeps every other assertion; the two changed ones are listed in the PR.
