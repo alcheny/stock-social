@@ -61,6 +61,10 @@ and the market council's "What's this?" line (MRC2-5). Approved by the approval 
   (#57) stays built. The sweep returns to a council after F-18 is re-approved. The data-visualization designer's
   recommendation, to run the lo ≤ avg ≤ hi range property test as soon as fix #7 merges, is recorded for that
   council. Why: approval council cycle 3; lapse rule.
+- 2026-11-02: The owner accepted OD 2.32: one range rule everywhere, the arithmetic mean of simple returns (amends
+  TR-9 step 2 in the owner's protected-files PR); "Too early to tell" for a zero-width range; the wording "average per
+  trade so far, likely between X and Y". F-33 owns the printed range and builds it. Why: the owner's decision of
+  2026-11-02 (OD 2.32).
 
 ## Acceptance criteria
 - [ ] `pct`, `winPct` and `tone` are defined only in `lib/format.ts`. The old names in `lib/trades.ts` and

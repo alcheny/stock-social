@@ -86,6 +86,12 @@ opinion lands.
   window is the request), replacing the narrower line the legal committee first recorded. Why: decided by the
   committee under the owner's instruction of 2026-11-01; the screen, the Terms and the acknowledgment must state one
   policy (committee condition 15), and the idea board's is the more protective of the two.
+- 2026-11-02: The owner accepted OD 2.47 en bloc: `LIVE_BILLING` stays off until the week-8 gates pass and the
+  checklist plus the C4-41 line hold; the checkout conditions (unchecked box, no preselected plan, reminder 30-40 days
+  before renewal, no trial); a connected trader never sees a price, with one plain line; no pricing tests now; the
+  priced notify-me test runs with "nothing is charged now"; no creator payouts for now. OD 2.62: the Terms ban selling
+  signals or paid access through a profile, thesis or card, and the licensed-user question is asked at connect (F-44).
+  Why: the owner's decisions of 2026-11-02 (accepted en bloc).
 
 ## What viewers pay for (candidates; each needs the legal committee's review before build)
 Decided 2026-11-01: Record tools ships first. Alerts are barred by POLICY F3b, and paid follow or watchlist

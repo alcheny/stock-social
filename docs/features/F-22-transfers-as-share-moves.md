@@ -1,11 +1,10 @@
 # F-22 · Transfers as share moves, not repricings
 
-Status: draft
-Blocked: waits for the owner's yes on amending the matcher's transfer rule (`lib/trades.ts:52` "an unpriceable action taints them" and the corporate-actions committee's "when in doubt, exclude and count"), F-14 (PR #64, `claude/f14-sync-cadence`, `lib/sync.ts`) and cycle-3 fixes F3-1, F3-5, F3-15 (`lib/trades.ts`, exclusion copy)
-Start conditions: the owner answers the flag in `docs/ideas/approval-2026-11-01-cycle3.md` (Flags for the owner, 1) with
-yes; F-14 (PR #64) merges (both edit `lib/sync.ts`); fixes F3-1, F3-5 and F3-15 merge, and the `claude/fix-truthful-labels`
-branch merges or is closed (both edit `lib/trades.ts` or the exclusion copy). Shares one build slot (the ledger slot)
-with F-24.
+Status: ready
+Start conditions: met. The owner said yes on 2026-11-02 (OD 2.28); F-14 (#64), fixes F3-1, F3-5 and F3-15 (#79), the
+truthful-labels branch (#85) and F-24 (#84) have merged. It edits `lib/trades.ts`, so it is in the matcher slot with
+F-32 and F-36: one builder, separate MATCHER_VERSION bumps that never ship in the same deploy, each only once chore
+C5-43(b) is on main.
 
 ## Why
 Every TRANSFER is read as an unpriceable corporate action (`lib/corporate-actions.ts:200` at 3d66114) and taints every
@@ -49,6 +48,16 @@ brief C3-2 (rank 1). Approved by the approval council (`docs/ideas/approval-2026
   the basis rule, are kept word for word. The council puts flag 1 to the owner again with cycle-4 Q1 (the same matcher
   sitting). If the owner says yes, it returns to the next council for the matcher slot after F-28 and F-30. Why:
   approval council cycle 4; lapse rule; BL, PF, GR, UX (unchanged facts, unanswered owner question).
+- 2026-11-02: The owner said yes to OD 2.28 as recommended: a transfer is a share move, with the basis rule above
+  (oldest first only where it cannot change a basis; moved-in units excluded and counted; every transfer out counted;
+  unknown kinds still tainted). F-22 is approved by the owner and goes to `Status: ready`; it does not return to the
+  approval council. Naming transfers out in POLICY F3's exclusion list (brief 3.17) goes to the protected-files
+  session; /how and VERIFIED_DEFINITION still change in this feature's PR. Why: the owner's decision of 2026-11-02 (OD
+  2.28).
+- 2026-11-02: Sequencing: F-32 Part A (counts transfer exclusions under their own reason) and this feature both edit
+  the matcher; one builder takes them in the matcher slot, and this feature's forward rule replaces F-32's interim
+  count where both apply. F-32 Part B still waits for the vendor's written MRC2-10 answer. Why: the owner's decision
+  of 2026-11-02; F-32's hand-off notes.
 
 - 2026-11-02: Build decisions (committee `docs/features/logs/F-22/committee-2026-11-02.md`): moved-in units are drawn
   after every recorded lot; a sell using recorded and moved-in units is shown on its recorded units and counted
@@ -79,8 +88,9 @@ brief C3-2 (rank 1). Approved by the approval council (`docs/ideas/approval-2026
 - Corrections and cancels (C3-9b, owner question Q3).
 
 ## Open questions
-- Owner: yes or no to amending the transfer rule as conditioned above (Flags for the owner, 1, in the cycle-3 record).
-- Owner: amend POLICY's list of exclusion causes to name transfers out (POLICY is the owner's).
+- Resolved 2026-11-02 (OD 2.28): yes, as conditioned above (Decisions).
+- Owner: amend POLICY's list of exclusion causes to name transfers out (brief 3.17; prepared by the protected-files session,
+  merged by the orchestrator when green and independently reviewed).
 
 ## Rework notes
 
