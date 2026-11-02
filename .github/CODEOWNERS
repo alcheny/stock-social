@@ -50,3 +50,24 @@
 # Supply chain: new or changed dependencies
 /package.json @alcheny
 /package-lock.json @alcheny
+
+# Autonomous-build guardrails (owner decision 2026-11-01, item 2.58): billing, consent, deletion, auth, trade math,
+# moderation, claims, the disclaimer, /how and the share card change only with the owner's review.
+/lib/billing.ts @alcheny
+# Consent scope and public fields (POLICY P3, P6; brief 3.8). The scope line itself still sits in lib/copy.ts until an
+# agent moves it into lib/consent-versions.ts.
+/lib/consent-versions.ts @alcheny
+/lib/privacy-fields.ts @alcheny
+/lib/privacy-fields.test.ts @alcheny
+/lib/delete.ts @alcheny
+/lib/privacy-purge.ts @alcheny
+/lib/auth/ @alcheny
+/lib/trades.ts @alcheny
+/lib/moderation.ts @alcheny
+/lib/claims.ts @alcheny
+/app/disclaimer.tsx @alcheny
+/app/how/ @alcheny
+# The share card. The Gate matches this exact path literally; GitHub reads brackets as a character class, so the
+# wildcard line below is the one GitHub's code-owner review uses (the Gate never matches it).
+/app/u/[handle]/opengraph-image.tsx @alcheny
+/app/u/*/opengraph-image.tsx @alcheny
