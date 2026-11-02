@@ -1,7 +1,6 @@
 # F-21 · Exclusion counts beside the headline (pane and record strip)
 
-Status: blocked
-Blocked: waits for F-23 (PR #97, edits the pane and its payload) and F-24 (PR #84, edits the future-count query in `lib/sync.ts` that the sells-only count needs, and adds `excludedHeld`) to merge
+Status: building
 Start conditions: fix F3-2 merged in #85. It starts once #97 and #84 merge. It rides the pane/strip build slot with
 F-29 and F-34 (one builder owns the pane's line order). F-22 (draft, OD 2.28) joins the shared sum if it lands later.
 
