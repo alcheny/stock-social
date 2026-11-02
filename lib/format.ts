@@ -85,3 +85,16 @@ export function winPct(wins: number, n: number): string | null {
   const r = Math.floor((200 * w + n) / (2 * n)); // round half up in integers: 23 of 40 is 57.5%, prints "58%"
   return `${w < n && r === 100 ? 99 : w > 0 && r === 0 ? 1 : r}%`;
 }
+
+// ---- F-23 · chart precision (owner decision 2026-11-02, amends CH-1; docs/features/F-23-public-payload-precision.md).
+// The performance chart's cumulative value (its header, scrub readout and accessible name) prints at about 3 significant
+// figures once it reaches +100% ("+9,810%", not "+9,812.3%"; "+123%"), with a thousands comma; below +100% it prints
+// exactly as pct() does. Why: two consecutive points of a compounded curve printed to one absolute decimal give a close's
+// return back to about 2 × 0.0005 / (1 + C), finer than the row prints once the curve has grown
+// (docs/features/logs/F-23/probe.md). A cumulative value never falls below -100%, so only gains change.
+export function curvePct(x: number, digits = 1): string {
+  const p = x * 100;
+  if (!(Number(p.toFixed(digits)) >= 100)) return pct(x, digits);
+  const unit = 10 ** (Math.floor(Math.log10(p)) - 2);
+  return `+${count(Math.round(p / unit) * unit)}%`;
+}
