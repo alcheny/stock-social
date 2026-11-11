@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { doctorViolations, stuckReason, trustedAuthor, type LineState } from './doctor.ts';
+import { doctorViolations, openFixAction, stuckReason, trustedAuthor, type LineState } from './doctor.ts';
 
 const H = 3_600_000;
 const now = Date.parse('2026-10-15T12:00:00Z');
@@ -35,4 +35,13 @@ test('doctor: only maintainer/owner/bot comments become diagnosis evidence', () 
 test('doctor: may only change loop files, never its own constraints', () => {
   assert.deepEqual(doctorViolations(['scripts/autopilot.ts', '.github/workflows/build.yml', 'team/engineer.md', 'docs/AUTOPILOT.md']), []);
   assert.deepEqual(doctorViolations(['app/page.tsx', 'scripts/doctor.ts', '.github/workflows/ci.yml']), ['app/page.tsx', 'scripts/doctor.ts', '.github/workflows/ci.yml']);
+});
+
+test('doctor: a fix the Gate sent to the owner waits for the owner; a failed or quiet one is closed (owner decision, item 2.58)', () => {
+  const now = Date.parse('2026-11-02T12:00:00Z'), H = 3_600_000;
+  assert.equal(openFixAction({ check: 'success', updatedAt: now - 30 * H, labels: ['doctor', 'needs-human'] }, now), 'owner');
+  assert.equal(openFixAction({ check: null, updatedAt: now - 30 * H, labels: ['needs-human'] }, now), 'owner');
+  assert.equal(openFixAction({ check: 'failure', updatedAt: now, labels: ['needs-human'] }, now), 'close');
+  assert.equal(openFixAction({ check: 'success', updatedAt: now - 3 * H, labels: ['doctor'] }, now), 'close');
+  assert.equal(openFixAction({ check: undefined, updatedAt: now - H, labels: ['doctor'] }, now), 'wait');
 });

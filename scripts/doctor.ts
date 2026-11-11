@@ -63,6 +63,14 @@ export function stuckReason(s: LineState, now: number, o: { stuckHours: number; 
   return null;
 }
 
+// What to do with an open doctor PR: a failed check closes it; one labelled needs-human waits for the owner however long it
+// takes (closing it would only reopen the same fix, up to DOCTOR_DAILY_MAX a day); otherwise two quiet hours close it.
+export function openFixAction(p: { check: string | null | undefined; updatedAt: number; labels: string[] }, now: number): 'close' | 'owner' | 'wait' {
+  if (p.check === 'failure') return 'close';
+  if (p.labels.includes('needs-human')) return 'owner';
+  return now - p.updatedAt > 2 * H ? 'close' : 'wait';
+}
+
 function lineIssues() {
   return ghJson<{ number: number; title: string; createdAt: string; comments: Comment[] }[]>(
     'issue', 'list', '--label', 'line', '--state', 'open', '--json', 'number,title,createdAt,comments')
@@ -75,13 +83,15 @@ function detect() {
   const day = ghJson<{ createdAt: string }[]>('pr', 'list', '--label', 'doctor', '--state', 'all', '--limit', '50', '--json', 'createdAt')
     .filter((p) => Date.now() - Date.parse(p.createdAt) < 24 * H).length;
   if (day >= Number(env('DOCTOR_DAILY_MAX', '6'))) return console.log(`doctor: daily cap reached (${day})`);
-  // An open doctor PR is the fix in progress. Close it if it failed or went quiet, so the doctor can try again.
-  for (const p of ghJson<{ number: number; updatedAt: string; headRefOid: string }[]>('pr', 'list', '--label', 'doctor', '--state', 'open', '--json', 'number,updatedAt,headRefOid')) {
+  // An open doctor PR is the fix in progress. Close it if it failed or went quiet, so the doctor can try again; one the
+  // Gate sent to the owner (protected paths, owner decision 2026-11-01 item 2.58) waits for the owner, never closed as stalled.
+  for (const p of ghJson<{ number: number; updatedAt: string; headRefOid: string; labels: { name: string }[] }[]>('pr', 'list', '--label', 'doctor', '--state', 'open', '--json', 'number,updatedAt,headRefOid,labels')) {
     const check = ghJson<{ check_runs: { name: string; conclusion: string | null }[] }>('api', `repos/${repo()}/commits/${p.headRefOid}/check-runs`)
       .check_runs.find((c) => c.name === 'check')?.conclusion;
-    if (check === 'failure' || Date.now() - Date.parse(p.updatedAt) > 2 * H) {
+    const act = openFixAction({ check, updatedAt: Date.parse(p.updatedAt), labels: p.labels.map((l) => l.name) }, Date.now());
+    if (act === 'close') {
       gh('pr', 'close', String(p.number), '--delete-branch', '--comment', 'Doctor fix failed CI or stalled; closing so the doctor can try again.');
-    } else return console.log(`doctor: fix #${p.number} in progress`);
+    } else return console.log(act === 'owner' ? `doctor: fix #${p.number} waits for the owner's review` : `doctor: fix #${p.number} in progress`);
   }
   const running = ghJson<{ displayTitle: string; status: string }[]>('run', 'list', '--workflow', 'build.yml', '--limit', '30', '--json', 'displayTitle,status')
     .filter((r) => r.status !== 'completed').map((r) => r.displayTitle);

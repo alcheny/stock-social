@@ -50,6 +50,21 @@ test('invariant: the doctor never merges its own constraints, CI, the gate, depe
   assert.ok(DOCTOR_FORBIDDEN.includes('/scripts/invariants.test.ts'));
 });
 
+test('invariant: a doctor PR touching any protected path never auto-merges (owner decision, item 2.58)', () => {
+  for (const f of ['scripts/autopilot.ts', 'scripts/team.ts', 'team/engineer.md', 'CLAUDE.md', 'docs/AUTOPILOT.md', '.github/workflows/build.yml']) {
+    assert.equal(gateDecision(green({ doctor: true, files: [f] })).action, 'needs-human', f);
+  }
+  // A doctor fix inside the loop that touches no protected path still merges when green.
+  assert.equal(gateDecision(green({ doctor: true, files: ['scripts/e2e-shard.ts'] })).action, 'merge');
+});
+
+test('invariant: the guardrail paths stay under owner review (owner decision, item 2.58)', () => {
+  for (const f of ['lib/billing.ts', 'lib/consent-versions.ts', 'lib/privacy-fields.ts', 'lib/delete.ts', 'lib/privacy-purge.ts', 'lib/auth/sessions.ts', 'lib/trades.ts', 'lib/moderation.ts', 'lib/claims.ts',
+    'app/disclaimer.tsx', 'app/how/page.tsx', 'app/u/[handle]/opengraph-image.tsx']) {
+    assert.notEqual(gateDecision(green({ files: [f] })).action, 'merge', f);
+  }
+});
+
 test('invariant: the guard fails fewer tests and destructive schema changes', () => {
   assert.ok(guardFindings(10, 9, '').length);
   for (const sql of ['+drop table users;', '+truncate activities;', '+delete from closed_trades;']) assert.ok(guardFindings(1, 1, sql).length, sql);
