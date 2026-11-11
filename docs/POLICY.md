@@ -13,7 +13,8 @@ of those protections, or the scanner's core checks, are removed. The determinist
 every PR and push by `scripts/compliance.ts`; the rest by the reviewer, the Gate and the owner.
 
 This is a risk-reduction policy written by AI, not legal advice. Before any public product launch, the
-owner has it reviewed by counsel (see **Before a public launch**).
+owner signs off on it against the AI legal committee's findings (see the owner decision below and
+**Before a public launch**).
 
 **Owner decision 2026-11-01: AI legal findings in place of counsel.** Wherever this file or
 `docs/COMPLIANCE.md` asks for counsel's opinion or sign-off, the owner accepts the AI legal committee's findings
@@ -21,7 +22,9 @@ instead (the counsel packet, Privacy Policy and F3b reviews of 2026-10-26 and th
 2026-10-31, kept privately by the owner). Their conditions apply as rules, the owner makes each call they leave
 open, and the owner carries the risk of not having a licensed attorney's written opinion. Gates that are not
 legal opinions still hold: the data vendor's written permission, a written Privacy Policy and Terms, and real
-authentication before real users.
+authentication before real users. This replacement also covers requests for counsel in docs/DESIGN.md and the
+feature files (docs/features/). Before live billing (`LIVE_BILLING=on`), the owner still buys one limited, staged
+review by a licensed attorney (owner decision 2.54).
 
 ## S. Secrets and credentials
 
@@ -66,7 +69,7 @@ authentication before real users.
   branch names or commit messages. Describe the pattern generically: "a single-line scrubbable price
   chart", "a full-screen vertical swipe feed", "a left-right card swipe". The only exceptions are
   vendors this repository genuinely integrates with, named to describe that integration (SnapTrade,
-  Next.js, React, Vercel, Postgres, Playwright, GitHub, Claude/Anthropic).
+  Next.js, React, Vercel, Postgres, Playwright, GitHub, Claude/Anthropic, Stripe).
 - **T2.** Never name or imitate real people (public figures or private individuals) in personas, copy,
   demo data or docs. Describe principles, not people.
 - **T3.** Never copy a competitor's distinctive trade dress: logos, brand colors used as identity,
@@ -112,8 +115,8 @@ authentication before real users.
   money", "copy their trades". The scanner blocks these in product code.
 - **F3.** Every screen and share card that shows performance carries, in plain view: **"Not investment
   advice. Past performance does not guarantee future results."** Every page links to Terms, Privacy and
-  "How records are calculated" (what Verified means and what is excluded: options, short sales,
-  transfers in, positions with no recorded entry, unconnected brokers).
+  "How records are calculated" (what Verified means and what is excluded: short, exercised and assigned
+  options, short sales, transfers in and out, positions with no recorded entry, unconnected brokers).
 - **F3a.** "Verified" means broker-sourced, nothing more: "imported read-only from the trader's broker".
   Never imply identity verification, auditing, completeness, or endorsement by a broker, the data vendor
   or anyone else. Never claim "every trade", "all of their trades", "any broker" or "the only".
@@ -218,7 +221,7 @@ fresh repository with a single clean commit and keep this one private as the arc
 made public instead, the owner first deletes old workflow runs, reviews issues and PRs, switches to a
 noreply commit email, and accepts that history can't be fully scrubbed.
 
-## Before a public launch (owner and counsel)
+## Before a public launch (owner sign-off)
 
 No public product launch until the owner signs off on each item below against the legal committee's
 findings, which stand in for counsel's sign-off (owner decision 2026-11-01). Publishing the code repository is
