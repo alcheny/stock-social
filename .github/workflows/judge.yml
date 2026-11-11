@@ -33,6 +33,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -65,7 +66,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESULT: ${{ steps.claude.outputs.structured_output }}
+          # The checkout keeps no token (the agent above runs in this job); judge-post pulls and pushes main, so git
+          # gets the token only in this step, through the environment, and nothing is written to .git/config.
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
         run: |
+          B64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$B64"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $B64"
           git config user.name "stock-social-autopilot"
           git config user.email "autopilot@users.noreply.github.com"
           node scripts/autopilot.ts judge-post

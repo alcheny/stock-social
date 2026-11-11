@@ -187,7 +187,7 @@ jobs:
       - run: npm ci
       - name: Install Claude Code and a test browser
         run: |
-          curl -fsSL https://claude.ai/install.sh | bash
+          curl -fsSL https://claude.ai/install.sh | bash -s 2.1.316
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           npx playwright install --with-deps chromium
       - name: Plan this line's round (business lead ⇄ engineer)
