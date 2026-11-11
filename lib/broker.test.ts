@@ -167,3 +167,15 @@ test('options (e): option numbers read like share numbers (decimal strings yes; 
     assert.deepEqual([r.price, r.units, r.fee], [null, null, null], String(bad));
   }
 });
+
+test('O3: the stored vendor secret decrypts only with its full 16-byte GCM tag; a tag cut to 4 bytes throws', async () => {
+  const b = await import('./broker.ts');
+  const u = await b.registerUser('attempt-o3');
+  assert.deepEqual(await b.listAccounts(u), []); // the intact secret works
+  const [iv, tag, body] = u.secretEnc.split('.');
+  const cut = Buffer.from(tag, 'base64').subarray(0, 4).toString('base64');
+  await assert.rejects(() => b.listAccounts({ ...u, secretEnc: [iv, cut, body].join('.') }), /auth(entication)? tag length/i);
+  const flipped = Buffer.from(tag, 'base64');
+  flipped[0] ^= 1;
+  await assert.rejects(() => b.listAccounts({ ...u, secretEnc: [iv, flipped.toString('base64'), body].join('.') }), /unable to authenticate/i);
+});
