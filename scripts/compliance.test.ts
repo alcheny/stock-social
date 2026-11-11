@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkLicenses, forbiddenFile, NOREPLY, scanDiff, scanText } from './compliance.ts';
+import { createHash } from 'node:crypto';
+import { checkLicenses, forbiddenFile, NOREPLY, PROMO, scanDiff, scanText } from './compliance.ts';
 
 // Samples are assembled at runtime so this file never contains a real-looking secret or address itself.
 const j = (...p: string[]) => p.join('');
@@ -63,6 +64,20 @@ test('promissory language: blocked in product code and copy, allowed in docs and
   for (const s of ['Verified via a vendor', 'Verified on Stock Social', 'verified by the broker']) assert.ok(scanText('lib/badge.ts', s).length, s);
 });
 
+// F4-6: the phrases moved to lib/promo-words.ts (shared with moderation). That file, and only it, is exempt from the
+// check that would flag its own spelling; this pin makes any edit to the list fail here, in a protected file.
+test('promissory language: the word list in lib/promo-words.ts is pinned, and only that file is exempt', () => {
+  assert.equal(PROMO.length, 13);
+  assert.equal(createHash('sha256').update(PROMO.map(String).join('\n')).digest('hex'), '8423e679bc3aa0f68be62b4ec68a456d85ddb4c2f48ba3cc8d03d41429c3336e');
+  // The exemption covers the whole file, so the whole file is pinned: no second export can carry unchecked copy.
+  assert.equal(createHash('sha256').update(readFileSync(new URL('../lib/promo-words.ts', import.meta.url))).digest('hex'), 'fc2b39764d8385ab0b52442e19788c57ffdb4a49c46feaf873b99ef4d1fce2ed');
+  assert.ok(Object.isFrozen(PROMO), 'no importer can change the list at runtime');
+  assert.deepEqual(scanText('lib/promo-words.ts', 'get rich').filter((v) => v.rule === 'promissory or advice language'), []);
+  for (const f of ['lib/promo-words.tsx', 'lib/x/promo-words.ts', 'app/promo-words.ts', 'lib/moderation.ts']) {
+    assert.ok(scanText(f, 'get rich').some((v) => v.rule === 'promissory or advice language'), f);
+  }
+});
+
 test('forbidden files: secrets, OS junk and personal tool data never get committed', () => {
   for (const f of ['.DS_Store', 'app/.DS_Store', '.env', '.env.production', 'key.pem', 'id_ed25519', '.npmrc', '.vibe-wise/profile.md', 'credentials.json', 'dump.sqlite', '.claude/settings.local.json']) {
     assert.ok(forbiddenFile(f), f);
@@ -95,9 +110,10 @@ test('licenses: permissive and reviewed packages pass, copyleft and unknown fail
     writeFileSync(join(root, name, 'package.json'), JSON.stringify({ name, version: '1.0.0', ...(license ? { license } : {}) }));
   };
   pkg('ok-mit', 'MIT'); pkg('ok-dual', '(MIT OR GPL-3.0)'); pkg('@img/sharp-libvips-linux-x64', 'LGPL-3.0-or-later');
+  pkg('@img/sharp-wasm32', 'Apache-2.0 AND LGPL-3.0-or-later AND MIT'); pkg('@img/sharp-wasm32-extra', 'LGPL-3.0-or-later'); // only the named optional package
   pkg('bad-gpl', 'GPL-3.0'); pkg('bad-agpl', 'AGPL-3.0-only'); pkg('bad-none'); pkg('bad-and', 'MIT AND GPL-2.0');
   const bad = checkLicenses(root).map((v) => v.detail.split(':')[0]).sort();
-  assert.deepEqual(bad, ['bad-agpl', 'bad-and', 'bad-gpl', 'bad-none']);
+  assert.deepEqual(bad, ['@img/sharp-wasm32-extra', 'bad-agpl', 'bad-and', 'bad-gpl', 'bad-none']);
 });
 
 test('commit emails: only GitHub noreply addresses pass', () => {

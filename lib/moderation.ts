@@ -1,7 +1,6 @@
-// SERVER-ONLY: imports the compliance scanner's PROMO list (scripts/compliance.ts, which also loads node:fs and
-// node:child_process; its CLI runs only under `import.meta.main`, lib/moderation-v2.test.ts proves the import runs
-// nothing). Never import this file from a client component.
-import { PROMO } from '../scripts/compliance.ts';
+// SERVER-ONLY: never import this file from a client component. The PROMO list comes from lib/promo-words.ts, the
+// scanner's own source of words (F4-6), so this file no longer traces scripts/compliance.ts into server functions.
+import { PROMO } from './promo-words.ts';
 import { leet, skeleton, squash, squashSpans } from './text-safety.ts';
 
 export type ThesisStatus = 'held' | 'published';
