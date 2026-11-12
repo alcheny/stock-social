@@ -14,15 +14,15 @@
     "vercel-build": "node scripts/db-setup.ts && next build"
   },
   "dependencies": {
-    "next": "^16.4.3",
+    "next": "^16.4.5",
     "postgres": "^3.4.9",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "snaptrade-typescript-sdk": "^13.1.11"
+    "snaptrade-typescript-sdk": "^13.2.4"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.1",
-    "@types/node": "^26.6.5",
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "typescript": "^7.0.2"
   }
